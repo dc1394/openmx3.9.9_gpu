@@ -1,0 +1,68 @@
+--- /home/dc1394/openmx3.9/source/Makefile	2022-11-02 15:26:22.613988668 +0900
++++ Makefile	2023-07-01 11:12:51.408083131 +0900
+@@ -102,9 +102,10 @@
+ # LIB= -L${MKLROOT}/lib/intel64 -lmkl_scalapack_lp64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lmkl_blacs_openmpi_lp64 -lmpi_usempif08 -lmpi_usempi_ignore_tkr -lmpi_mpifh -liomp5 -lpthread -lm -ldl
+ #
+ 
+-CC = mpiicc -O3 -no-prec-div -xHOST -ip -qopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw
+-FC = mpiifort -O3 -no-prec-div -xHOST -ip -qopenmp -I${MKLROOT}/include
+-LIB= -L${MKLROOT}/lib/intel64 -lmkl_scalapack_lp64 -lmkl_intel_lp64 -lmkl_intel_thread -lmkl_core -lifcore -lmkl_blacs_intelmpi_lp64 -lmpi -liomp5 -lpthread -lm -ldl
++CC = mpicc -O3 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/23.3/math_libs/12.0/targets/x86_64-linux/include -I/usr/local/cuda-12/include
++CC2 = mpicc -O1 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw  -I/opt/nvidia/hpc_sdk/Linux_x86_64/23.3/math_libs/12.0/targets/x86_64-linux/include -I/usr/local/cuda-12/include
++FC = mpif90 -O3 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
++LIB= ${MKLROOT}/lib/intel64/libmkl_scalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_pgi_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a ${MKLROOT}/lib/intel64/libmkl_blacs_openmpi_lp64.a -Wl,--end-group -pgf90libs -mp -lpthread -lmpi_mpifh -lmpi -lgfortran -lm -ldl -L/usr/local/cuda-12/lib64 -lcudart -lcusolver -lcublas -Mcuda
+ 
+ CFLAGS  = -g 
+ 
+@@ -131,9 +132,9 @@
+           Get_Cnt_dOrbitals.o Gaunt.o Find_CGrids.o MD_pac.o \
+           RestartFileDFT.o Output_CompTime.o Merge_LogFile.o Make_FracCoord.o \
+           Make_InputFile_with_FinalCoord.o Output_Energy_Decomposition.o \
+-          Divide_Conquer.o Divide_Conquer_LNO.o Krylov.o \
++          Divide_Conquer.o Divide_Conquer_LNO.o my_cublasDgemm.o my_cublasZgemm.o Krylov.o \
+           Divide_Conquer_Dosout.o EGAC_DFT.o LNO.o \
+-          Eigen_lapack.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
++          Eigen_lapack.o cusolver_Syevd.o cusolver_Syevdx.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
+           Eigen_PReHH.o BroadCast_ReMatrix.o \
+           Eigen_PHH.o BroadCast_ComplexMatrix.o \
+           lapack_dstedc1.o lapack_dstedc2.o lapack_dstedc3.o\
+@@ -211,7 +212,7 @@
+ 
+ openmx:	$(OBJS)
+ 	$(CC) $(OBJS) $(STACK) $(LIB) -lm -o openmx
+-
++	
+ #
+ #
+ # all
+@@ -464,6 +465,10 @@
+ 	$(CC) -c QuickSort.c
+ Eigen_lapack.o: Eigen_lapack.c openmx_common.h lapack_prototypes.h
+ 	$(CC) -c Eigen_lapack.c
++cusolver_Syevd.o: cusolver_Syevd.c openmx_common.h
++	$(CC) -c cusolver_Syevd.c
++cusolver_Syevdx.o: cusolver_Syevdx.c openmx_common.h
++	$(CC) -c cusolver_Syevdx.c
+ Eigen_lapack2.o: Eigen_lapack2.c openmx_common.h lapack_prototypes.h
+ 	$(CC) -c Eigen_lapack2.c
+ Eigen_lapack3.o: Eigen_lapack3.c openmx_common.h lapack_prototypes.h
+@@ -538,6 +543,10 @@
+ 	$(CC) -c Divide_Conquer.c
+ Divide_Conquer_LNO.o: Divide_Conquer_LNO.c openmx_common.h
+ 	$(CC) -c Divide_Conquer_LNO.c
++my_cublasDgemm.o: my_cublasDgemm.c openmx_common.h
++	$(CC) -c my_cublasDgemm.c
++my_cublasZgemm.o: my_cublasZgemm.c openmx_common.h
++	$(CC) -c my_cublasZgemm.c
+ Divide_Conquer_Dosout.o: Divide_Conquer_Dosout.c openmx_common.h
+ 	$(CC) -c Divide_Conquer_Dosout.c
+ Krylov.o: Krylov.c openmx_common.h
+@@ -605,7 +614,7 @@
+ DFTDvdW_init.o: DFTDvdW_init.c openmx_common.h
+ 	$(CC) -c DFTDvdW_init.c
+ DFTD3vdW_init.o: DFTD3vdW_init.c openmx_common.h
+-	$(CC) -c DFTD3vdW_init.c
++	$(CC2) -c DFTD3vdW_init.c
+ neb.o:	neb.c openmx_common.h Inputtools.h lapack_prototypes.h
+ 	$(CC) -c neb.c
+ neb_run.o: neb_run.c openmx_common.h
