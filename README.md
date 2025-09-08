@@ -3,11 +3,11 @@
 This is a GPU-accelerated version of [OpenMX](https://www.openmx-square.org/), a first-principles calculation code based on numerical atomic orbitals (NAO). Currently, only certain processes (matrix multiplication and eigenvalue problem processing) for band calculations (collinear and non-collinear) and cluster calculations (collinear and non-collinear) are GPU-accelerated.
 
 ## Code author
-Hiroyuki Kawai (Niigata Univ.)
+Hiroyuki Kawai (Niigata Univ.)</br>
 X account: @dc1394
 
 ## How to enable GPU acceleration
-To enable GPU acceleration, you must specify “cusolver” for “scf.eigen.lib” in the input file (<font color="red">GPU acceleration is disabled by default!</font>). For example:
+To enable GPU acceleration, you must specify "cusolver" for "scf.eigen.lib" in the input file (**:warning: GPU acceleration is disabled by default!**). For example:
 
 ```ini
 scf.XcType                  GGA-PBE    # LDA|LSDA-CA|LSDA-PW|GGA-PBE
@@ -30,7 +30,7 @@ scf.eigen.lib             cusolver     # default=elpa1
 Set as shown above.
 
 ## Build and install
-Building and installing is more difficult than with standard OpenMX. The Makefile contains build examples for several supercomputer systems; please refer to them. If you're unsure about the build and installation process, feel free to ask in English via GitHub issues or [my X account](https://x.com/dc1394) (Japanese is also acceptable on my X account). I'll assist you as much as I can.
+Building and installing is more difficult than with standard OpenMX. The build requires the [NVIDIA HPC SDK](https://developer.nvidia.com/hpc-sdk) and OpenMPI. The Makefile contains build examples for several supercomputer systems; please refer to them. If you're unsure about the build and installation process, feel free to ask in English via GitHub issues or [my X account](https://x.com/dc1394) (Japanese is also acceptable on my X account). I'll assist you as much as I can.
 
 ## Important notes
 At present, GPU-accelerated OpenMX performs faster than standard OpenMX for calculations involving systems containing hundreds of atoms. For calculations involving systems with fewer than a hundred atoms, standard OpenMX should be used. Please use with caution as it may contain bugs.
