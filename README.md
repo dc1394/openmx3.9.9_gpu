@@ -4,7 +4,7 @@ This is a GPU-accelerated version of [OpenMX](https://www.openmx-square.org/), a
 
 ## Code author
 Hiroyuki Kawai (Niigata Univ.)</br>
-X account: @dc1394
+X account: [@dc1394](https://x.com/dc1394)
 
 ## How to enable GPU acceleration
 To enable GPU acceleration, you must specify "cusolver" for "scf.eigen.lib" in the input file (**:warning: GPU acceleration is disabled by default!**). For example:
@@ -18,7 +18,7 @@ scf.maxIter                 40         # default=40
 scf.EigenvalueSolver       band        # DC|GDC|Cluster|Band
 scf.Kgrid                  9 9 9       # means n1 x n2 x n3
 scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
-scf.Init.Mixing.Weight     0.30        # default=0.30<br>
+scf.Init.Mixing.Weight     0.30        # default=0.30
 scf.Min.Mixing.Weight      0.001       # default=0.001 
 scf.Max.Mixing.Weight      0.700       # default=0.40 
 scf.Mixing.History          7          # default=5
