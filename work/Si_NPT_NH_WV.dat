@@ -1,0 +1,100 @@
+#
+#  Si
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                     Si_NPT_NH_WV
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (1-3)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+  Si   Si7.0-s1p1   Si_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number                       8
+Atoms.SpeciesAndCoordinates.Unit   FRAC
+<Atoms.SpeciesAndCoordinates
+  1    Si    0.00   0.00   0.00    2.0  2.0
+  2    Si    0.00   0.50   0.45    2.0  2.0
+  3    Si    0.46   0.00   0.55    2.0  2.0
+  4    Si    0.50   0.50   0.00    2.0  2.0
+  5    Si    0.25   0.25   0.30    2.0  2.0
+  6    Si    0.25   0.75   0.70    2.0  2.0
+  7    Si    0.77   0.25   0.70    2.0  2.0
+  8    Si    0.70   0.75   0.30    2.0  2.0
+Atoms.SpeciesAndCoordinates>
+
+Atoms.UnitVectors.Unit             AU
+<Atoms.UnitVectors
+ 10.500   0.000   0.000
+  0.000  10.500   0.000
+  0.000   0.000  10.500
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                GGA-PBE      # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization       off         # On|Off
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           200.0       # default=150 (Ry)
+scf.maxIter                 300        # default=40 ! 300
+scf.EigenvalueSolver      band         # Recursion|Cluster|Band
+scf.Kgrid                 5 5 5        # means 4x4x4
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.30        # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.400       # default=0.40 
+scf.Mixing.History           5         # default=5 ! 30
+scf.Mixing.StartPulay        6         # default=6 ! 10
+scf.criterion             1.0e-7       # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                    NPT_NH_WV
+
+#MD.Type                    OptC5
+# Nomd|Opt|RFC5|DIIS|NVE|NVT_VS|NVT_NH|
+# NPT_VS_PR : NPT Velcity-Scaling with Parrinelo-Rahman
+# NPT_VS_WV : NPT Velcity-Scaling with Wentzcovitch
+# NPT_NH_PR : NPT Nose-Hoover with Parrinelo-Rahman
+# NPT_NH_WV : NPT Nose-Hoover with Wentzcovitch
+
+MD.maxIter                 2000        # default=1
+MD.TimeStep                 0.5        # default=0.5 (fs)
+NH.Mass.HeatBath	     5.0       # Q in atomic mass unit
+NPT.Mass.Barostat	     1.0        # W in atomic mass unit for PR
+#NPT.Mass.Barostat         0.0001      # W in atomic mass unit for WV
+NPT.LatticeRestriction      none       # none, cubic, ortho
+MD.TempTolerance            100        # Kelvin
+
+# Temperature in Velocity-Scaling
+#<MD.TempControl
+#  1
+#2000	10	1000.0	0.5            # step, interval, temp[K], alpha
+#MD.TempControl>
+# here alpha=1.0 means no scaling
+
+# Temperature in Nose-Hoover
+<MD.TempControl
+  1
+2000	600.0      # step, temp[K]
+MD.TempControl>
+
+<MD.CellPressureControl
+  1
+10000	0.001                       # step, pressure[a.u.]
+MD.CellPressureControl>
+# here 1 a.u. pressure equals to 29.42 TPa

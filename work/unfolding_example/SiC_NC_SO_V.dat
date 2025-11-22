@@ -1,0 +1,120 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./
+System.Name                     sic_nc_so_v
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (1-3)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       3
+<Definition.of.Atomic.Species
+  C    C7.0-s2p2d1    C_PBE19
+  Si  Si7.0-s2p2d1    Si_PBE19
+  Te Te11.0-s2p2d2f1  E
+Definition.of.Atomic.Species>
+
+
+#
+# Atoms
+#
+
+Atoms.Number 11    
+Atoms.SpeciesAndCoordinates.Unit  FRAC  # Ang|AU
+<Atoms.SpeciesAndCoordinates
+  1 C    0.16666666   0.33333333   0.50000000  2.5 1.5  10. 80. 20. 90. 0 off
+  2 C    0.66666666   0.33333333   0.50000000  2.5 1.5  10. 80. 20. 90. 0 off
+  3 C    0.16666666   0.83333333   0.50000000  2.5 1.5  10. 80. 20. 90. 0 off
+  4 C    0.66666666   0.83333333   0.50000000  2.5 1.5  10. 80. 20. 90. 0 off
+  5 Si   0.33333333   0.16666666   0.50000000  2.5 1.5  10. 80. 20. 90. 0 off 
+  6 Si   0.83333333   0.16666666   0.50000000  2.5 1.5  10. 80. 20. 90. 0 off 
+  7 Si   0.33333333   0.66666666   0.50000000  2.5 1.5  10. 80. 20. 90. 0 off
+  8 Te   0.00000000   0.00000000   0.50000000  0.0 0.0  10. 80. 20. 90. 0 off
+  9 Te   0.50000000   0.00000000   0.50000000  0.0 0.0  10. 80. 20. 90. 0 off
+ 10 Te   0.00000000   0.50000000   0.50000000  0.0 0.0  10. 80. 20. 90. 0 off 
+ 11 Te   0.50000000   0.50000000   0.50000000  0.0 0.0  10. 80. 20. 90. 0 off
+Atoms.SpeciesAndCoordinates>
+
+Atoms.UnitVectors.Unit             Ang   # Ang|AU
+<Atoms.UnitVectors
+  6.138  0.0000000000  0.00   
+ -3.069  5.3156639282  0.00 
+  0.000  0.0000000000 10.00
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                GGA-PBE      # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization       NC          # On|Off
+scf.SpinOrbit.Coupling      On
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff          200.0        # default=150 (Ry)
+scf.maxIter                300         # default=40
+scf.EigenvalueSolver      Band         # Recursion|Cluster|Band
+scf.Kgrid                5 5  1        # means n1 x n2 x n3
+scf.Mixing.Type            rmm-diisk   # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.07        # default=0.30 
+scf.Min.Mixing.Weight      0.003       # default=0.001 
+scf.Max.Mixing.Weight      0.15        # default=0.40 
+scf.Mixing.History         39          # default=5
+scf.Mixing.StartPulay      10          # default=6
+scf.Mixing.EveryPulay       1
+scf.criterion             1.0e-7       # default=1.0e-6 (Hartree) 
+ 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                   Nomd        # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+
+#
+# Band dispersion 
+#
+
+Band.dispersion              off       # on|off, default=off
+
+#
+# Unfolding of bands
+#
+
+Unfolding.Electronic.Band      on     # on|off, default=off
+Unfolding.LowerBound        -10.0     # default=-10 eV
+Unfolding.UpperBound          6.0     # default= 10 eV
+
+Unfolding.desired_totalnkpt    30     
+Unfolding.Nkpoint               4
+
+<Unfolding.kpoint
+ K 0.33333333333 0.33333333333 0.0000000000
+ G 0.00000000000 0.00000000000 0.0000000000
+ M 0.50000000000 0.00000000000 0.0000000000
+ K 0.33333333333 0.33333333333 0.0000000000
+Unfolding.kpoint>
+
+<Unfolding.ReferenceVectors
+  3.0690  0.0000000000   0.000   
+ -1.5345  2.6578319641   0.000 
+  0.0000  0.0000000000  10.000
+Unfolding.ReferenceVectors>
+
+
+<Unfolding.Map
+  1 1
+  2 1
+  3 1
+  4 1
+  5 2
+  6 2
+  7 2
+  8 3
+  9 3
+ 10 3
+ 11 3
+Unfolding.Map>

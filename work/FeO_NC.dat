@@ -1,0 +1,95 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      feo
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ Fe  Fe6.0S-s2p2d2f1   Fe_CA19S
+ O   O5.0-s2p2d1       O_CA19
+Definition.of.Atomic.Species>
+
+<Hubbard.U.values                 #  eV
+  Fe  1s 0.0 2s 0.0 1p 0.0 2p 0.0 1d 5.0 2d 0.0 1f 0.0
+  O   1s 0.0 2s 0.0 1p 0.0 2p 0.0 1d 0.0
+Hubbard.U.values>
+
+
+#
+# Atoms
+#
+
+Atoms.Number        4
+Atoms.SpeciesAndCoordinates.Unit   AU  # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=AU
+1  Fe   0.0000    0.000     0.000      8.0  6.0 120.01 60.0 127.45 61.78  0 off
+2  Fe   4.0725    4.0725    0.000      6.0  8.0 120.01 60.0  52.55 241.78 0 off
+3   O   4.0725    0.000     0.000      3.0  3.0	  0.01  0.0   0.01  0.0   0 off
+4   O   4.0725    4.0725    4.0725     3.0  3.0	  0.01  0.0   0.01  0.0   0 off
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             AU  #  Ang|AU
+<Atoms.UnitVectors                     # unit=AU
+ 8.1450    4.0725    4.0725
+ 4.0725    8.1450    4.0725
+ 4.0725    4.0725    8.1450 
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 LSDA-CA     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.Hubbard.U              on          # On|Off , default=off
+scf.Hubbard.Occupation     dual        # onsite|full|dual, default=dual
+scf.SpinPolarization       NC          # On|Off|NC
+scf.SpinOrbit.Coupling     on          # On|Off, default=off       
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           210.0       # default=150 (Ry)
+scf.maxIter                200         # default=40
+scf.EigenvalueSolver       band        # Recursion|Cluster|Band
+scf.Kgrid                  5 5 5       # means 4x4x4
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.010       # default=0.001 
+scf.Max.Mixing.Weight      0.250       # default=0.40
+scf.Mixing.History          30         # default=5
+scf.Mixing.StartPulay       10         # default=6
+scf.criterion             1.0e-5       # default=1.0e-6 (Hartree) 
+
+scf.NC.Zeeman.Spin          off        # on|off, default=off
+scf.NC.Mag.Field.Spin      1.0e+2      # default=0.0(Tesla) 
+scf.NC.Zeeman.Orbital       off        # on|off, default=off
+scf.NC.Mag.Field.Orbital   1.0e+1      # default=0.0(Tesla) 
+
+
+#
+# Voronoi Charge
+#
+
+Voronoi.Charge              on         # default = Off
+
+ 
+#
+# SCF Order-N
+#
+
+orderN.HoppingRanges         4.0       # default=5.0 (Ang) 
+orderN.NumHoppings           1         # default=2
+
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     Nomd       # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                   1         # default=1
+MD.TimeStep                 0.01       # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)

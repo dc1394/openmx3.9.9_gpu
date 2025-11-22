@@ -1,0 +1,87 @@
+#
+#      File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                       gly_NH
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (1-3)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       4
+<Definition.of.Atomic.Species
+ H    H5.0-s1     H_CA19
+ C    C5.0-s1p1   C_CA19
+ N    N5.0-s1p1   N_CA19
+ O    O5.0-s1p1   O_CA19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        10
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           
+  1  C  -0.555017   -0.051675    0.354086   2.0  2.0
+  2  C   0.815000   -0.465853   -0.137825   2.0  2.0
+  3  O   0.868601   -1.679578   -0.731357   3.0  3.0
+  4  N  -0.896974    1.284812   -0.176738   2.8  2.2
+  5  H  -1.335795   -0.760116    0.008336   0.5  0.5
+  6  H  -0.547565   -0.109411    1.464499   0.5  0.5
+  7  O   1.870955    0.133646   -0.045947   3.3  2.7
+  8  H   1.758633   -1.867358   -1.013112   0.5  0.5
+  9  H  -1.778440    1.565012    0.196758   0.5  0.5
+ 10  H  -0.199398    1.950523    0.081299   0.5  0.5
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+#<Atoms.UnitVectors                     
+#  10.0   0.0   0.0
+#   0.0  10.0   0.0
+#   0.0   0.0  12.0
+#Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 LDA         # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization       off         # On|Off
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           150         # default=150 (Ry)
+scf.maxIter                60          # default=40
+scf.EigenvalueSolver       cluster     # Recursion|Cluster|Band
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.10        # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History          7          # default=5
+scf.Mixing.StartPulay       5          # default=6
+scf.criterion             1.0e-7       # default=1.0e-6 (Hartree) 
+scf.Electric.Field      0.0 0.0 0.0    # default=0 0 0 (GV/m)
+scf.system.charge         -1.0        
+scf.ProExpn.VNA             on
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                    NVT_NH      # Nomd|Constant_Energy_MD|Opt
+                                       # Constraint_Opt|DIIS2|Constraint_DIIS2
+MD.maxIter                  700        # default=1
+MD.TimeStep                0.2         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-11      # default=1.0e-4 (Hartree/bohr)
+MD.Opt.DIIS_Mixing          0.1        # default=0.5
+<MD.TempControl
+  4 
+    1   1000.0
+  100   1000.0
+  400    700.0
+  700    600.0
+MD.TempControl>
+
+NH.Mass.HeatBath             30

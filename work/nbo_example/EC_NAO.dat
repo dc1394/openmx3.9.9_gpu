@@ -1,0 +1,74 @@
+#
+# File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                        EC_NAO
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (1-3)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       3
+<Definition.of.Atomic.Species
+  C    C7.0-s2p2    C_PBE19
+  O    O7.0-s2p2    O_PBE19
+  H    H5.0-s2      H_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         10  
+Atoms.SpeciesAndCoordinates.Unit   Frac # Ang|AU
+<Atoms.SpeciesAndCoordinates            # Unit=Ang.
+ 1      O      0.39053      0.48037      0.48923      3.0      3.0
+ 2      C      0.44187      0.39922      0.48923      2.0      2.0
+ 3      C      0.53962      0.43094      0.48923      2.0      2.0
+ 4      O      0.53353      0.52677      0.48923      3.0      3.0
+ 5      C      0.44603      0.55287      0.48923      2.0      2.0
+ 6      O      0.42134      0.62895      0.48923      3.0      3.0
+ 7      H      0.42413      0.36075      0.54893      0.5      0.5
+ 8      H      0.42413      0.36075      0.42953      0.5      0.5
+ 9      H      0.57657      0.41022      0.42953      0.5      0.5
+10      H      0.57657      0.41022      0.54893      0.5      0.5
+Atoms.SpeciesAndCoordinates>
+
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+<Atoms.UnitVectors                     # unit=Ang.
+15.000000000000  0.000000000000  0.000000000000
+ 0.000000000000 15.000000000000  0.000000000000
+ 0.000000000000  0.000000000000 15.000000000000
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization       Off         # On|Off
+scf.ElectronicTemperature 1000.0       # default=300 (K)
+scf.energycutoff           300.0       # default=150 (Ry)
+scf.maxIter                100         # default=40
+scf.EigenvalueSolver      Cluster      # Recursion|Cluster|Band
+scf.lapack.dste           dstevx       # dstevx|dstedc|dstegr,default=dstegr
+scf.Kgrid                 1 1 1        # means 4x4x4
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.050       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History          7          # default=5
+scf.Mixing.StartPulay      12          # default=6
+scf.criterion             1.0e-6       # default=1.0e-6 (Hartree) 
+ 
+#
+# Natural Atomic Orbital (NAO) Analysis
+#
+
+NBO.switch                   on1        # off, on1= for Cluster, on2 = for Krylov,
+NAO.threshold               0.85        # default=0.85 (electron/spin orbital) 
+
+

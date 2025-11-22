@@ -1,0 +1,63 @@
+#
+# File Name      
+#
+
+System.CurrrentDirectory       ./
+System.Name                   FePt 
+level.of.stdout                1
+level.of.fileout               1
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number 2
+<Definition.of.Atomic.Species
+  Fe Fe8.0H-s3p2d2    Fe_PBE19H
+  Pt Pt7.0-s2p2d1     Pt_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.UnitVectors.Unit              Ang
+<Atoms.UnitVectors
+  3.85    0.0      0.0
+  0.0     3.85     0.0
+  0.0     0.0      3.7707
+Atoms.UnitVectors>
+
+Atoms.Number   4 
+Atoms.SpeciesAndCoordinates.Unit Frac
+
+<Atoms.SpeciesAndCoordinates
+ 1   Fe   0.    0.    0.     9.5 6.5    
+ 2   Fe   0.5   0.5   0.     9.5 6.5    
+ 3   Pt   0.5   0.    0.5    8.0 8.0    
+ 4   Pt   0.    0.5   0.5    8.0 8.0    
+Atoms.SpeciesAndCoordinates>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                        GGA-PBE     #  LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization                 on       # On|Off|NC
+scf.spinorbit.coupling               off      # on|off, default=off
+scf.ElectronicTemperature          800.0      # default=300 (K)
+scf.energycutoff                   200.0      # default=150 (Ry)
+scf.maxIter                        200        # default=40
+scf.EigenvalueSolver               band       # DC|GDC|Cluster|Band
+scf.Kgrid                         9  9  9     # means n1 x n2 x n3
+scf.Mixing.Type                  rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight             0.2        # default=0.30
+scf.Min.Mixing.Weight              0.02       # default=0.001
+scf.Max.Mixing.Weight              0.02       # default=0.40
+scf.Mixing.History                  50        # default=5
+scf.criterion                     1.0e-8      # default=1.0e-6 (Hartree)
+scf.restart                         off 
+scf.Constraint.NC.Spin              off       # on|off, default=off
+scf.Constraint.NC.Spin.v            0.5       # default=0.0(eV)
+
+MD.Type                             nomd      # Nomd|Opt|NVE|NVT_VS|NVT_NH

@@ -1,0 +1,216 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      co4+u
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (1-3)
+
+#
+# flag of memory leak checker
+#
+
+memory.leak                      on    # on|off, default=off
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ Co  Co6.0S-s2p1d1     Co_CA19S
+ O   O5.0-s1p1         O_CA19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        4
+Atoms.SpeciesAndCoordinates.Unit   Ang  # Ang|AU
+<Atoms.SpeciesAndCoordinates            # Unit=Ang
+1  Co    0.0000   0.00000   0.00000       9.0  6.0    225.0   45.0  225.0   45.0  1   on
+2  Co    1.9000   1.90000   0.00000       9.0  6.0    135.0   45.0  135.0   45.0  1   on
+3   O    1.8000   0.00000   0.00000       3.0  3.0    135.0  -45.0  135.0  -45.0  1   on
+4   O    0.0000   1.80000   0.00000       3.0  3.0    135.0  135.0  135.0  135.0  1   on
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang  #  Ang|AU
+#<Atoms.UnitVectors                      # unit=AU
+#15.000    0.000    0.000
+# 0.000   15.000    0.000
+# 0.000    0.000   15.000 
+#Atoms.UnitVectors>
+
+<Hubbard.U.values                 #  eV
+ Co  1s 0.0 2s 0.0 1p 0.0 1d 4.0 
+ O   1s 0.0 1p 0.0
+Hubbard.U.values>
+
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 LSDA-CA     # LDA|LSDA
+scf.Hubbard.U              On          # On|Off , default=off
+scf.Hubbard.Occupation     dual        # onsite|full|dual, default=dual
+scf.SpinPolarization       nc          # On|Off
+scf.partialCoreCorrection  On          # On|Off
+scf.SpinOrbit.Coupling     on          # On|Off, default=off
+scf.ElectronicTemperature  400.0       # default=300 (K)
+scf.energycutoff           100.0       # default=150 (Ry)
+scf.maxIter                 2          # default=40
+scf.EigenvalueSolver       Cluster     # Recursion|Cluster|Band
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay
+scf.Kerker.factor           2.0        # default=1.0
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.010       # default=0.001 
+scf.Max.Mixing.Weight      0.30        # default=0.40 
+scf.Mixing.History          7          # default=5
+scf.Mixing.StartPulay       30         # default=6
+scf.criterion             1.0e-7       # default=1.0e-6 (Hartree) 
+scf.lapack.dste           dstevx       # dstegr|dstedc|dstevx, default=dstegr
+
+
+#
+# Voronoi Charge
+#
+
+Voronoi.Charge              off        # default = Off
+
+
+
+#
+# 1D FFT
+#
+
+1DFFT.NumGridK             900         # default=900
+1DFFT.NumGridR             900         # default=900
+1DFFT.EnergyCutoff        3600.0       # default=3DFFT.EnergyCutoff*3.0 (Ry)
+
+#
+# Orbital Optimization
+#
+
+orbitalOpt.Method          Off         # Off|Unrestricted|Restricted
+orbitalOpt.InitCoes     Symmetrical    # Symmetrical|Free
+orbitalOpt.initPrefactor   0.1         # default=0.1
+orbitalOpt.scf.maxIter      12         # default=12
+orbitalOpt.MD.maxIter        2         # default=5
+orbitalOpt.per.MDIter        2         # default=1000000
+orbitalOpt.criterion      1.0e-4       # default=1.0e-4 (Hartree/borh)^2
+
+
+#
+# output of contracted orbitals
+#
+
+CntOrb.fileout             off         # on|off , default=off
+Num.CntOrb.Atoms            2          # default=1
+<Atoms.Cont.Orbitals
+1
+2
+Atoms.Cont.Orbitals>
+
+
+
+ 
+#
+# SCF Order-N
+#
+
+orderN.HoppingRanges         4.0       # default=5.0 (Ang) 
+orderN.NumHoppings           1         # default=2
+orderN.RecursiveLevels       1         # default=10
+orderN.NumPoles             100        # default=300
+orderN.ChargeDeviation     1.0e-6      # default=1.0e-7 (electron/atom) 
+orderN.TerminatorType        No        # No|Sqrt
+orderN.AvNumTerminater       1         # default=1
+orderN.InitChemPot         -4.0        # Unit=(eV), default=-4.0
+orderN.InverseSolver       Divide      # Recursion|Divide
+orderN.InvRecursiveLevels    1         # default=10
+
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                   opt          # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                  20         # default=1
+MD.TimeStep                 1.0        # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
+
+
+
+#
+# restarting using a restart file, *.rst
+#
+
+scf.restart                 off        # on|off , default=off
+
+
+#
+# MO output
+#
+
+MO.fileout                  off        # on|off
+num.HOMOs                    5         # default=1
+num.LUMOs                    5         # default=1
+MO.Nkpoint                   1         # default=1
+<MO.kpoint
+ 0.0  0.0  0.0
+MO.kpoint>
+
+
+
+#
+# Band dispersion 
+#
+# if <Band.KPath.UnitCell does not exist,
+#     the reciprical lattice vector is employed. 
+
+Band.dispersion             off         # on|off, default=off
+Band.Nkpath                  2
+<Band.kpath                
+   15  1.0 1.0 1.0   0.0 0.0 0.0   111 g
+   15  0.0 0.0 0.0   1.0 0.0 0.0    g  X
+Band.kpath>
+
+
+
+#
+# DOS and LDOS
+#
+
+Dos.fileout                 off         # on|off , default=off
+Dos.Erange              -15.0  15.0     # default = -20 20
+Dos.Kgrid                  1 1 1        # default = Kgrid1 Kgrid2 Kgrid3
+
+
+#
+# output Hamiltonian and overlap
+#
+
+HS.fileout                   off      # on|off, default=off
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,11 @@
+OpenMX Ver.3.9
+  icc compiler Ver. 16.0.2, compiler option -xHOST -ip -no-prec-div -qopenmp
+
+  mx17 (Intel(R) Xeon(R) CPU E5-2690 v4 @ 2.60GHz))
+  112 processes (MPI) x 1 thread (OpenMP) 
+
+   1  cddf_example/Febcc-Col_k30x30x30.dat       Elapsed time(s)=   74.27  diff Real= 0.001324974285  diff Imag= 0.004277977147
+   2  cddf_example/Mn12.dat                      Elapsed time(s)=  109.60  diff Real= 0.000004466000  diff Imag= 0.000013612000
+   3  cddf_example/Si2_k10x10x10.dat             Elapsed time(s)=   22.12  diff Real= 0.000003286000  diff Imag= 0.000003570000
+   4  cddf_example/Si2_k1xk1xk1.dat              Elapsed time(s)=   21.83  diff Real= 0.001757914000  diff Imag= 0.001735125000
+   5  cddf_example/VO2R-k16xk16x16.dat           Elapsed time(s)=  141.75  diff Real= 0.000036596000  diff Imag= 0.000126125000

@@ -1,0 +1,159 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      gaas
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+
+#
+# flag of memory leak checker
+#
+
+memory.leak                      on    # on|off, default=off
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ Ga   Ga7.0-s2p2d1   Ga_CA19
+ As   As7.0-s2p2d1   As_CA19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         2
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           
+ 1  Ga  0.0000  0.0000  0.0000   6.5 6.5  20.0 30.0 1
+ 2  As  1.4125  1.4125  1.4125   7.5 7.5  20.0 10.0 1
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang # Ang|AU
+<Atoms.UnitVectors                     
+   2.8250  2.8250  0.0000
+   2.8250  0.0000  2.8250
+   0.0000  2.8250  2.8250
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 LSDA-CA     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        nc         # On|Off|NC
+scf.SpinOrbit.Coupling      on         # On|Off, default=off       
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           120.0       # default=150 (Ry)
+scf.maxIter                  2         # default=40
+scf.EigenvalueSolver       band        # DC|GDC|Cluster|Band
+scf.lapack.dste            dstevx      # dstevx|dstedc|dstegr,default=dstegr
+scf.Kgrid                  3 2 1       # means n1 x n2 x n3
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.20        # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.500       # default=0.40 
+scf.Mixing.History          7          # default=5
+scf.Mixing.StartPulay       7          # default=6
+scf.criterion             1.0e-8       # default=1.0e-6 (Hartree) 
+
+#
+# 1D FFT
+#
+
+1DFFT.NumGridK             400         # default=900
+1DFFT.NumGridR             400         # default=900
+1DFFT.EnergyCutoff        2200.0       # default=3DFFT.EnergyCutoff*3.0 (Ry)
+
+#
+# Orbital Optimization
+#
+
+orbitalOpt.Method           Off        # Off|Unrestricted|Restricted|species
+orbitalOpt.InitCoes     Symmetrical    # Symmetrical|Free
+orbitalOpt.initPrefactor   0.1         # default=0.1
+orbitalOpt.scf.maxIter      12         # default=12
+orbitalOpt.MD.maxIter        2         # default=5
+orbitalOpt.per.MDIter        2         # default=1000000
+orbitalOpt.criterion      1.0e-4       # default=1.0e-4 (Hartree/borh)^2
+
+#
+# output of contracted orbitals
+#
+
+CntOrb.fileout               off       # on|off, default=off
+Num.CntOrb.Atoms              1        # default=1
+<Atoms.Cont.Orbitals
+ 1
+Atoms.Cont.Orbitals>
+ 
+#
+# SCF Order-N
+#
+
+orderN.HoppingRanges        4.0        # default=5.0 (Ang) 
+orderN.NumHoppings           1         # default=2
+
+
+#
+# restart using *.rst
+#
+
+scf.restart                  off       # on|off, default=off
+
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                      opt       # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                   30        # default=1
+MD.TimeStep                   1        # default=0.5 (fs)
+MD.Opt.criterion         1.0e-5        # default=1.0e-4 (Hartree/bohr)
+
+#
+# Band dispersion 
+#
+
+Band.dispersion              off       # on|off, default=off
+<Band.KPath.UnitCell
+5.65  0.00  0.00
+0.00  5.65  0.00
+0.00  0.00  5.65
+Band.KPath.UnitCell>
+# if <Band.KPath.UnitCell does not exist,
+#     the reciprical lattice vector is employed. 
+Band.Nkpath                5
+<Band.kpath                
+   25  0.0 0.0 0.0   1.0 0.0 0.0   g X
+   25  1.0 0.0 0.0   1.0 0.5 0.0   X W
+   25  1.0 0.5 0.0   0.5 0.5 0.5   W L
+   25  0.5 0.5 0.5   0.0 0.0 0.0   L g
+   25  0.0 0.0 0.0   1.0 1.0 0.0   g X 
+Band.kpath>
+
+#
+# MO output
+#
+
+MO.fileout                       off   # on|off
+num.HOMOs                         1    # default=2
+num.LUMOs                         1    # default=2
+
+MO.Nkpoint                        2    # default=1 
+<MO.kpoint
+  0.0  0.0  0.0
+  0.0  0.0  0.2
+MO.kpoint>
+
+#
+# DOS and PDOS
+#
+
+Dos.fileout                  off       # on|off, default=off
+Dos.Erange              -20.0  20.0    # default = -20 20 
+Dos.Kgrid                 7  7  7      # default = Kgrid1 Kgrid2 Kgrid3

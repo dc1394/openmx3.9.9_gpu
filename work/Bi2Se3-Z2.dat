@@ -1,0 +1,173 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      Bi2Se3-Z2
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+
+#
+#
+# Definition of Atomic Species
+#
+
+Species.Number       4
+<Definition.of.Atomic.Species
+ Bi     Bi8.0-s3p3d2    Bi_PBE19
+ Se     Se8.0-s3p3d2    Se_PBE19
+ projBi Bi8.0-s1p1d1    Bi_PBE19
+ projSe Se8.0-s1p1d1    Se_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         5
+Atoms.SpeciesAndCoordinates.Unit   FRAC # Ang|AU
+<Atoms.SpeciesAndCoordinates           
+1 Bi          0.40000    0.40000    0.40000  7.5 7.5
+2 Se          0.20800    0.20800    0.20800  3.0 3.0
+3 Se          0.00000    0.00000    0.00000  3.0 3.0
+4 Bi         -0.40000   -0.40000   -0.40000  7.5 7.5
+5 Se         -0.20800   -0.20800   -0.20800  3.0 3.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang  # Ang|AU
+<Atoms.UnitVectors                     
+9.84000	0.00000	0.00000
+8.96791	4.04997	0.00000
+8.96791	1.93109	3.55994
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        NC         # On|Off|NC
+scf.SpinOrbit.Coupling      on         # On|Off, default=off       
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           200.0       # default=150 (Ry)
+scf.maxIter                1000        # default=40
+scf.EigenvalueSolver       band        # DC|GDC|Cluster|Band
+scf.Kgrid                  8 8 8       # means n1 x n2 x n3
+scf.Generation.Kpoint       regular    # regular|MP
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.30        # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.400       # default=0.40 
+scf.Mixing.History          5          # default=5
+scf.Mixing.StartPulay       6          # default=6
+scf.Mixing.EveryPulay       6          # default=6
+scf.criterion             1.0e-8       # default=1.0e-6 (Hartree) 
+scf.lapack.dste            dstevx      # dstevx|dstedc|dstegr,default=dstevx
+
+HS.fileout                 on
+#
+# 1D FFT
+#
+
+1DFFT.NumGridK             900         # default=900
+1DFFT.NumGridR             900         # default=900
+1DFFT.EnergyCutoff        3600.0       # default=3600 (Ry)
+
+#
+# Orbital Optimization
+#
+
+orbitalOpt.Method           Off        # Off|Unrestricted|Restricted|species
+orbitalOpt.InitCoes     Symmetrical    # Symmetrical|Free
+orbitalOpt.initPrefactor   0.1         # default=0.1
+orbitalOpt.scf.maxIter      12         # default=12
+orbitalOpt.MD.maxIter        2         # default=5
+orbitalOpt.per.MDIter        2         # default=1000000
+orbitalOpt.criterion      1.0e-4       # default=1.0e-4 (Hartree/borh)
+
+
+ 
+#
+# SCF Order-N
+#
+
+orderN.HoppingRanges        5.0        # default=5.0 (Ang) 
+orderN.NumHoppings           2         # default=2
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                      opt       # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                    1        # default=1
+MD.TimeStep                  0.5        # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4        # default=1.0e-4 (Hartree/bohr)
+
+#
+# Band dispersion 
+#
+
+Band.dispersion              on        # on|off, default=off
+
+# if <Band.KPath.UnitCell does not exist,
+#     the reciprical lattice vector is employed. 
+Band.Nkpath                4
+
+<Band.kpath
+ 50 0.0 0.0 0.0 0.5 0.5 0.5 G Z
+ 50 0.5 0.5 0.5 0.0 0.5 0.5 Z F
+ 50 0.0 0.5 0.5 0.0 0.0 0.0 F G
+ 50 0.0 0.0 0.0 0.0 0.5 0.0 G L
+Band.kpath>
+
+#
+# MO output
+#
+
+MO.fileout                       off   # on|off
+num.HOMOs                         2    # default=2
+num.LUMOs                         2    # default=2
+
+MO.Nkpoint                        1    # default=1 
+<MO.kpoint
+  0.0  0.0  0.0
+MO.kpoint>
+
+#
+# DOS and PDOS
+#
+
+Dos.fileout                  off        # on|off, default=off
+Dos.Erange              -20.0  20.0    # default = -20 20 
+Dos.Kgrid                2 2 2      # default = Kgrid1 Kgrid2 Kgrid3
+
+#
+# Wannier Function
+#
+Wannier.Func.Calc                 off
+Wannier.Func.Num                  18
+Wannier.Outer.Window.Bottom     -6.0
+Wannier.Outer.Window.Top         0.0
+Wannier.Inner.Window.Bottom     -6.0
+Wannier.Inner.Window.Top         0.0
+Wannier.Initial.Guess             on
+Wannier.Interpolated.Bands        on
+Wannier.Initial.Projectors.Unit   FRAC #AU, ANG or FRAC
+
+<Wannier.Initial.Projectors
+projBi-p    0.40008    0.40008    0.40008   0.0 0.0 -1.0  -1.0 0.0 0.0  
+projBi-p   -0.40008   -0.40008   -0.40008   0.0 0.0  1.0   1.0 0.0 0.0
+projSe-sp2  0.00000    0.00000    0.00000   0.0 0.0  1.0   1.0 0.0 0.0  
+projSe-sp2  0.00000    0.00000    0.00000   0.0 0.0 -1.0  -1.0 0.0 0.0
+projSe-sp2  0.21170    0.21170    0.21170   0.0 0.0  1.0   1.0 0.0 0.0 
+projSe-sp2 -0.21170   -0.21170   -0.21170   0.0 0.0 -1.0  -1.0 0.0 0.0
+Wannier.Initial.Projectors>
+
+Wannier.Minimizing.Scheme             2
+Wannier.Minimizing.StepLength         2.0
+Wannier.Minimizing.Secant.Steps       5
+Wannier.Minimizing.Secant.StepLength  2.0
+Wannier.Minimizing.Conv.Criterion     1e-8   # default 1e-8
+Wannier.Minimizing.Max.Steps          10000    # default 200
+Wannier.Kgrid                         10 10 10
+Wannier.Readin.Overlap.Matrix         off      # on|off, default is on
+

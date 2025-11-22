@@ -1,0 +1,79 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      Graphite_STM
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+ C   C6.0-s2p2d1   C_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         4
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=Ang.
+ 1  C  0.000000000  0.000000000  0.000000000  2.0 2.0
+ 2  C  2.840000000  0.000000000  0.000000000  2.0 2.0
+ 3  C  0.710000000  1.229756000  0.000000000  2.0 2.0
+ 4  C  2.130000000  1.229756000  0.000000000  2.0 2.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+<Atoms.UnitVectors                     # unit=Ang.
+4.26000000000000 0.00000000000000  0.00000000000000
+0.00000000000000 2.45951214674781  0.00000000000000
+0.00000000000000 0.00000000000000 10.00000000000000
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization       Off         # On|Off|NC
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           200.0       # default=150 (Ry)
+scf.maxIter                 60         # default=40
+scf.EigenvalueSolver       band        # DC|GDC|Cluster|Band
+scf.Kgrid                 5 5 1        # means 4x4x4
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.002       # default=0.40 
+scf.Mixing.History          7          # default=5
+scf.Mixing.StartPulay       5          # default=6
+scf.criterion             1.0e-9       # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     nomd       # Nomd|Opt|NVE|NVT_VS|NVT_NH
+MD.maxIter                   1         # default=1
+MD.TimeStep                0.5         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
+
+#
+# partial charge calculation
+# 
+
+partial.charge                  on     # on|off, default=off
+partial.charge.energy.window   2.0     # in eV
+
+#
+# DOS and PDOS
+#
+
+Dos.fileout                  on        # on|off, default=off
+Dos.Erange              -20.0  20.0    # default = -20 20 
+Dos.Kgrid                 10 10 1      # default = Kgrid1 Kgrid2 Kgrid3

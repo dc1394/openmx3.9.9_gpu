@@ -1,0 +1,16 @@
+OpenMX Ver.3.9
+  icc version 17.0.7, compiler option -Dxt3 -O3 -axCOMMON-AVX512,CORE-AVX512,CORE-AVX2,CORE-AVX-I,AVX,SSE4.2,SSE4.1,SSE3,SSSE3,SSE2 -qopenmp
+
+  Cray-XC40 (Intel Xeon E5-2695v4 2.1GHz)
+  576 processes (MPI) x 1 thread (OpenMP)
+
+   1  large2_example/C1000.dat         Elapsed time(s)= 1001.81  diff Utot= 0.000000002794  diff Force= 0.000000000985
+   2  large2_example/Fe1000.dat        Elapsed time(s)= 9474.50  diff Utot= 0.000000000247  diff Force= 0.000000005261
+   3  large2_example/GRA1024.dat       Elapsed time(s)= 1062.51  diff Utot= 0.000000025738  diff Force= 0.000000007202
+   4  large2_example/Ih-Ice1200.dat    Elapsed time(s)=  675.24  diff Utot= 0.000000000201  diff Force= 0.000000002062
+   5  large2_example/Pt500.dat         Elapsed time(s)= 5087.12  diff Utot= 0.000000009451  diff Force= 0.000000000082
+   6  large2_example/R-TiO2-1050.dat   Elapsed time(s)= 1459.28  diff Utot= 0.000000003191  diff Force= 0.000000001291
+   7  large2_example/Si1000.dat        Elapsed time(s)=  986.46  diff Utot= 0.000000000538  diff Force= 0.000000000197
+
+
+Total elapsed time (s)    19746.92

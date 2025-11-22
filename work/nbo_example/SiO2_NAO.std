@@ -1,0 +1,1936 @@
+
+The number of threads in each node for OpenMP parallelization is 1.
+
+
+*******************************************************
+*******************************************************
+ Welcome to OpenMX   Ver. 3.7.33                           
+ Copyright (C), 2002-2014, T. Ozaki                    
+ OpenMX comes with ABSOLUTELY NO WARRANTY.             
+ This is free software, and you are welcome to         
+ redistribute it under the constitution of the GNU-GPL.
+*******************************************************
+*******************************************************
+
+The fractional coordinate of b-axis for atom 55 was translated within the range (0 to 1).
+The fractional coordinate of a-axis for atom 86 was translated within the range (0 to 1).
+The fractional coordinate of a-axis for atom 121 was translated within the range (0 to 1).
+The fractional coordinate of a-axis for atom 160 was translated within the range (0 to 1).
+The fractional coordinate of b-axis for atom 181 was translated within the range (0 to 1).
+The fractional coordinate of c-axis for atom 237 was translated within the range (0 to 1).
+The fractional coordinate of a-axis for atom 334 was translated within the range (0 to 1).
+The fractional coordinate of a-axis for atom 452 was translated within the range (0 to 1).
+The fractional coordinate of c-axis for atom 482 was translated within the range (0 to 1).
+Automatic determination of Kerker_factor:   3.217371886155
+<Input_std>  NBO_Center 0 : 269 
+<Input_std>  NBO_Center 1 : 304 
+<Input_std>  NBO_Center 2 : 323 
+<Input_std>  NBO_Center 3 : 541 
+<Input_std>  NBO_Center 4 : 574 
+
+
+<Input_std>  Your input file was normally read.
+<Input_std>  The system includes 2 species and 648 atoms.
+
+*******************************************************
+                     PAO and VPS                       
+*******************************************************
+
+<SetPara_DFT>  PAOs of species Si were normally found.
+<SetPara_DFT>  PAOs of species O were normally found.
+<SetPara_DFT>  VPSs of species Si were normally found.
+               Si_PBE19.vps is j-dependent.
+               In case of scf.SpinOrbit.Coupling=off,
+               j-dependent pseudo potentials are averaged by j-degeneracy,
+               which corresponds to a scalar relativistic treatment.
+<SetPara_DFT>  VPSs of species O were normally found.
+               O_PBE19.vps is j-dependent.
+               In case of scf.SpinOrbit.Coupling=off,
+               j-dependent pseudo potentials are averaged by j-degeneracy,
+               which corresponds to a scalar relativistic treatment.
+
+*******************************************************
+     Fourier transform of PAO and projectors of VNL    
+*******************************************************
+
+<FT_PAO>          Fourier transform of pseudo atomic orbitals
+<FT_NLP>          Fourier transform of non-local projectors
+<FT_ProExpn_VNA>  Fourier transform of VNA separable projectors
+<FT_VNA>          Fourier transform of VNA potentials
+<FT_ProductPAO>   Fourier transform of product of PAOs
+
+*******************************************************
+  Allocation of atoms to proccesors at MD_iter=    1     
+*******************************************************
+
+ proc =   0  # of atoms=   1  estimated weight=         1.00000
+ proc =   1  # of atoms=   1  estimated weight=         1.00000
+ proc =   2  # of atoms=   1  estimated weight=         1.00000
+ proc =   3  # of atoms=   1  estimated weight=         1.00000
+ proc =   4  # of atoms=   1  estimated weight=         1.00000
+ proc =   5  # of atoms=   1  estimated weight=         1.00000
+ proc =   6  # of atoms=   1  estimated weight=         1.00000
+ proc =   7  # of atoms=   1  estimated weight=         1.00000
+ proc =   8  # of atoms=   1  estimated weight=         1.00000
+ proc =   9  # of atoms=   1  estimated weight=         1.00000
+ proc =  10  # of atoms=   1  estimated weight=         1.00000
+ proc =  11  # of atoms=   1  estimated weight=         1.00000
+ proc =  12  # of atoms=   1  estimated weight=         1.00000
+ proc =  13  # of atoms=   1  estimated weight=         1.00000
+ proc =  14  # of atoms=   1  estimated weight=         1.00000
+ proc =  15  # of atoms=   1  estimated weight=         1.00000
+ proc =  16  # of atoms=   1  estimated weight=         1.00000
+ proc =  17  # of atoms=   1  estimated weight=         1.00000
+ proc =  18  # of atoms=   1  estimated weight=         1.00000
+ proc =  19  # of atoms=   1  estimated weight=         1.00000
+ proc =  20  # of atoms=   1  estimated weight=         1.00000
+ proc =  21  # of atoms=   1  estimated weight=         1.00000
+ proc =  22  # of atoms=   1  estimated weight=         1.00000
+ proc =  23  # of atoms=   1  estimated weight=         1.00000
+ proc =  24  # of atoms=   1  estimated weight=         1.00000
+ proc =  25  # of atoms=   1  estimated weight=         1.00000
+ proc =  26  # of atoms=   1  estimated weight=         1.00000
+ proc =  27  # of atoms=   1  estimated weight=         1.00000
+ proc =  28  # of atoms=   1  estimated weight=         1.00000
+ proc =  29  # of atoms=   1  estimated weight=         1.00000
+ proc =  30  # of atoms=   1  estimated weight=         1.00000
+ proc =  31  # of atoms=   1  estimated weight=         1.00000
+ proc =  32  # of atoms=   1  estimated weight=         1.00000
+ proc =  33  # of atoms=   1  estimated weight=         1.00000
+ proc =  34  # of atoms=   1  estimated weight=         1.00000
+ proc =  35  # of atoms=   1  estimated weight=         1.00000
+ proc =  36  # of atoms=   1  estimated weight=         1.00000
+ proc =  37  # of atoms=   1  estimated weight=         1.00000
+ proc =  38  # of atoms=   1  estimated weight=         1.00000
+ proc =  39  # of atoms=   1  estimated weight=         1.00000
+ proc =  40  # of atoms=   1  estimated weight=         1.00000
+ proc =  41  # of atoms=   1  estimated weight=         1.00000
+ proc =  42  # of atoms=   1  estimated weight=         1.00000
+ proc =  43  # of atoms=   1  estimated weight=         1.00000
+ proc =  44  # of atoms=   1  estimated weight=         1.00000
+ proc =  45  # of atoms=   1  estimated weight=         1.00000
+ proc =  46  # of atoms=   1  estimated weight=         1.00000
+ proc =  47  # of atoms=   1  estimated weight=         1.00000
+ proc =  48  # of atoms=   1  estimated weight=         1.00000
+ proc =  49  # of atoms=   1  estimated weight=         1.00000
+ proc =  50  # of atoms=   1  estimated weight=         1.00000
+ proc =  51  # of atoms=   1  estimated weight=         1.00000
+ proc =  52  # of atoms=   1  estimated weight=         1.00000
+ proc =  53  # of atoms=   1  estimated weight=         1.00000
+ proc =  54  # of atoms=   1  estimated weight=         1.00000
+ proc =  55  # of atoms=   1  estimated weight=         1.00000
+ proc =  56  # of atoms=   1  estimated weight=         1.00000
+ proc =  57  # of atoms=   1  estimated weight=         1.00000
+ proc =  58  # of atoms=   1  estimated weight=         1.00000
+ proc =  59  # of atoms=   1  estimated weight=         1.00000
+ proc =  60  # of atoms=   1  estimated weight=         1.00000
+ proc =  61  # of atoms=   1  estimated weight=         1.00000
+ proc =  62  # of atoms=   1  estimated weight=         1.00000
+ proc =  63  # of atoms=   1  estimated weight=         1.00000
+ proc =  64  # of atoms=   1  estimated weight=         1.00000
+ proc =  65  # of atoms=   1  estimated weight=         1.00000
+ proc =  66  # of atoms=   1  estimated weight=         1.00000
+ proc =  67  # of atoms=   1  estimated weight=         1.00000
+ proc =  68  # of atoms=   1  estimated weight=         1.00000
+ proc =  69  # of atoms=   1  estimated weight=         1.00000
+ proc =  70  # of atoms=   1  estimated weight=         1.00000
+ proc =  71  # of atoms=   1  estimated weight=         1.00000
+ proc =  72  # of atoms=   1  estimated weight=         1.00000
+ proc =  73  # of atoms=   1  estimated weight=         1.00000
+ proc =  74  # of atoms=   1  estimated weight=         1.00000
+ proc =  75  # of atoms=   1  estimated weight=         1.00000
+ proc =  76  # of atoms=   1  estimated weight=         1.00000
+ proc =  77  # of atoms=   1  estimated weight=         1.00000
+ proc =  78  # of atoms=   1  estimated weight=         1.00000
+ proc =  79  # of atoms=   1  estimated weight=         1.00000
+ proc =  80  # of atoms=   1  estimated weight=         1.00000
+ proc =  81  # of atoms=   1  estimated weight=         1.00000
+ proc =  82  # of atoms=   1  estimated weight=         1.00000
+ proc =  83  # of atoms=   1  estimated weight=         1.00000
+ proc =  84  # of atoms=   1  estimated weight=         1.00000
+ proc =  85  # of atoms=   1  estimated weight=         1.00000
+ proc =  86  # of atoms=   1  estimated weight=         1.00000
+ proc =  87  # of atoms=   1  estimated weight=         1.00000
+ proc =  88  # of atoms=   1  estimated weight=         1.00000
+ proc =  89  # of atoms=   1  estimated weight=         1.00000
+ proc =  90  # of atoms=   1  estimated weight=         1.00000
+ proc =  91  # of atoms=   1  estimated weight=         1.00000
+ proc =  92  # of atoms=   1  estimated weight=         1.00000
+ proc =  93  # of atoms=   1  estimated weight=         1.00000
+ proc =  94  # of atoms=   1  estimated weight=         1.00000
+ proc =  95  # of atoms=   1  estimated weight=         1.00000
+ proc =  96  # of atoms=   1  estimated weight=         1.00000
+ proc =  97  # of atoms=   1  estimated weight=         1.00000
+ proc =  98  # of atoms=   1  estimated weight=         1.00000
+ proc =  99  # of atoms=   1  estimated weight=         1.00000
+ proc = 100  # of atoms=   1  estimated weight=         1.00000
+ proc = 101  # of atoms=   1  estimated weight=         1.00000
+ proc = 102  # of atoms=   1  estimated weight=         1.00000
+ proc = 103  # of atoms=   1  estimated weight=         1.00000
+ proc = 104  # of atoms=   1  estimated weight=         1.00000
+ proc = 105  # of atoms=   1  estimated weight=         1.00000
+ proc = 106  # of atoms=   1  estimated weight=         1.00000
+ proc = 107  # of atoms=   1  estimated weight=         1.00000
+ proc = 108  # of atoms=   1  estimated weight=         1.00000
+ proc = 109  # of atoms=   1  estimated weight=         1.00000
+ proc = 110  # of atoms=   1  estimated weight=         1.00000
+ proc = 111  # of atoms=   1  estimated weight=         1.00000
+ proc = 112  # of atoms=   1  estimated weight=         1.00000
+ proc = 113  # of atoms=   1  estimated weight=         1.00000
+ proc = 114  # of atoms=   1  estimated weight=         1.00000
+ proc = 115  # of atoms=   1  estimated weight=         1.00000
+ proc = 116  # of atoms=   1  estimated weight=         1.00000
+ proc = 117  # of atoms=   1  estimated weight=         1.00000
+ proc = 118  # of atoms=   1  estimated weight=         1.00000
+ proc = 119  # of atoms=   1  estimated weight=         1.00000
+ proc = 120  # of atoms=   1  estimated weight=         1.00000
+ proc = 121  # of atoms=   1  estimated weight=         1.00000
+ proc = 122  # of atoms=   1  estimated weight=         1.00000
+ proc = 123  # of atoms=   1  estimated weight=         1.00000
+ proc = 124  # of atoms=   1  estimated weight=         1.00000
+ proc = 125  # of atoms=   1  estimated weight=         1.00000
+ proc = 126  # of atoms=   1  estimated weight=         1.00000
+ proc = 127  # of atoms=   1  estimated weight=         1.00000
+ proc = 128  # of atoms=   1  estimated weight=         1.00000
+ proc = 129  # of atoms=   1  estimated weight=         1.00000
+ proc = 130  # of atoms=   1  estimated weight=         1.00000
+ proc = 131  # of atoms=   1  estimated weight=         1.00000
+ proc = 132  # of atoms=   1  estimated weight=         1.00000
+ proc = 133  # of atoms=   1  estimated weight=         1.00000
+ proc = 134  # of atoms=   1  estimated weight=         1.00000
+ proc = 135  # of atoms=   1  estimated weight=         1.00000
+ proc = 136  # of atoms=   1  estimated weight=         1.00000
+ proc = 137  # of atoms=   1  estimated weight=         1.00000
+ proc = 138  # of atoms=   1  estimated weight=         1.00000
+ proc = 139  # of atoms=   1  estimated weight=         1.00000
+ proc = 140  # of atoms=   1  estimated weight=         1.00000
+ proc = 141  # of atoms=   1  estimated weight=         1.00000
+ proc = 142  # of atoms=   1  estimated weight=         1.00000
+ proc = 143  # of atoms=   1  estimated weight=         1.00000
+ proc = 144  # of atoms=   1  estimated weight=         1.00000
+ proc = 145  # of atoms=   1  estimated weight=         1.00000
+ proc = 146  # of atoms=   1  estimated weight=         1.00000
+ proc = 147  # of atoms=   1  estimated weight=         1.00000
+ proc = 148  # of atoms=   1  estimated weight=         1.00000
+ proc = 149  # of atoms=   1  estimated weight=         1.00000
+ proc = 150  # of atoms=   1  estimated weight=         1.00000
+ proc = 151  # of atoms=   1  estimated weight=         1.00000
+ proc = 152  # of atoms=   1  estimated weight=         1.00000
+ proc = 153  # of atoms=   1  estimated weight=         1.00000
+ proc = 154  # of atoms=   1  estimated weight=         1.00000
+ proc = 155  # of atoms=   1  estimated weight=         1.00000
+ proc = 156  # of atoms=   1  estimated weight=         1.00000
+ proc = 157  # of atoms=   1  estimated weight=         1.00000
+ proc = 158  # of atoms=   1  estimated weight=         1.00000
+ proc = 159  # of atoms=   1  estimated weight=         1.00000
+ proc = 160  # of atoms=   1  estimated weight=         1.00000
+ proc = 161  # of atoms=   1  estimated weight=         1.00000
+ proc = 162  # of atoms=   1  estimated weight=         1.00000
+ proc = 163  # of atoms=   1  estimated weight=         1.00000
+ proc = 164  # of atoms=   1  estimated weight=         1.00000
+ proc = 165  # of atoms=   1  estimated weight=         1.00000
+ proc = 166  # of atoms=   1  estimated weight=         1.00000
+ proc = 167  # of atoms=   1  estimated weight=         1.00000
+ proc = 168  # of atoms=   1  estimated weight=         1.00000
+ proc = 169  # of atoms=   1  estimated weight=         1.00000
+ proc = 170  # of atoms=   1  estimated weight=         1.00000
+ proc = 171  # of atoms=   1  estimated weight=         1.00000
+ proc = 172  # of atoms=   1  estimated weight=         1.00000
+ proc = 173  # of atoms=   1  estimated weight=         1.00000
+ proc = 174  # of atoms=   1  estimated weight=         1.00000
+ proc = 175  # of atoms=   1  estimated weight=         1.00000
+ proc = 176  # of atoms=   1  estimated weight=         1.00000
+ proc = 177  # of atoms=   1  estimated weight=         1.00000
+ proc = 178  # of atoms=   1  estimated weight=         1.00000
+ proc = 179  # of atoms=   1  estimated weight=         1.00000
+ proc = 180  # of atoms=   1  estimated weight=         1.00000
+ proc = 181  # of atoms=   1  estimated weight=         1.00000
+ proc = 182  # of atoms=   1  estimated weight=         1.00000
+ proc = 183  # of atoms=   1  estimated weight=         1.00000
+ proc = 184  # of atoms=   1  estimated weight=         1.00000
+ proc = 185  # of atoms=   1  estimated weight=         1.00000
+ proc = 186  # of atoms=   1  estimated weight=         1.00000
+ proc = 187  # of atoms=   1  estimated weight=         1.00000
+ proc = 188  # of atoms=   1  estimated weight=         1.00000
+ proc = 189  # of atoms=   1  estimated weight=         1.00000
+ proc = 190  # of atoms=   1  estimated weight=         1.00000
+ proc = 191  # of atoms=   1  estimated weight=         1.00000
+ proc = 192  # of atoms=   1  estimated weight=         1.00000
+ proc = 193  # of atoms=   1  estimated weight=         1.00000
+ proc = 194  # of atoms=   1  estimated weight=         1.00000
+ proc = 195  # of atoms=   1  estimated weight=         1.00000
+ proc = 196  # of atoms=   1  estimated weight=         1.00000
+ proc = 197  # of atoms=   1  estimated weight=         1.00000
+ proc = 198  # of atoms=   1  estimated weight=         1.00000
+ proc = 199  # of atoms=   1  estimated weight=         1.00000
+ proc = 200  # of atoms=   1  estimated weight=         1.00000
+ proc = 201  # of atoms=   1  estimated weight=         1.00000
+ proc = 202  # of atoms=   1  estimated weight=         1.00000
+ proc = 203  # of atoms=   1  estimated weight=         1.00000
+ proc = 204  # of atoms=   1  estimated weight=         1.00000
+ proc = 205  # of atoms=   1  estimated weight=         1.00000
+ proc = 206  # of atoms=   1  estimated weight=         1.00000
+ proc = 207  # of atoms=   1  estimated weight=         1.00000
+ proc = 208  # of atoms=   1  estimated weight=         1.00000
+ proc = 209  # of atoms=   1  estimated weight=         1.00000
+ proc = 210  # of atoms=   1  estimated weight=         1.00000
+ proc = 211  # of atoms=   1  estimated weight=         1.00000
+ proc = 212  # of atoms=   1  estimated weight=         1.00000
+ proc = 213  # of atoms=   1  estimated weight=         1.00000
+ proc = 214  # of atoms=   1  estimated weight=         1.00000
+ proc = 215  # of atoms=   1  estimated weight=         1.00000
+ proc = 216  # of atoms=   1  estimated weight=         1.00000
+ proc = 217  # of atoms=   1  estimated weight=         1.00000
+ proc = 218  # of atoms=   1  estimated weight=         1.00000
+ proc = 219  # of atoms=   1  estimated weight=         1.00000
+ proc = 220  # of atoms=   1  estimated weight=         1.00000
+ proc = 221  # of atoms=   1  estimated weight=         1.00000
+ proc = 222  # of atoms=   1  estimated weight=         1.00000
+ proc = 223  # of atoms=   1  estimated weight=         1.00000
+ proc = 224  # of atoms=   1  estimated weight=         1.00000
+ proc = 225  # of atoms=   1  estimated weight=         1.00000
+ proc = 226  # of atoms=   1  estimated weight=         1.00000
+ proc = 227  # of atoms=   1  estimated weight=         1.00000
+ proc = 228  # of atoms=   1  estimated weight=         1.00000
+ proc = 229  # of atoms=   1  estimated weight=         1.00000
+ proc = 230  # of atoms=   1  estimated weight=         1.00000
+ proc = 231  # of atoms=   1  estimated weight=         1.00000
+ proc = 232  # of atoms=   1  estimated weight=         1.00000
+ proc = 233  # of atoms=   1  estimated weight=         1.00000
+ proc = 234  # of atoms=   1  estimated weight=         1.00000
+ proc = 235  # of atoms=   1  estimated weight=         1.00000
+ proc = 236  # of atoms=   1  estimated weight=         1.00000
+ proc = 237  # of atoms=   1  estimated weight=         1.00000
+ proc = 238  # of atoms=   1  estimated weight=         1.00000
+ proc = 239  # of atoms=   1  estimated weight=         1.00000
+ proc = 240  # of atoms=   1  estimated weight=         1.00000
+ proc = 241  # of atoms=   1  estimated weight=         1.00000
+ proc = 242  # of atoms=   1  estimated weight=         1.00000
+ proc = 243  # of atoms=   1  estimated weight=         1.00000
+ proc = 244  # of atoms=   1  estimated weight=         1.00000
+ proc = 245  # of atoms=   1  estimated weight=         1.00000
+ proc = 246  # of atoms=   1  estimated weight=         1.00000
+ proc = 247  # of atoms=   1  estimated weight=         1.00000
+ proc = 248  # of atoms=   1  estimated weight=         1.00000
+ proc = 249  # of atoms=   1  estimated weight=         1.00000
+ proc = 250  # of atoms=   1  estimated weight=         1.00000
+ proc = 251  # of atoms=   1  estimated weight=         1.00000
+ proc = 252  # of atoms=   1  estimated weight=         1.00000
+ proc = 253  # of atoms=   1  estimated weight=         1.00000
+ proc = 254  # of atoms=   1  estimated weight=         1.00000
+ proc = 255  # of atoms=   1  estimated weight=         1.00000
+ proc = 256  # of atoms=   1  estimated weight=         1.00000
+ proc = 257  # of atoms=   1  estimated weight=         1.00000
+ proc = 258  # of atoms=   1  estimated weight=         1.00000
+ proc = 259  # of atoms=   1  estimated weight=         1.00000
+ proc = 260  # of atoms=   1  estimated weight=         1.00000
+ proc = 261  # of atoms=   1  estimated weight=         1.00000
+ proc = 262  # of atoms=   1  estimated weight=         1.00000
+ proc = 263  # of atoms=   1  estimated weight=         1.00000
+ proc = 264  # of atoms=   1  estimated weight=         1.00000
+ proc = 265  # of atoms=   1  estimated weight=         1.00000
+ proc = 266  # of atoms=   1  estimated weight=         1.00000
+ proc = 267  # of atoms=   1  estimated weight=         1.00000
+ proc = 268  # of atoms=   1  estimated weight=         1.00000
+ proc = 269  # of atoms=   1  estimated weight=         1.00000
+ proc = 270  # of atoms=   1  estimated weight=         1.00000
+ proc = 271  # of atoms=   1  estimated weight=         1.00000
+ proc = 272  # of atoms=   1  estimated weight=         1.00000
+ proc = 273  # of atoms=   1  estimated weight=         1.00000
+ proc = 274  # of atoms=   1  estimated weight=         1.00000
+ proc = 275  # of atoms=   1  estimated weight=         1.00000
+ proc = 276  # of atoms=   1  estimated weight=         1.00000
+ proc = 277  # of atoms=   1  estimated weight=         1.00000
+ proc = 278  # of atoms=   1  estimated weight=         1.00000
+ proc = 279  # of atoms=   1  estimated weight=         1.00000
+ proc = 280  # of atoms=   1  estimated weight=         1.00000
+ proc = 281  # of atoms=   1  estimated weight=         1.00000
+ proc = 282  # of atoms=   1  estimated weight=         1.00000
+ proc = 283  # of atoms=   1  estimated weight=         1.00000
+ proc = 284  # of atoms=   1  estimated weight=         1.00000
+ proc = 285  # of atoms=   1  estimated weight=         1.00000
+ proc = 286  # of atoms=   1  estimated weight=         1.00000
+ proc = 287  # of atoms=   1  estimated weight=         1.00000
+ proc = 288  # of atoms=   1  estimated weight=         1.00000
+ proc = 289  # of atoms=   1  estimated weight=         1.00000
+ proc = 290  # of atoms=   1  estimated weight=         1.00000
+ proc = 291  # of atoms=   1  estimated weight=         1.00000
+ proc = 292  # of atoms=   1  estimated weight=         1.00000
+ proc = 293  # of atoms=   1  estimated weight=         1.00000
+ proc = 294  # of atoms=   1  estimated weight=         1.00000
+ proc = 295  # of atoms=   1  estimated weight=         1.00000
+ proc = 296  # of atoms=   1  estimated weight=         1.00000
+ proc = 297  # of atoms=   1  estimated weight=         1.00000
+ proc = 298  # of atoms=   1  estimated weight=         1.00000
+ proc = 299  # of atoms=   1  estimated weight=         1.00000
+ proc = 300  # of atoms=   1  estimated weight=         1.00000
+ proc = 301  # of atoms=   1  estimated weight=         1.00000
+ proc = 302  # of atoms=   1  estimated weight=         1.00000
+ proc = 303  # of atoms=   1  estimated weight=         1.00000
+ proc = 304  # of atoms=   1  estimated weight=         1.00000
+ proc = 305  # of atoms=   1  estimated weight=         1.00000
+ proc = 306  # of atoms=   1  estimated weight=         1.00000
+ proc = 307  # of atoms=   1  estimated weight=         1.00000
+ proc = 308  # of atoms=   1  estimated weight=         1.00000
+ proc = 309  # of atoms=   1  estimated weight=         1.00000
+ proc = 310  # of atoms=   1  estimated weight=         1.00000
+ proc = 311  # of atoms=   1  estimated weight=         1.00000
+ proc = 312  # of atoms=   1  estimated weight=         1.00000
+ proc = 313  # of atoms=   1  estimated weight=         1.00000
+ proc = 314  # of atoms=   1  estimated weight=         1.00000
+ proc = 315  # of atoms=   1  estimated weight=         1.00000
+ proc = 316  # of atoms=   1  estimated weight=         1.00000
+ proc = 317  # of atoms=   1  estimated weight=         1.00000
+ proc = 318  # of atoms=   1  estimated weight=         1.00000
+ proc = 319  # of atoms=   1  estimated weight=         1.00000
+ proc = 320  # of atoms=   1  estimated weight=         1.00000
+ proc = 321  # of atoms=   1  estimated weight=         1.00000
+ proc = 322  # of atoms=   1  estimated weight=         1.00000
+ proc = 323  # of atoms=   1  estimated weight=         1.00000
+ proc = 324  # of atoms=   1  estimated weight=         1.00000
+ proc = 325  # of atoms=   1  estimated weight=         1.00000
+ proc = 326  # of atoms=   1  estimated weight=         1.00000
+ proc = 327  # of atoms=   1  estimated weight=         1.00000
+ proc = 328  # of atoms=   1  estimated weight=         1.00000
+ proc = 329  # of atoms=   1  estimated weight=         1.00000
+ proc = 330  # of atoms=   1  estimated weight=         1.00000
+ proc = 331  # of atoms=   1  estimated weight=         1.00000
+ proc = 332  # of atoms=   1  estimated weight=         1.00000
+ proc = 333  # of atoms=   1  estimated weight=         1.00000
+ proc = 334  # of atoms=   1  estimated weight=         1.00000
+ proc = 335  # of atoms=   1  estimated weight=         1.00000
+ proc = 336  # of atoms=   1  estimated weight=         1.00000
+ proc = 337  # of atoms=   1  estimated weight=         1.00000
+ proc = 338  # of atoms=   1  estimated weight=         1.00000
+ proc = 339  # of atoms=   1  estimated weight=         1.00000
+ proc = 340  # of atoms=   1  estimated weight=         1.00000
+ proc = 341  # of atoms=   1  estimated weight=         1.00000
+ proc = 342  # of atoms=   1  estimated weight=         1.00000
+ proc = 343  # of atoms=   1  estimated weight=         1.00000
+ proc = 344  # of atoms=   1  estimated weight=         1.00000
+ proc = 345  # of atoms=   1  estimated weight=         1.00000
+ proc = 346  # of atoms=   1  estimated weight=         1.00000
+ proc = 347  # of atoms=   1  estimated weight=         1.00000
+ proc = 348  # of atoms=   1  estimated weight=         1.00000
+ proc = 349  # of atoms=   1  estimated weight=         1.00000
+ proc = 350  # of atoms=   1  estimated weight=         1.00000
+ proc = 351  # of atoms=   1  estimated weight=         1.00000
+ proc = 352  # of atoms=   1  estimated weight=         1.00000
+ proc = 353  # of atoms=   1  estimated weight=         1.00000
+ proc = 354  # of atoms=   1  estimated weight=         1.00000
+ proc = 355  # of atoms=   1  estimated weight=         1.00000
+ proc = 356  # of atoms=   1  estimated weight=         1.00000
+ proc = 357  # of atoms=   1  estimated weight=         1.00000
+ proc = 358  # of atoms=   1  estimated weight=         1.00000
+ proc = 359  # of atoms=   1  estimated weight=         1.00000
+ proc = 360  # of atoms=   1  estimated weight=         1.00000
+ proc = 361  # of atoms=   1  estimated weight=         1.00000
+ proc = 362  # of atoms=   1  estimated weight=         1.00000
+ proc = 363  # of atoms=   1  estimated weight=         1.00000
+ proc = 364  # of atoms=   1  estimated weight=         1.00000
+ proc = 365  # of atoms=   1  estimated weight=         1.00000
+ proc = 366  # of atoms=   1  estimated weight=         1.00000
+ proc = 367  # of atoms=   1  estimated weight=         1.00000
+ proc = 368  # of atoms=   1  estimated weight=         1.00000
+ proc = 369  # of atoms=   1  estimated weight=         1.00000
+ proc = 370  # of atoms=   1  estimated weight=         1.00000
+ proc = 371  # of atoms=   1  estimated weight=         1.00000
+ proc = 372  # of atoms=   1  estimated weight=         1.00000
+ proc = 373  # of atoms=   1  estimated weight=         1.00000
+ proc = 374  # of atoms=   1  estimated weight=         1.00000
+ proc = 375  # of atoms=   1  estimated weight=         1.00000
+ proc = 376  # of atoms=   1  estimated weight=         1.00000
+ proc = 377  # of atoms=   1  estimated weight=         1.00000
+ proc = 378  # of atoms=   1  estimated weight=         1.00000
+ proc = 379  # of atoms=   1  estimated weight=         1.00000
+ proc = 380  # of atoms=   1  estimated weight=         1.00000
+ proc = 381  # of atoms=   1  estimated weight=         1.00000
+ proc = 382  # of atoms=   1  estimated weight=         1.00000
+ proc = 383  # of atoms=   1  estimated weight=         1.00000
+ proc = 384  # of atoms=   1  estimated weight=         1.00000
+ proc = 385  # of atoms=   1  estimated weight=         1.00000
+ proc = 386  # of atoms=   1  estimated weight=         1.00000
+ proc = 387  # of atoms=   1  estimated weight=         1.00000
+ proc = 388  # of atoms=   1  estimated weight=         1.00000
+ proc = 389  # of atoms=   1  estimated weight=         1.00000
+ proc = 390  # of atoms=   1  estimated weight=         1.00000
+ proc = 391  # of atoms=   1  estimated weight=         1.00000
+ proc = 392  # of atoms=   1  estimated weight=         1.00000
+ proc = 393  # of atoms=   1  estimated weight=         1.00000
+ proc = 394  # of atoms=   1  estimated weight=         1.00000
+ proc = 395  # of atoms=   1  estimated weight=         1.00000
+ proc = 396  # of atoms=   1  estimated weight=         1.00000
+ proc = 397  # of atoms=   1  estimated weight=         1.00000
+ proc = 398  # of atoms=   1  estimated weight=         1.00000
+ proc = 399  # of atoms=   1  estimated weight=         1.00000
+ proc = 400  # of atoms=   1  estimated weight=         1.00000
+ proc = 401  # of atoms=   1  estimated weight=         1.00000
+ proc = 402  # of atoms=   1  estimated weight=         1.00000
+ proc = 403  # of atoms=   1  estimated weight=         1.00000
+ proc = 404  # of atoms=   1  estimated weight=         1.00000
+ proc = 405  # of atoms=   1  estimated weight=         1.00000
+ proc = 406  # of atoms=   1  estimated weight=         1.00000
+ proc = 407  # of atoms=   1  estimated weight=         1.00000
+ proc = 408  # of atoms=   1  estimated weight=         1.00000
+ proc = 409  # of atoms=   1  estimated weight=         1.00000
+ proc = 410  # of atoms=   1  estimated weight=         1.00000
+ proc = 411  # of atoms=   1  estimated weight=         1.00000
+ proc = 412  # of atoms=   1  estimated weight=         1.00000
+ proc = 413  # of atoms=   1  estimated weight=         1.00000
+ proc = 414  # of atoms=   1  estimated weight=         1.00000
+ proc = 415  # of atoms=   1  estimated weight=         1.00000
+ proc = 416  # of atoms=   1  estimated weight=         1.00000
+ proc = 417  # of atoms=   1  estimated weight=         1.00000
+ proc = 418  # of atoms=   1  estimated weight=         1.00000
+ proc = 419  # of atoms=   1  estimated weight=         1.00000
+ proc = 420  # of atoms=   1  estimated weight=         1.00000
+ proc = 421  # of atoms=   1  estimated weight=         1.00000
+ proc = 422  # of atoms=   1  estimated weight=         1.00000
+ proc = 423  # of atoms=   1  estimated weight=         1.00000
+ proc = 424  # of atoms=   1  estimated weight=         1.00000
+ proc = 425  # of atoms=   1  estimated weight=         1.00000
+ proc = 426  # of atoms=   1  estimated weight=         1.00000
+ proc = 427  # of atoms=   1  estimated weight=         1.00000
+ proc = 428  # of atoms=   1  estimated weight=         1.00000
+ proc = 429  # of atoms=   1  estimated weight=         1.00000
+ proc = 430  # of atoms=   1  estimated weight=         1.00000
+ proc = 431  # of atoms=   1  estimated weight=         1.00000
+ proc = 432  # of atoms=   1  estimated weight=         1.00000
+ proc = 433  # of atoms=   1  estimated weight=         1.00000
+ proc = 434  # of atoms=   1  estimated weight=         1.00000
+ proc = 435  # of atoms=   1  estimated weight=         1.00000
+ proc = 436  # of atoms=   1  estimated weight=         1.00000
+ proc = 437  # of atoms=   1  estimated weight=         1.00000
+ proc = 438  # of atoms=   1  estimated weight=         1.00000
+ proc = 439  # of atoms=   1  estimated weight=         1.00000
+ proc = 440  # of atoms=   1  estimated weight=         1.00000
+ proc = 441  # of atoms=   1  estimated weight=         1.00000
+ proc = 442  # of atoms=   1  estimated weight=         1.00000
+ proc = 443  # of atoms=   1  estimated weight=         1.00000
+ proc = 444  # of atoms=   1  estimated weight=         1.00000
+ proc = 445  # of atoms=   1  estimated weight=         1.00000
+ proc = 446  # of atoms=   1  estimated weight=         1.00000
+ proc = 447  # of atoms=   1  estimated weight=         1.00000
+ proc = 448  # of atoms=   1  estimated weight=         1.00000
+ proc = 449  # of atoms=   1  estimated weight=         1.00000
+ proc = 450  # of atoms=   1  estimated weight=         1.00000
+ proc = 451  # of atoms=   1  estimated weight=         1.00000
+ proc = 452  # of atoms=   1  estimated weight=         1.00000
+ proc = 453  # of atoms=   1  estimated weight=         1.00000
+ proc = 454  # of atoms=   1  estimated weight=         1.00000
+ proc = 455  # of atoms=   1  estimated weight=         1.00000
+ proc = 456  # of atoms=   1  estimated weight=         1.00000
+ proc = 457  # of atoms=   1  estimated weight=         1.00000
+ proc = 458  # of atoms=   1  estimated weight=         1.00000
+ proc = 459  # of atoms=   1  estimated weight=         1.00000
+ proc = 460  # of atoms=   1  estimated weight=         1.00000
+ proc = 461  # of atoms=   1  estimated weight=         1.00000
+ proc = 462  # of atoms=   1  estimated weight=         1.00000
+ proc = 463  # of atoms=   1  estimated weight=         1.00000
+ proc = 464  # of atoms=   1  estimated weight=         1.00000
+ proc = 465  # of atoms=   1  estimated weight=         1.00000
+ proc = 466  # of atoms=   1  estimated weight=         1.00000
+ proc = 467  # of atoms=   1  estimated weight=         1.00000
+ proc = 468  # of atoms=   1  estimated weight=         1.00000
+ proc = 469  # of atoms=   1  estimated weight=         1.00000
+ proc = 470  # of atoms=   1  estimated weight=         1.00000
+ proc = 471  # of atoms=   1  estimated weight=         1.00000
+ proc = 472  # of atoms=   1  estimated weight=         1.00000
+ proc = 473  # of atoms=   1  estimated weight=         1.00000
+ proc = 474  # of atoms=   1  estimated weight=         1.00000
+ proc = 475  # of atoms=   1  estimated weight=         1.00000
+ proc = 476  # of atoms=   1  estimated weight=         1.00000
+ proc = 477  # of atoms=   1  estimated weight=         1.00000
+ proc = 478  # of atoms=   1  estimated weight=         1.00000
+ proc = 479  # of atoms=   1  estimated weight=         1.00000
+ proc = 480  # of atoms=   1  estimated weight=         1.00000
+ proc = 481  # of atoms=   1  estimated weight=         1.00000
+ proc = 482  # of atoms=   1  estimated weight=         1.00000
+ proc = 483  # of atoms=   1  estimated weight=         1.00000
+ proc = 484  # of atoms=   1  estimated weight=         1.00000
+ proc = 485  # of atoms=   1  estimated weight=         1.00000
+ proc = 486  # of atoms=   1  estimated weight=         1.00000
+ proc = 487  # of atoms=   1  estimated weight=         1.00000
+ proc = 488  # of atoms=   1  estimated weight=         1.00000
+ proc = 489  # of atoms=   1  estimated weight=         1.00000
+ proc = 490  # of atoms=   1  estimated weight=         1.00000
+ proc = 491  # of atoms=   1  estimated weight=         1.00000
+ proc = 492  # of atoms=   1  estimated weight=         1.00000
+ proc = 493  # of atoms=   1  estimated weight=         1.00000
+ proc = 494  # of atoms=   1  estimated weight=         1.00000
+ proc = 495  # of atoms=   1  estimated weight=         1.00000
+ proc = 496  # of atoms=   1  estimated weight=         1.00000
+ proc = 497  # of atoms=   1  estimated weight=         1.00000
+ proc = 498  # of atoms=   1  estimated weight=         1.00000
+ proc = 499  # of atoms=   1  estimated weight=         1.00000
+ proc = 500  # of atoms=   1  estimated weight=         1.00000
+ proc = 501  # of atoms=   1  estimated weight=         1.00000
+ proc = 502  # of atoms=   1  estimated weight=         1.00000
+ proc = 503  # of atoms=   1  estimated weight=         1.00000
+ proc = 504  # of atoms=   1  estimated weight=         1.00000
+ proc = 505  # of atoms=   1  estimated weight=         1.00000
+ proc = 506  # of atoms=   1  estimated weight=         1.00000
+ proc = 507  # of atoms=   1  estimated weight=         1.00000
+ proc = 508  # of atoms=   1  estimated weight=         1.00000
+ proc = 509  # of atoms=   1  estimated weight=         1.00000
+ proc = 510  # of atoms=   1  estimated weight=         1.00000
+ proc = 511  # of atoms=   1  estimated weight=         1.00000
+ proc = 512  # of atoms=   1  estimated weight=         1.00000
+ proc = 513  # of atoms=   1  estimated weight=         1.00000
+ proc = 514  # of atoms=   1  estimated weight=         1.00000
+ proc = 515  # of atoms=   1  estimated weight=         1.00000
+ proc = 516  # of atoms=   1  estimated weight=         1.00000
+ proc = 517  # of atoms=   1  estimated weight=         1.00000
+ proc = 518  # of atoms=   1  estimated weight=         1.00000
+ proc = 519  # of atoms=   1  estimated weight=         1.00000
+ proc = 520  # of atoms=   1  estimated weight=         1.00000
+ proc = 521  # of atoms=   1  estimated weight=         1.00000
+ proc = 522  # of atoms=   1  estimated weight=         1.00000
+ proc = 523  # of atoms=   1  estimated weight=         1.00000
+ proc = 524  # of atoms=   1  estimated weight=         1.00000
+ proc = 525  # of atoms=   1  estimated weight=         1.00000
+ proc = 526  # of atoms=   1  estimated weight=         1.00000
+ proc = 527  # of atoms=   1  estimated weight=         1.00000
+ proc = 528  # of atoms=   1  estimated weight=         1.00000
+ proc = 529  # of atoms=   1  estimated weight=         1.00000
+ proc = 530  # of atoms=   1  estimated weight=         1.00000
+ proc = 531  # of atoms=   1  estimated weight=         1.00000
+ proc = 532  # of atoms=   1  estimated weight=         1.00000
+ proc = 533  # of atoms=   1  estimated weight=         1.00000
+ proc = 534  # of atoms=   1  estimated weight=         1.00000
+ proc = 535  # of atoms=   1  estimated weight=         1.00000
+ proc = 536  # of atoms=   1  estimated weight=         1.00000
+ proc = 537  # of atoms=   1  estimated weight=         1.00000
+ proc = 538  # of atoms=   1  estimated weight=         1.00000
+ proc = 539  # of atoms=   1  estimated weight=         1.00000
+ proc = 540  # of atoms=   1  estimated weight=         1.00000
+ proc = 541  # of atoms=   1  estimated weight=         1.00000
+ proc = 542  # of atoms=   1  estimated weight=         1.00000
+ proc = 543  # of atoms=   1  estimated weight=         1.00000
+ proc = 544  # of atoms=   1  estimated weight=         1.00000
+ proc = 545  # of atoms=   1  estimated weight=         1.00000
+ proc = 546  # of atoms=   1  estimated weight=         1.00000
+ proc = 547  # of atoms=   1  estimated weight=         1.00000
+ proc = 548  # of atoms=   1  estimated weight=         1.00000
+ proc = 549  # of atoms=   1  estimated weight=         1.00000
+ proc = 550  # of atoms=   1  estimated weight=         1.00000
+ proc = 551  # of atoms=   1  estimated weight=         1.00000
+ proc = 552  # of atoms=   1  estimated weight=         1.00000
+ proc = 553  # of atoms=   1  estimated weight=         1.00000
+ proc = 554  # of atoms=   1  estimated weight=         1.00000
+ proc = 555  # of atoms=   1  estimated weight=         1.00000
+ proc = 556  # of atoms=   1  estimated weight=         1.00000
+ proc = 557  # of atoms=   1  estimated weight=         1.00000
+ proc = 558  # of atoms=   1  estimated weight=         1.00000
+ proc = 559  # of atoms=   1  estimated weight=         1.00000
+ proc = 560  # of atoms=   1  estimated weight=         1.00000
+ proc = 561  # of atoms=   1  estimated weight=         1.00000
+ proc = 562  # of atoms=   1  estimated weight=         1.00000
+ proc = 563  # of atoms=   1  estimated weight=         1.00000
+ proc = 564  # of atoms=   1  estimated weight=         1.00000
+ proc = 565  # of atoms=   1  estimated weight=         1.00000
+ proc = 566  # of atoms=   1  estimated weight=         1.00000
+ proc = 567  # of atoms=   1  estimated weight=         1.00000
+ proc = 568  # of atoms=   1  estimated weight=         1.00000
+ proc = 569  # of atoms=   1  estimated weight=         1.00000
+ proc = 570  # of atoms=   1  estimated weight=         1.00000
+ proc = 571  # of atoms=   1  estimated weight=         1.00000
+ proc = 572  # of atoms=   1  estimated weight=         1.00000
+ proc = 573  # of atoms=   1  estimated weight=         1.00000
+ proc = 574  # of atoms=   1  estimated weight=         1.00000
+ proc = 575  # of atoms=   1  estimated weight=         1.00000
+ proc = 576  # of atoms=   1  estimated weight=         1.00000
+ proc = 577  # of atoms=   1  estimated weight=         1.00000
+ proc = 578  # of atoms=   1  estimated weight=         1.00000
+ proc = 579  # of atoms=   1  estimated weight=         1.00000
+ proc = 580  # of atoms=   1  estimated weight=         1.00000
+ proc = 581  # of atoms=   1  estimated weight=         1.00000
+ proc = 582  # of atoms=   1  estimated weight=         1.00000
+ proc = 583  # of atoms=   1  estimated weight=         1.00000
+ proc = 584  # of atoms=   1  estimated weight=         1.00000
+ proc = 585  # of atoms=   1  estimated weight=         1.00000
+ proc = 586  # of atoms=   1  estimated weight=         1.00000
+ proc = 587  # of atoms=   1  estimated weight=         1.00000
+ proc = 588  # of atoms=   1  estimated weight=         1.00000
+ proc = 589  # of atoms=   1  estimated weight=         1.00000
+ proc = 590  # of atoms=   1  estimated weight=         1.00000
+ proc = 591  # of atoms=   1  estimated weight=         1.00000
+ proc = 592  # of atoms=   1  estimated weight=         1.00000
+ proc = 593  # of atoms=   1  estimated weight=         1.00000
+ proc = 594  # of atoms=   1  estimated weight=         1.00000
+ proc = 595  # of atoms=   1  estimated weight=         1.00000
+ proc = 596  # of atoms=   1  estimated weight=         1.00000
+ proc = 597  # of atoms=   1  estimated weight=         1.00000
+ proc = 598  # of atoms=   1  estimated weight=         1.00000
+ proc = 599  # of atoms=   1  estimated weight=         1.00000
+ proc = 600  # of atoms=   1  estimated weight=         1.00000
+ proc = 601  # of atoms=   1  estimated weight=         1.00000
+ proc = 602  # of atoms=   1  estimated weight=         1.00000
+ proc = 603  # of atoms=   1  estimated weight=         1.00000
+ proc = 604  # of atoms=   1  estimated weight=         1.00000
+ proc = 605  # of atoms=   1  estimated weight=         1.00000
+ proc = 606  # of atoms=   1  estimated weight=         1.00000
+ proc = 607  # of atoms=   1  estimated weight=         1.00000
+ proc = 608  # of atoms=   1  estimated weight=         1.00000
+ proc = 609  # of atoms=   1  estimated weight=         1.00000
+ proc = 610  # of atoms=   1  estimated weight=         1.00000
+ proc = 611  # of atoms=   1  estimated weight=         1.00000
+ proc = 612  # of atoms=   1  estimated weight=         1.00000
+ proc = 613  # of atoms=   1  estimated weight=         1.00000
+ proc = 614  # of atoms=   1  estimated weight=         1.00000
+ proc = 615  # of atoms=   1  estimated weight=         1.00000
+ proc = 616  # of atoms=   1  estimated weight=         1.00000
+ proc = 617  # of atoms=   1  estimated weight=         1.00000
+ proc = 618  # of atoms=   1  estimated weight=         1.00000
+ proc = 619  # of atoms=   1  estimated weight=         1.00000
+ proc = 620  # of atoms=   1  estimated weight=         1.00000
+ proc = 621  # of atoms=   1  estimated weight=         1.00000
+ proc = 622  # of atoms=   1  estimated weight=         1.00000
+ proc = 623  # of atoms=   1  estimated weight=         1.00000
+ proc = 624  # of atoms=   1  estimated weight=         1.00000
+ proc = 625  # of atoms=   1  estimated weight=         1.00000
+ proc = 626  # of atoms=   1  estimated weight=         1.00000
+ proc = 627  # of atoms=   1  estimated weight=         1.00000
+ proc = 628  # of atoms=   1  estimated weight=         1.00000
+ proc = 629  # of atoms=   1  estimated weight=         1.00000
+ proc = 630  # of atoms=   1  estimated weight=         1.00000
+ proc = 631  # of atoms=   1  estimated weight=         1.00000
+ proc = 632  # of atoms=   1  estimated weight=         1.00000
+ proc = 633  # of atoms=   1  estimated weight=         1.00000
+ proc = 634  # of atoms=   1  estimated weight=         1.00000
+ proc = 635  # of atoms=   1  estimated weight=         1.00000
+ proc = 636  # of atoms=   1  estimated weight=         1.00000
+ proc = 637  # of atoms=   1  estimated weight=         1.00000
+ proc = 638  # of atoms=   1  estimated weight=         1.00000
+ proc = 639  # of atoms=   1  estimated weight=         1.00000
+ proc = 640  # of atoms=   1  estimated weight=         1.00000
+ proc = 641  # of atoms=   1  estimated weight=         1.00000
+ proc = 642  # of atoms=   1  estimated weight=         1.00000
+ proc = 643  # of atoms=   1  estimated weight=         1.00000
+ proc = 644  # of atoms=   1  estimated weight=         1.00000
+ proc = 645  # of atoms=   1  estimated weight=         1.00000
+ proc = 646  # of atoms=   1  estimated weight=         1.00000
+ proc = 647  # of atoms=   1  estimated weight=         1.00000
+
+
+
+
+*******************************************************
+        Analysis of neighbors and setting of grids        
+*******************************************************
+
+TFNAN=   40290   Average FNAN=  62.17593
+TSNAN=   22148   Average SNAN=  34.17901
+<truncation> CpyCell= 1 ct_AN=   1 FNAN SNAN  95  16
+<truncation> CpyCell= 1 ct_AN=   2 FNAN SNAN  92  16
+<truncation> CpyCell= 1 ct_AN=   3 FNAN SNAN  85  18
+<truncation> CpyCell= 1 ct_AN=   4 FNAN SNAN  92  19
+<truncation> CpyCell= 1 ct_AN=   5 FNAN SNAN  85  22
+<truncation> CpyCell= 1 ct_AN=   6 FNAN SNAN  86  20
+<truncation> CpyCell= 1 ct_AN=   7 FNAN SNAN  91  19
+<truncation> CpyCell= 1 ct_AN=   8 FNAN SNAN  89  15
+<truncation> CpyCell= 1 ct_AN=   9 FNAN SNAN  49  42
+<truncation> CpyCell= 1 ct_AN=  10 FNAN SNAN  54  39
+<truncation> CpyCell= 1 ct_AN=  11 FNAN SNAN  54  39
+<truncation> CpyCell= 1 ct_AN=  12 FNAN SNAN  50  41
+<truncation> CpyCell= 1 ct_AN=  13 FNAN SNAN  52  42
+<truncation> CpyCell= 1 ct_AN=  14 FNAN SNAN  54  47
+<truncation> CpyCell= 1 ct_AN=  15 FNAN SNAN  52  42
+<truncation> CpyCell= 1 ct_AN=  16 FNAN SNAN  54  43
+<truncation> CpyCell= 1 ct_AN=  17 FNAN SNAN  55  44
+<truncation> CpyCell= 1 ct_AN=  18 FNAN SNAN  56  49
+<truncation> CpyCell= 1 ct_AN=  19 FNAN SNAN  61  37
+<truncation> CpyCell= 1 ct_AN=  20 FNAN SNAN  55  45
+     ..........
+     ......
+
+TFNAN=   40290   Average FNAN=  62.17593
+TSNAN=   22148   Average SNAN=  34.17901
+<truncation> CpyCell= 2 ct_AN=   1 FNAN SNAN  95  16
+<truncation> CpyCell= 2 ct_AN=   2 FNAN SNAN  92  16
+<truncation> CpyCell= 2 ct_AN=   3 FNAN SNAN  85  18
+<truncation> CpyCell= 2 ct_AN=   4 FNAN SNAN  92  19
+<truncation> CpyCell= 2 ct_AN=   5 FNAN SNAN  85  22
+<truncation> CpyCell= 2 ct_AN=   6 FNAN SNAN  86  20
+<truncation> CpyCell= 2 ct_AN=   7 FNAN SNAN  91  19
+<truncation> CpyCell= 2 ct_AN=   8 FNAN SNAN  89  15
+<truncation> CpyCell= 2 ct_AN=   9 FNAN SNAN  49  42
+<truncation> CpyCell= 2 ct_AN=  10 FNAN SNAN  54  39
+<truncation> CpyCell= 2 ct_AN=  11 FNAN SNAN  54  39
+<truncation> CpyCell= 2 ct_AN=  12 FNAN SNAN  50  41
+<truncation> CpyCell= 2 ct_AN=  13 FNAN SNAN  52  42
+<truncation> CpyCell= 2 ct_AN=  14 FNAN SNAN  54  47
+<truncation> CpyCell= 2 ct_AN=  15 FNAN SNAN  52  42
+<truncation> CpyCell= 2 ct_AN=  16 FNAN SNAN  54  43
+<truncation> CpyCell= 2 ct_AN=  17 FNAN SNAN  55  44
+<truncation> CpyCell= 2 ct_AN=  18 FNAN SNAN  56  49
+<truncation> CpyCell= 2 ct_AN=  19 FNAN SNAN  61  37
+<truncation> CpyCell= 2 ct_AN=  20 FNAN SNAN  55  45
+     ..........
+     ......
+
+TFNAN=   40290   Average FNAN=  62.17593
+TSNAN=   22148   Average SNAN=  34.17901
+<truncation> CpyCell= 2 ct_AN=   1 FNAN SNAN  95  16
+<truncation> CpyCell= 2 ct_AN=   2 FNAN SNAN  92  16
+<truncation> CpyCell= 2 ct_AN=   3 FNAN SNAN  85  18
+<truncation> CpyCell= 2 ct_AN=   4 FNAN SNAN  92  19
+<truncation> CpyCell= 2 ct_AN=   5 FNAN SNAN  85  22
+<truncation> CpyCell= 2 ct_AN=   6 FNAN SNAN  86  20
+<truncation> CpyCell= 2 ct_AN=   7 FNAN SNAN  91  19
+<truncation> CpyCell= 2 ct_AN=   8 FNAN SNAN  89  15
+<truncation> CpyCell= 2 ct_AN=   9 FNAN SNAN  49  42
+<truncation> CpyCell= 2 ct_AN=  10 FNAN SNAN  54  39
+<truncation> CpyCell= 2 ct_AN=  11 FNAN SNAN  54  39
+<truncation> CpyCell= 2 ct_AN=  12 FNAN SNAN  50  41
+<truncation> CpyCell= 2 ct_AN=  13 FNAN SNAN  52  42
+<truncation> CpyCell= 2 ct_AN=  14 FNAN SNAN  54  47
+<truncation> CpyCell= 2 ct_AN=  15 FNAN SNAN  52  42
+<truncation> CpyCell= 2 ct_AN=  16 FNAN SNAN  54  43
+<truncation> CpyCell= 2 ct_AN=  17 FNAN SNAN  55  44
+<truncation> CpyCell= 2 ct_AN=  18 FNAN SNAN  56  49
+<truncation> CpyCell= 2 ct_AN=  19 FNAN SNAN  61  37
+<truncation> CpyCell= 2 ct_AN=  20 FNAN SNAN  55  45
+     ..........
+     ......
+
+<Check_System> The system is bulk.
+lattice vectors (bohr)
+A  = 40.430687525646,  0.000000000000,  0.000000000000
+B  =  0.000000000000, 40.430687525646,  0.000000000000
+C  =  0.000000000000,  0.000000000000, 40.430687525646
+reciprocal lattice vectors (bohr^-1)
+RA =  0.155406343342,  0.000000000000,  0.000000000000
+RB =  0.000000000000,  0.155406343342,  0.000000000000
+RC =  0.000000000000,  0.000000000000,  0.155406343342
+Grid_Origin  0.000000000000  0.000000000000  0.000000000000
+Cell_Volume =  66089.639021451338 (Bohr^3)
+GridVol     =      0.005880162455 (Bohr^3)
+Grid_Origin  0.000000000000  0.000000000000  0.000000000000
+Cell_Volume =  66089.639021451338 (Bohr^3)
+GridVol     =      0.005880162455 (Bohr^3)
+<UCell_Box> Info. of cutoff energy and num. of grids
+lattice vectors (bohr)
+A  = 40.430687525646,  0.000000000000,  0.000000000000
+B  =  0.000000000000, 40.430687525646,  0.000000000000
+C  =  0.000000000000,  0.000000000000, 40.430687525646
+reciprocal lattice vectors (bohr^-1)
+RA =  0.155406343342,  0.000000000000,  0.000000000000
+RB =  0.000000000000,  0.155406343342,  0.000000000000
+RC =  0.000000000000,  0.000000000000,  0.155406343342
+Required cutoff energy (Ryd) for 3D-grids = 300.0000
+    Used cutoff energy (Ryd) for 3D-grids = 302.9518, 302.9518, 302.9518
+Num. of grids of a-, b-, and c-axes = 224, 224, 224
+Grid_Origin  0.000000000000  0.000000000000  0.000000000000
+Cell_Volume =  66089.639021451338 (Bohr^3)
+GridVol     =      0.005880162455 (Bohr^3)
+Cell vectors (bohr) of the grid cell (gtv)
+  gtv_a =  0.180494140739,  0.000000000000,  0.000000000000
+  gtv_b =  0.000000000000,  0.180494140739,  0.000000000000
+  gtv_c =  0.000000000000,  0.000000000000,  0.180494140739
+  |gtv_a| =  0.180494140739
+  |gtv_b| =  0.180494140739
+  |gtv_c| =  0.180494140739
+Num. of grids overlapping with atom    1 = 244351
+Num. of grids overlapping with atom    2 = 244376
+Num. of grids overlapping with atom    3 = 244295
+Num. of grids overlapping with atom    4 = 244325
+Num. of grids overlapping with atom    5 = 244335
+Num. of grids overlapping with atom    6 = 244384
+Num. of grids overlapping with atom    7 = 244306
+Num. of grids overlapping with atom    8 = 244295
+Num. of grids overlapping with atom    9 = 89044
+Num. of grids overlapping with atom   10 = 89053
+Num. of grids overlapping with atom   11 = 89057
+Num. of grids overlapping with atom   12 = 89055
+Num. of grids overlapping with atom   13 = 89075
+Num. of grids overlapping with atom   14 = 89088
+Num. of grids overlapping with atom   15 = 89030
+Num. of grids overlapping with atom   16 = 89064
+Num. of grids overlapping with atom   17 = 89080
+Num. of grids overlapping with atom   18 = 89032
+Num. of grids overlapping with atom   19 = 89063
+Num. of grids overlapping with atom   20 = 89064
+     ..........
+     ......
+
+
+*******************************************************
+             SCF calculation at MD = 1                
+*******************************************************
+
+<MD= 1>  Calculation of the overlap matrix
+<MD= 1>  Calculation of the nonlocal matrix
+<MD= 1>  Calculation of the VNA projector matrix
+
+******************* MD= 1  SCF= 1 *******************
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   0.7018  0.7018 sum   1.4035
+    2   Si  MulP   0.6648  0.6648 sum   1.3296
+    3   Si  MulP   0.7001  0.7001 sum   1.4002
+    4   Si  MulP   0.6936  0.6936 sum   1.3873
+    5   Si  MulP   0.6760  0.6760 sum   1.3519
+    6   Si  MulP   0.6692  0.6692 sum   1.3383
+    7   Si  MulP   0.6869  0.6869 sum   1.3738
+    8   Si  MulP   0.6756  0.6756 sum   1.3512
+    9    O  MulP   3.6435  3.6435 sum   7.2869
+   10    O  MulP   3.6820  3.6820 sum   7.3640
+   11    O  MulP   3.6447  3.6447 sum   7.2894
+   12    O  MulP   3.6418  3.6418 sum   7.2836
+   13    O  MulP   3.6492  3.6492 sum   7.2984
+   14    O  MulP   3.6524  3.6524 sum   7.3048
+   15    O  MulP   3.6511  3.6511 sum   7.3022
+   16    O  MulP   3.6466  3.6466 sum   7.2931
+   17    O  MulP   3.6477  3.6477 sum   7.2955
+   18    O  MulP   3.6618  3.6618 sum   7.3237
+   19    O  MulP   3.6327  3.6327 sum   7.2653
+   20    O  MulP   3.6576  3.6576 sum   7.3152
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.050000000000
+<DFT>  Uele   =-1962.938035797232  dUele     =   1.000000000000
+<DFT>  NormRD =    1.000000000000  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 2 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   0.7538  0.7538 sum   1.5075
+    2   Si  MulP   0.7204  0.7204 sum   1.4409
+    3   Si  MulP   0.7549  0.7549 sum   1.5098
+    4   Si  MulP   0.7523  0.7523 sum   1.5046
+    5   Si  MulP   0.7326  0.7326 sum   1.4652
+    6   Si  MulP   0.7263  0.7263 sum   1.4526
+    7   Si  MulP   0.7415  0.7415 sum   1.4831
+    8   Si  MulP   0.7293  0.7293 sum   1.4586
+    9    O  MulP   3.6187  3.6187 sum   7.2374
+   10    O  MulP   3.6540  3.6540 sum   7.3080
+   11    O  MulP   3.6197  3.6197 sum   7.2394
+   12    O  MulP   3.6161  3.6161 sum   7.2323
+   13    O  MulP   3.6226  3.6226 sum   7.2453
+   14    O  MulP   3.6256  3.6256 sum   7.2511
+   15    O  MulP   3.6215  3.6215 sum   7.2431
+   16    O  MulP   3.6189  3.6189 sum   7.2377
+   17    O  MulP   3.6199  3.6199 sum   7.2398
+   18    O  MulP   3.6360  3.6360 sum   7.2720
+   19    O  MulP   3.6038  3.6038 sum   7.2076
+   20    O  MulP   3.6304  3.6304 sum   7.2608
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.001000000000
+<DFT>  Uele   =-1922.978431462516  dUele     =  39.959604334716
+<DFT>  NormRD =   44.177222434152  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 3 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   0.7547  0.7547 sum   1.5093
+    2   Si  MulP   0.7213  0.7213 sum   1.4427
+    3   Si  MulP   0.7558  0.7558 sum   1.5117
+    4   Si  MulP   0.7533  0.7533 sum   1.5066
+    5   Si  MulP   0.7336  0.7336 sum   1.4671
+    6   Si  MulP   0.7273  0.7273 sum   1.4546
+    7   Si  MulP   0.7425  0.7425 sum   1.4850
+    8   Si  MulP   0.7302  0.7302 sum   1.4605
+    9    O  MulP   3.6183  3.6183 sum   7.2366
+   10    O  MulP   3.6535  3.6535 sum   7.3070
+   11    O  MulP   3.6193  3.6193 sum   7.2386
+   12    O  MulP   3.6157  3.6157 sum   7.2314
+   13    O  MulP   3.6222  3.6222 sum   7.2444
+   14    O  MulP   3.6251  3.6251 sum   7.2502
+   15    O  MulP   3.6210  3.6210 sum   7.2421
+   16    O  MulP   3.6184  3.6184 sum   7.2368
+   17    O  MulP   3.6194  3.6194 sum   7.2388
+   18    O  MulP   3.6356  3.6356 sum   7.2711
+   19    O  MulP   3.6033  3.6033 sum   7.2066
+   20    O  MulP   3.6299  3.6299 sum   7.2598
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =-1922.308573349504  dUele     =   0.669858113012
+<DFT>  NormRD =   44.077124257611  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 4 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   0.9445  0.9445 sum   1.8890
+    2   Si  MulP   0.9119  0.9119 sum   1.8238
+    3   Si  MulP   0.9541  0.9541 sum   1.9082
+    4   Si  MulP   0.9642  0.9642 sum   1.9285
+    5   Si  MulP   0.9416  0.9416 sum   1.8832
+    6   Si  MulP   0.9346  0.9346 sum   1.8693
+    7   Si  MulP   0.9410  0.9410 sum   1.8821
+    8   Si  MulP   0.9246  0.9246 sum   1.8492
+    9    O  MulP   3.5281  3.5281 sum   7.0562
+   10    O  MulP   3.5506  3.5506 sum   7.1011
+   11    O  MulP   3.5284  3.5284 sum   7.0568
+   12    O  MulP   3.5230  3.5230 sum   7.0461
+   13    O  MulP   3.5259  3.5259 sum   7.0518
+   14    O  MulP   3.5279  3.5279 sum   7.0558
+   15    O  MulP   3.5153  3.5153 sum   7.0305
+   16    O  MulP   3.5182  3.5182 sum   7.0365
+   17    O  MulP   3.5195  3.5195 sum   7.0390
+   18    O  MulP   3.5415  3.5415 sum   7.0830
+   19    O  MulP   3.5008  3.5008 sum   7.0015
+   20    O  MulP   3.5287  3.5287 sum   7.0575
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =-1792.204878838626  dUele     = 130.103694510878
+<DFT>  NormRD =   24.399866289631  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 5 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.0582  1.0582 sum   2.1164
+    2   Si  MulP   1.0270  1.0270 sum   2.0540
+    3   Si  MulP   1.0716  1.0716 sum   2.1431
+    4   Si  MulP   1.0898  1.0898 sum   2.1796
+    5   Si  MulP   1.0660  1.0660 sum   2.1320
+    6   Si  MulP   1.0587  1.0587 sum   2.1173
+    7   Si  MulP   1.0594  1.0594 sum   2.1187
+    8   Si  MulP   1.0421  1.0421 sum   2.0843
+    9    O  MulP   3.4739  3.4739 sum   6.9478
+   10    O  MulP   3.4906  3.4906 sum   6.9812
+   11    O  MulP   3.4744  3.4744 sum   6.9487
+   12    O  MulP   3.4667  3.4667 sum   6.9333
+   13    O  MulP   3.4677  3.4677 sum   6.9354
+   14    O  MulP   3.4683  3.4683 sum   6.9365
+   15    O  MulP   3.4516  3.4516 sum   6.9031
+   16    O  MulP   3.4588  3.4588 sum   6.9176
+   17    O  MulP   3.4595  3.4595 sum   6.9190
+   18    O  MulP   3.4850  3.4850 sum   6.9701
+   19    O  MulP   3.4395  3.4395 sum   6.8790
+   20    O  MulP   3.4709  3.4709 sum   6.9418
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =-1736.594443859916  dUele     =  55.610434978711
+<DFT>  NormRD =   14.835914107070  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 6 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.1233  1.1233 sum   2.2465
+    2   Si  MulP   1.0946  1.0946 sum   2.1893
+    3   Si  MulP   1.1379  1.1379 sum   2.2758
+    4   Si  MulP   1.1618  1.1618 sum   2.3236
+    5   Si  MulP   1.1363  1.1363 sum   2.2725
+    6   Si  MulP   1.1295  1.1295 sum   2.2591
+    7   Si  MulP   1.1268  1.1268 sum   2.2535
+    8   Si  MulP   1.1096  1.1096 sum   2.2193
+    9    O  MulP   3.4427  3.4427 sum   6.8853
+   10    O  MulP   3.4578  3.4578 sum   6.9156
+   11    O  MulP   3.4435  3.4435 sum   6.8870
+   12    O  MulP   3.4341  3.4341 sum   6.8682
+   13    O  MulP   3.4345  3.4345 sum   6.8689
+   14    O  MulP   3.4333  3.4333 sum   6.8666
+   15    O  MulP   3.4150  3.4150 sum   6.8299
+   16    O  MulP   3.4253  3.4253 sum   6.8505
+   17    O  MulP   3.4252  3.4252 sum   6.8504
+   18    O  MulP   3.4526  3.4526 sum   6.9053
+   19    O  MulP   3.4046  3.4046 sum   6.8091
+   20    O  MulP   3.4396  3.4396 sum   6.8793
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =-1716.539247906818  dUele     =  20.055195953098
+<DFT>  NormRD =   10.298408442350  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 7 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.1608  1.1608 sum   2.3216
+    2   Si  MulP   1.1339  1.1339 sum   2.2678
+    3   Si  MulP   1.1756  1.1756 sum   2.3511
+    4   Si  MulP   1.2032  1.2032 sum   2.4063
+    5   Si  MulP   1.1759  1.1759 sum   2.3518
+    6   Si  MulP   1.1703  1.1703 sum   2.3406
+    7   Si  MulP   1.1654  1.1654 sum   2.3309
+    8   Si  MulP   1.1484  1.1484 sum   2.2967
+    9    O  MulP   3.4247  3.4247 sum   6.8494
+   10    O  MulP   3.4396  3.4396 sum   6.8793
+   11    O  MulP   3.4259  3.4259 sum   6.8517
+   12    O  MulP   3.4155  3.4155 sum   6.8309
+   13    O  MulP   3.4157  3.4157 sum   6.8314
+   14    O  MulP   3.4130  3.4130 sum   6.8259
+   15    O  MulP   3.3937  3.3937 sum   6.7875
+   16    O  MulP   3.4063  3.4063 sum   6.8127
+   17    O  MulP   3.4055  3.4055 sum   6.8111
+   18    O  MulP   3.4340  3.4340 sum   6.8680
+   19    O  MulP   3.3845  3.3845 sum   6.7690
+   20    O  MulP   3.4226  3.4226 sum   6.8452
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =-1712.430405955965  dUele     =   4.108841950853
+<DFT>  NormRD =    7.837732705829  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 8 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.1832  1.1832 sum   2.3664
+    2   Si  MulP   1.1574  1.1574 sum   2.3148
+    3   Si  MulP   1.1977  1.1977 sum   2.3954
+    4   Si  MulP   1.2276  1.2276 sum   2.4553
+    5   Si  MulP   1.1990  1.1990 sum   2.3980
+    6   Si  MulP   1.1945  1.1945 sum   2.3889
+    7   Si  MulP   1.1884  1.1884 sum   2.3769
+    8   Si  MulP   1.1711  1.1711 sum   2.3423
+    9    O  MulP   3.4141  3.4141 sum   6.8282
+   10    O  MulP   3.4291  3.4291 sum   6.8583
+   11    O  MulP   3.4155  3.4155 sum   6.8310
+   12    O  MulP   3.4045  3.4045 sum   6.8090
+   13    O  MulP   3.4048  3.4048 sum   6.8097
+   14    O  MulP   3.4009  3.4009 sum   6.8017
+   15    O  MulP   3.3810  3.3810 sum   6.7620
+   16    O  MulP   3.3953  3.3953 sum   6.7906
+   17    O  MulP   3.3938  3.3938 sum   6.7877
+   18    O  MulP   3.4230  3.4230 sum   6.8460
+   19    O  MulP   3.3726  3.3726 sum   6.7453
+   20    O  MulP   3.4128  3.4128 sum   6.8257
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =-1714.894148803916  dUele     =   2.463742847950
+<DFT>  NormRD =    6.198501700090  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 9 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.1973  1.1973 sum   2.3945
+    2   Si  MulP   1.1722  1.1722 sum   2.3444
+    3   Si  MulP   1.2113  1.2113 sum   2.4227
+    4   Si  MulP   1.2427  1.2427 sum   2.4855
+    5   Si  MulP   1.2131  1.2131 sum   2.4262
+    6   Si  MulP   1.2095  1.2095 sum   2.4189
+    7   Si  MulP   1.2028  1.2028 sum   2.4056
+    8   Si  MulP   1.1851  1.1851 sum   2.3701
+    9    O  MulP   3.4076  3.4076 sum   6.8152
+   10    O  MulP   3.4227  3.4227 sum   6.8455
+   11    O  MulP   3.4092  3.4092 sum   6.8183
+   12    O  MulP   3.3978  3.3978 sum   6.7956
+   13    O  MulP   3.3983  3.3983 sum   6.7966
+   14    O  MulP   3.3934  3.3934 sum   6.7868
+   15    O  MulP   3.3729  3.3729 sum   6.7459
+   16    O  MulP   3.3886  3.3886 sum   6.7772
+   17    O  MulP   3.3866  3.3866 sum   6.7731
+   18    O  MulP   3.4162  3.4162 sum   6.8323
+   19    O  MulP   3.3652  3.3652 sum   6.7305
+   20    O  MulP   3.4069  3.4069 sum   6.8138
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =-1719.605433927109  dUele     =   4.711285123193
+<DFT>  NormRD =    4.954461040889  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=10 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2066  1.2066 sum   2.4131
+    2   Si  MulP   1.1820  1.1820 sum   2.3640
+    3   Si  MulP   1.2202  1.2202 sum   2.4405
+    4   Si  MulP   1.2525  1.2525 sum   2.5050
+    5   Si  MulP   1.2222  1.2222 sum   2.4443
+    6   Si  MulP   1.2193  1.2193 sum   2.4385
+    7   Si  MulP   1.2122  1.2122 sum   2.4244
+    8   Si  MulP   1.1940  1.1940 sum   2.3880
+    9    O  MulP   3.4034  3.4034 sum   6.8068
+   10    O  MulP   3.4186  3.4186 sum   6.8372
+   11    O  MulP   3.4051  3.4051 sum   6.8102
+   12    O  MulP   3.3935  3.3935 sum   6.7869
+   13    O  MulP   3.3941  3.3941 sum   6.7883
+   14    O  MulP   3.3886  3.3886 sum   6.7772
+   15    O  MulP   3.3676  3.3676 sum   6.7352
+   16    O  MulP   3.3843  3.3843 sum   6.7686
+   17    O  MulP   3.3818  3.3818 sum   6.7636
+   18    O  MulP   3.4117  3.4117 sum   6.8235
+   19    O  MulP   3.3604  3.3604 sum   6.7208
+   20    O  MulP   3.4031  3.4031 sum   6.8062
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =-1724.660118388363  dUele     =   5.054684461254
+<DFT>  NormRD =    3.964564856898  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=11 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2130  1.2130 sum   2.4260
+    2   Si  MulP   1.1888  1.1888 sum   2.3776
+    3   Si  MulP   1.2263  1.2263 sum   2.4526
+    4   Si  MulP   1.2591  1.2591 sum   2.5182
+    5   Si  MulP   1.2283  1.2283 sum   2.4567
+    6   Si  MulP   1.2259  1.2259 sum   2.4519
+    7   Si  MulP   1.2187  1.2187 sum   2.4374
+    8   Si  MulP   1.2001  1.2001 sum   2.4001
+    9    O  MulP   3.4006  3.4006 sum   6.8011
+   10    O  MulP   3.4158  3.4158 sum   6.8316
+   11    O  MulP   3.4023  3.4023 sum   6.8047
+   12    O  MulP   3.3905  3.3905 sum   6.7811
+   13    O  MulP   3.3914  3.3914 sum   6.7827
+   14    O  MulP   3.3854  3.3854 sum   6.7708
+   15    O  MulP   3.3639  3.3639 sum   6.7278
+   16    O  MulP   3.3814  3.3814 sum   6.7628
+   17    O  MulP   3.3785  3.3785 sum   6.7570
+   18    O  MulP   3.4087  3.4087 sum   6.8175
+   19    O  MulP   3.3571  3.3571 sum   6.7141
+   20    O  MulP   3.4006  3.4006 sum   6.8011
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =-1729.292216421421  dUele     =   4.632098033058
+<DFT>  NormRD =    3.168909327906  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=12 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2176  1.2176 sum   2.4353
+    2   Si  MulP   1.1936  1.1936 sum   2.3873
+    3   Si  MulP   1.2307  1.2307 sum   2.4613
+    4   Si  MulP   1.2637  1.2637 sum   2.5275
+    5   Si  MulP   1.2327  1.2327 sum   2.4654
+    6   Si  MulP   1.2307  1.2307 sum   2.4613
+    7   Si  MulP   1.2234  1.2234 sum   2.4467
+    8   Si  MulP   1.2043  1.2043 sum   2.4086
+    9    O  MulP   3.3986  3.3986 sum   6.7971
+   10    O  MulP   3.4138  3.4138 sum   6.8277
+   11    O  MulP   3.4004  3.4004 sum   6.8008
+   12    O  MulP   3.3884  3.3884 sum   6.7769
+   13    O  MulP   3.3894  3.3894 sum   6.7788
+   14    O  MulP   3.3831  3.3831 sum   6.7662
+   15    O  MulP   3.3612  3.3612 sum   6.7225
+   16    O  MulP   3.3794  3.3794 sum   6.7587
+   17    O  MulP   3.3761  3.3761 sum   6.7523
+   18    O  MulP   3.4066  3.4066 sum   6.8132
+   19    O  MulP   3.3547  3.3547 sum   6.7094
+   20    O  MulP   3.3988  3.3988 sum   6.7975
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1733.255696184566  dUele     =   3.963479763146
+<DFT>  NormRD =    2.530064713155  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=13 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2326  1.2326 sum   2.4652
+    2   Si  MulP   1.2090  1.2090 sum   2.4180
+    3   Si  MulP   1.2445  1.2445 sum   2.4890
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2460  1.2460 sum   2.4921
+    6   Si  MulP   1.2452  1.2452 sum   2.4905
+    7   Si  MulP   1.2380  1.2380 sum   2.4760
+    8   Si  MulP   1.2174  1.2174 sum   2.4348
+    9    O  MulP   3.3923  3.3923 sum   6.7847
+   10    O  MulP   3.4077  3.4077 sum   6.8154
+   11    O  MulP   3.3945  3.3945 sum   6.7890
+   12    O  MulP   3.3820  3.3820 sum   6.7640
+   13    O  MulP   3.3836  3.3836 sum   6.7672
+   14    O  MulP   3.3763  3.3763 sum   6.7526
+   15    O  MulP   3.3528  3.3528 sum   6.7055
+   16    O  MulP   3.3733  3.3733 sum   6.7466
+   17    O  MulP   3.3687  3.3687 sum   6.7374
+   18    O  MulP   3.4000  3.4000 sum   6.8001
+   19    O  MulP   3.3474  3.3474 sum   6.6947
+   20    O  MulP   3.3933  3.3933 sum   6.7867
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1750.097370585642  dUele     =  16.841674401075
+<DFT>  NormRD =    0.192424577248  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=14 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2332  1.2332 sum   2.4664
+    2   Si  MulP   1.2089  1.2089 sum   2.4179
+    3   Si  MulP   1.2453  1.2453 sum   2.4906
+    4   Si  MulP   1.2779  1.2779 sum   2.5558
+    5   Si  MulP   1.2466  1.2466 sum   2.4932
+    6   Si  MulP   1.2457  1.2457 sum   2.4913
+    7   Si  MulP   1.2386  1.2386 sum   2.4771
+    8   Si  MulP   1.2181  1.2181 sum   2.4362
+    9    O  MulP   3.3918  3.3918 sum   6.7837
+   10    O  MulP   3.4074  3.4074 sum   6.8148
+   11    O  MulP   3.3943  3.3943 sum   6.7886
+   12    O  MulP   3.3816  3.3816 sum   6.7633
+   13    O  MulP   3.3835  3.3835 sum   6.7670
+   14    O  MulP   3.3759  3.3759 sum   6.7519
+   15    O  MulP   3.3524  3.3524 sum   6.7049
+   16    O  MulP   3.3733  3.3733 sum   6.7465
+   17    O  MulP   3.3687  3.3687 sum   6.7373
+   18    O  MulP   3.3999  3.3999 sum   6.7997
+   19    O  MulP   3.3472  3.3472 sum   6.6944
+   20    O  MulP   3.3933  3.3933 sum   6.7865
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.335498915038  dUele     =   0.761871670603
+<DFT>  NormRD =    0.080895107977  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=15 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2091  1.2091 sum   2.4182
+    3   Si  MulP   1.2449  1.2449 sum   2.4899
+    4   Si  MulP   1.2775  1.2775 sum   2.5550
+    5   Si  MulP   1.2462  1.2462 sum   2.4924
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4763
+    8   Si  MulP   1.2176  1.2176 sum   2.4352
+    9    O  MulP   3.3922  3.3922 sum   6.7843
+   10    O  MulP   3.4078  3.4078 sum   6.8156
+   11    O  MulP   3.3944  3.3944 sum   6.7887
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3834  3.3834 sum   6.7669
+   14    O  MulP   3.3763  3.3763 sum   6.7525
+   15    O  MulP   3.3526  3.3526 sum   6.7053
+   16    O  MulP   3.3731  3.3731 sum   6.7462
+   17    O  MulP   3.3686  3.3686 sum   6.7371
+   18    O  MulP   3.3999  3.3999 sum   6.7998
+   19    O  MulP   3.3472  3.3472 sum   6.6945
+   20    O  MulP   3.3931  3.3931 sum   6.7861
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.551224090510  dUele     =   0.215725175472
+<DFT>  NormRD =    0.026797342244  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=16 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2328  1.2328 sum   2.4657
+    2   Si  MulP   1.2088  1.2088 sum   2.4176
+    3   Si  MulP   1.2449  1.2449 sum   2.4897
+    4   Si  MulP   1.2774  1.2774 sum   2.5548
+    5   Si  MulP   1.2462  1.2462 sum   2.4924
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4763
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3921  3.3921 sum   6.7842
+   10    O  MulP   3.4076  3.4076 sum   6.8153
+   11    O  MulP   3.3944  3.3944 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3837  3.3837 sum   6.7673
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7468
+   17    O  MulP   3.3688  3.3688 sum   6.7376
+   18    O  MulP   3.4000  3.4000 sum   6.8000
+   19    O  MulP   3.3473  3.3473 sum   6.6947
+   20    O  MulP   3.3934  3.3934 sum   6.7869
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.582319377344  dUele     =   0.031095286834
+<DFT>  NormRD =    0.006446474704  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=17 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2088  1.2088 sum   2.4176
+    3   Si  MulP   1.2449  1.2449 sum   2.4898
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2462  1.2462 sum   2.4925
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4764
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3920  3.3920 sum   6.7841
+   10    O  MulP   3.4076  3.4076 sum   6.8153
+   11    O  MulP   3.3945  3.3945 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3836  3.3836 sum   6.7673
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7468
+   17    O  MulP   3.3688  3.3688 sum   6.7375
+   18    O  MulP   3.4000  3.4000 sum   6.8001
+   19    O  MulP   3.3473  3.3473 sum   6.6946
+   20    O  MulP   3.3932  3.3932 sum   6.7865
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.601274858691  dUele     =   0.018955481347
+<DFT>  NormRD =    0.005113311592  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=18 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2087  1.2087 sum   2.4175
+    3   Si  MulP   1.2449  1.2449 sum   2.4898
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2462  1.2462 sum   2.4924
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4764
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3921  3.3921 sum   6.7841
+   10    O  MulP   3.4077  3.4077 sum   6.8153
+   11    O  MulP   3.3944  3.3944 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3836  3.3836 sum   6.7672
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7467
+   17    O  MulP   3.3688  3.3688 sum   6.7375
+   18    O  MulP   3.4000  3.4000 sum   6.8000
+   19    O  MulP   3.3473  3.3473 sum   6.6946
+   20    O  MulP   3.3934  3.3934 sum   6.7867
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.601046271312  dUele     =   0.000228587379
+<DFT>  NormRD =    0.002025564098  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=19 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2088  1.2088 sum   2.4176
+    3   Si  MulP   1.2449  1.2449 sum   2.4898
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2462  1.2462 sum   2.4924
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4764
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3921  3.3921 sum   6.7841
+   10    O  MulP   3.4077  3.4077 sum   6.8153
+   11    O  MulP   3.3944  3.3944 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3836  3.3836 sum   6.7672
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7467
+   17    O  MulP   3.3687  3.3687 sum   6.7375
+   18    O  MulP   3.4000  3.4000 sum   6.8000
+   19    O  MulP   3.3473  3.3473 sum   6.6946
+   20    O  MulP   3.3933  3.3933 sum   6.7866
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.598563251976  dUele     =   0.002483019337
+<DFT>  NormRD =    0.001119560465  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=20 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2088  1.2088 sum   2.4176
+    3   Si  MulP   1.2449  1.2449 sum   2.4898
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2462  1.2462 sum   2.4925
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4764
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3921  3.3921 sum   6.7841
+   10    O  MulP   3.4077  3.4077 sum   6.8153
+   11    O  MulP   3.3944  3.3944 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3836  3.3836 sum   6.7672
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7467
+   17    O  MulP   3.3687  3.3687 sum   6.7375
+   18    O  MulP   3.4000  3.4000 sum   6.8000
+   19    O  MulP   3.3473  3.3473 sum   6.6946
+   20    O  MulP   3.3933  3.3933 sum   6.7867
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.600966769275  dUele     =   0.002403517299
+<DFT>  NormRD =    0.000341703361  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=21 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2088  1.2088 sum   2.4176
+    3   Si  MulP   1.2449  1.2449 sum   2.4898
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2462  1.2462 sum   2.4924
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4764
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3921  3.3921 sum   6.7841
+   10    O  MulP   3.4077  3.4077 sum   6.8153
+   11    O  MulP   3.3944  3.3944 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3836  3.3836 sum   6.7672
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7467
+   17    O  MulP   3.3687  3.3687 sum   6.7375
+   18    O  MulP   3.4000  3.4000 sum   6.8000
+   19    O  MulP   3.3473  3.3473 sum   6.6946
+   20    O  MulP   3.3933  3.3933 sum   6.7867
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.601631076780  dUele     =   0.000664307506
+<DFT>  NormRD =    0.000148482940  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=22 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2088  1.2088 sum   2.4176
+    3   Si  MulP   1.2449  1.2449 sum   2.4898
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2462  1.2462 sum   2.4924
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4764
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3921  3.3921 sum   6.7841
+   10    O  MulP   3.4077  3.4077 sum   6.8153
+   11    O  MulP   3.3944  3.3944 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3836  3.3836 sum   6.7672
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7467
+   17    O  MulP   3.3687  3.3687 sum   6.7375
+   18    O  MulP   3.4000  3.4000 sum   6.8000
+   19    O  MulP   3.3473  3.3473 sum   6.6946
+   20    O  MulP   3.3933  3.3933 sum   6.7867
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.601129630924  dUele     =   0.000501445856
+<DFT>  NormRD =    0.000034539946  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=23 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2088  1.2088 sum   2.4176
+    3   Si  MulP   1.2449  1.2449 sum   2.4898
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2462  1.2462 sum   2.4924
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4764
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3921  3.3921 sum   6.7841
+   10    O  MulP   3.4077  3.4077 sum   6.8153
+   11    O  MulP   3.3944  3.3944 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3836  3.3836 sum   6.7672
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7467
+   17    O  MulP   3.3687  3.3687 sum   6.7375
+   18    O  MulP   3.4000  3.4000 sum   6.8000
+   19    O  MulP   3.3473  3.3473 sum   6.6946
+   20    O  MulP   3.3933  3.3933 sum   6.7867
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.601132407381  dUele     =   0.000002776457
+<DFT>  NormRD =    0.000029824164  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=24 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2088  1.2088 sum   2.4176
+    3   Si  MulP   1.2449  1.2449 sum   2.4898
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2462  1.2462 sum   2.4924
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4764
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3921  3.3921 sum   6.7841
+   10    O  MulP   3.4077  3.4077 sum   6.8153
+   11    O  MulP   3.3944  3.3944 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3836  3.3836 sum   6.7672
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7467
+   17    O  MulP   3.3687  3.3687 sum   6.7375
+   18    O  MulP   3.4000  3.4000 sum   6.8000
+   19    O  MulP   3.3473  3.3473 sum   6.6946
+   20    O  MulP   3.3933  3.3933 sum   6.7867
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.601190360406  dUele     =   0.000057953025
+<DFT>  NormRD =    0.000005398925  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=25 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Krylov>  Solving the eigenvalue problem...
+    1   Si  MulP   1.2329  1.2329 sum   2.4657
+    2   Si  MulP   1.2088  1.2088 sum   2.4176
+    3   Si  MulP   1.2449  1.2449 sum   2.4898
+    4   Si  MulP   1.2774  1.2774 sum   2.5549
+    5   Si  MulP   1.2462  1.2462 sum   2.4924
+    6   Si  MulP   1.2453  1.2453 sum   2.4906
+    7   Si  MulP   1.2382  1.2382 sum   2.4764
+    8   Si  MulP   1.2177  1.2177 sum   2.4353
+    9    O  MulP   3.3921  3.3921 sum   6.7841
+   10    O  MulP   3.4077  3.4077 sum   6.8153
+   11    O  MulP   3.3944  3.3944 sum   6.7889
+   12    O  MulP   3.3818  3.3818 sum   6.7636
+   13    O  MulP   3.3836  3.3836 sum   6.7672
+   14    O  MulP   3.3762  3.3762 sum   6.7524
+   15    O  MulP   3.3526  3.3526 sum   6.7052
+   16    O  MulP   3.3734  3.3734 sum   6.7467
+   17    O  MulP   3.3687  3.3687 sum   6.7375
+   18    O  MulP   3.4000  3.4000 sum   6.8000
+   19    O  MulP   3.3473  3.3473 sum   6.6946
+   20    O  MulP   3.3933  3.3933 sum   6.7867
+     ..........
+     ......
+
+ Sum of MulP: up   =  1728.00000 down          =  1728.00000
+              total=  3456.00000 ideal(neutral)=  3456.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =-1749.601190242508  dUele     =   0.000000117898
+<DFT>  NormRD =    0.000004806025  Criterion =   0.000001000000
+
+ *********************************************** 
+                                                 
+      NATURAL ATOMIC ORBITAL (NAO) Analysis      
+                                                 
+ *********************************************** 
+
+## Threshold for occupied or Rydberg orbital in NAO calc.: 0.850000 elec.
+
+<< 1 >> NAO calculation
+<< 2 >> Sending & Receiving atom data
+<< 3 >> Collection of NAO data
+
+### Natural populations of target atoms ###
+ (1)   269  Si :   1.49806480 
+ (2)   304   O :   7.24393552 
+ (3)   323   O :   7.25851549 
+ (4)   541   O :   7.26899681 
+ (5)   574   O :   7.20580381 
+
+### Total natural pop. of target atoms =     36.58468 
+
+### NAO for each target atom (details) ###
+ #### Global atom num.: 269 ( Si ) / NP =   1.4981
+---------------------------------------------------------------------------------
+ NP in NAO         0.0015  0.5122 -0.0013  0.3334  0.0013  0.3258  0.0024  0.3229
+ Energy (Hartree)  1.0648 -0.0957  0.6613  0.0553  0.5511  0.0412  0.5012  0.0365
+---------------------------------------------------------------------------------
+ 1 s              -4.8253  1.3794  0.2586  0.0493 -0.1483 -0.0447  0.2719 -0.0016
+ 2 s               2.9442  0.3464 -0.1459 -0.0311 -0.0068 -0.0030 -0.2075 -0.0502
+ 1 px              0.7625  0.0364 -2.5549  1.0923  0.3624  0.0634 -0.2648 -0.0533
+ 2 px             -0.3960 -0.0208  2.2891  0.4315 -0.1245 -0.0257  0.0919  0.0192
+ 1 py              0.0701 -0.0075  0.2858  0.0474 -1.5381  1.2122  0.1805  0.0279
+ 2 py              0.0203  0.0014 -0.1222 -0.0252  1.8075  0.3335 -0.1450 -0.0300
+ 1 pz              1.1864  0.0149 -0.2042 -0.0406  0.2107  0.0342 -1.3119  1.2463
+ 2 pz             -0.5425 -0.0273  0.0902  0.0188 -0.1459 -0.0302  1.6613  0.3033
+
+ #### Global atom num.: 304 ( O ) / NP =   7.2439
+---------------------------------------------------------------------------------
+ NP in NAO         0.0006  1.7385  0.0010  1.7384  0.0013  1.8810  0.0015  1.8816
+ Energy (Hartree)  2.6582 -0.7730  1.1465 -0.3888  0.8057 -0.3100  0.8028 -0.3114
+---------------------------------------------------------------------------------
+ 1 s              -1.5308  1.1983 -0.0303  0.0001  0.0699 -0.0241  0.0957 -0.0246
+ 2 s               1.7988 -0.0066  0.0173  0.0013 -0.0314 -0.0005 -0.0449 -0.0014
+ 1 px             -0.0345  0.0009 -1.7060  1.0567  0.3539 -0.0118 -0.4374  0.0134
+ 2 px              0.0390  0.0014  2.5896  0.0058 -0.2929 -0.0175  0.3707  0.0226
+ 1 py              0.0962 -0.0246  0.3538 -0.0118 -0.5448  1.0190  0.1112 -0.0031
+ 2 py             -0.0745  0.0016 -0.2928 -0.0175  1.6120 -0.0532 -0.0992 -0.0062
+ 1 pz              0.1401 -0.0251 -0.4386  0.0133  0.1160 -0.0027 -0.5448  1.0238
+ 2 pz             -0.1077  0.0005  0.3709  0.0226 -0.1000 -0.0063  1.6115 -0.0541
+
+ #### Global atom num.: 323 ( O ) / NP =   7.2585
+---------------------------------------------------------------------------------
+ NP in NAO         0.0005  1.7315  0.0016  1.8646  0.0018  1.7684  0.0015  1.8887
+ Energy (Hartree)  2.5859 -0.7592  0.9242 -0.3128  1.2334 -0.3767  0.7949 -0.2937
+---------------------------------------------------------------------------------
+ 1 s              -1.4800  1.2040  0.0144  0.0019 -0.0255 -0.0023 -0.0870  0.0207
+ 2 s               1.7712 -0.0075 -0.0135 -0.0011  0.0126  0.0010  0.0363  0.0008
+ 1 px              0.0290  0.0022 -0.8309  1.0267 -0.6925  0.0195  0.0666 -0.0000
+ 2 px             -0.0339 -0.0018  1.8829 -0.0455  0.5925  0.0339 -0.0590 -0.0038
+ 1 py             -0.0303 -0.0018 -0.6969  0.0191 -1.8096  1.0568  0.1127 -0.0015
+ 2 py              0.0300  0.0016  0.5933  0.0340  2.7137  0.0014 -0.0949 -0.0057
+ 1 pz             -0.1001  0.0220  0.0639 -0.0002  0.1083 -0.0018 -0.4365  1.0201
+ 2 pz              0.0865 -0.0005 -0.0586 -0.0037 -0.0941 -0.0056  1.5329 -0.0666
+
+ #### Global atom num.: 541 ( O ) / NP =   7.2690
+---------------------------------------------------------------------------------
+ NP in NAO         0.0006  1.7324  0.0019  1.8974  0.0014  1.8858  0.0015  1.7481
+ Energy (Hartree)  2.7764 -0.7569  0.8045 -0.2938  0.8272 -0.2968  1.2847 -0.3920
+---------------------------------------------------------------------------------
+ 1 s              -1.6894  1.2042  0.1093 -0.0212 -0.0228 -0.0106  0.0478 -0.0011
+ 2 s               1.8731 -0.0060 -0.0536 -0.0019  0.0097  0.0014 -0.0262 -0.0017
+ 1 px              0.1394 -0.0222 -0.4964  1.0208 -0.0359  0.0011  0.1135 -0.0032
+ 2 px             -0.1218 -0.0007  1.5941 -0.0661  0.0272  0.0014 -0.1056 -0.0060
+ 1 py             -0.0050 -0.0088 -0.0353  0.0012 -0.5596  1.0244  0.4475 -0.0139
+ 2 py              0.0178  0.0024  0.0271  0.0014  1.6422 -0.0639 -0.3821 -0.0209
+ 1 pz              0.0547 -0.0021  0.1145 -0.0031  0.4478 -0.0138 -1.9676  1.0680
+ 2 pz             -0.0581 -0.0020 -0.1058 -0.0060 -0.3821 -0.0209  2.8329  0.0009
+
+ #### Global atom num.: 574 ( O ) / NP =   7.2058
+---------------------------------------------------------------------------------
+ NP in NAO         0.0005  1.7722  0.0008  1.7332  0.0017  1.8410  0.0013  1.8553
+ Energy (Hartree)  2.6421 -0.7633  0.9526 -0.3525  0.8196 -0.3058  0.7371 -0.2982
+---------------------------------------------------------------------------------
+ 1 s              -1.4749  1.1945  0.0787 -0.0180  0.0934 -0.0281  0.1681 -0.0424
+ 2 s               1.7789 -0.0112 -0.0290 -0.0012 -0.0324 -0.0009 -0.0675 -0.0030
+ 1 px              0.1085 -0.0206 -1.1896  1.0498  0.4392 -0.0180  0.0774 -0.0029
+ 2 px             -0.0982  0.0010  2.1262 -0.0098 -0.3703 -0.0247 -0.0646 -0.0043
+ 1 py              0.1440 -0.0304  0.4371 -0.0182 -0.6473  1.0226 -0.0709  0.0051
+ 2 py             -0.1128  0.0025 -0.3699 -0.0246  1.6907 -0.0373  0.0556  0.0032
+ 1 pz              0.2665 -0.0464  0.0785 -0.0028 -0.0726  0.0049 -0.3859  1.0185
+ 2 pz             -0.2338  0.0018 -0.0648 -0.0044  0.0559  0.0032  1.4522 -0.0549
+
+<MD= 1>  Force calculation
+  Force calculation #1
+  Force calculation #2
+  Force calculation #3
+  Force calculation #4
+  Force calculation #5
+<MD= 1>  Total Energy
+  Force calculation #6
+  Force calculation #7
+
+*******************************************************
+                  Dipole moment (Debye)                 
+*******************************************************
+
+ Absolute D     1092.29158909
+
+                      Dx                Dy                Dz
+ Total            668.19350728      242.47079243     -829.35292080
+ Core          177897.45070401   172611.41111378   177355.42605230
+ Electron     -177229.25719672  -172368.94032136  -178184.77897310
+ Back ground       -0.00000000       -0.00000000       -0.00000000
+
+*******************************************************
+                Total Energy (Hartree) at MD = 1        
+*******************************************************
+
+  Uele  =   -1749.601190242508
+
+  Ukin  =    5464.776673756511
+  UH0   =  -72917.894644583052
+  UH1   =      34.360712783424
+  Una   =   -6583.896420734578
+  Unl   =    1537.198253698960
+  Uxc0  =   -1003.426556304533
+  Uxc1  =   -1003.426556304533
+  Ucore =   66548.907781696151
+  Uhub  =       0.000000000000
+  Ucs   =       0.000000000000
+  Uzs   =       0.000000000000
+  Uzo   =       0.000000000000
+  Uef   =       0.000000000000
+  UvdW  =       0.000000000000
+  Utot  =   -7923.400755991650
+
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy 
+
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+*******************************************************
+           Computational times (s) at MD = 1            
+*******************************************************
+
+  DFT in total      =  271.97991
+
+  Set_OLP_Kin       =    0.72540
+  Set_Nonlocal      =    2.37541
+  Set_ProExpn_VNA   =   48.14570
+  Set_Hamiltonian   =   43.17819
+  Poisson           =   11.61981
+  diagonalization   =   57.33970
+  Mixing_DM         =    8.32738
+  Force             =    4.97960
+  Total_Energy      =    3.24722
+  Set_Aden_Grid     =   16.78355
+  Set_Orbitals_Grid =    0.38650
+  Set_Density_Grid  =    4.89449
+  RestartFileDFT    =    1.50701
+  Mulliken_Charge   =    0.72919
+  FFT(2D)_Density   =   40.78631
+
+*******************************************************
+             MD or geometry opt. at MD = 1              
+*******************************************************
+
+
+outputting data on grids to files...
+
+
+***********************************************************
+***********************************************************
+               Computational Time (second)                 
+***********************************************************
+***********************************************************
+
+                               Min_ID   Min_Time       Max_ID   Max_Time
+   Total Computational Time =   330      322.287          0      322.363
+   readfile                 =   446        5.944          0        6.330
+   truncation               =   125       43.916        616       44.040
+   MD_pac                   =     0        0.015        635        0.035
+   OutData                  =    23        0.000          0        0.054
+   DFT                      =   616      271.875        125      271.999
+
+*** In DFT ***
+
+   Set_OLP_Kin              =   388        0.579        545        1.091
+   Set_Nonlocal             =   500        1.924        388        2.535
+   Set_ProExpn_VNA          =   647       48.049        358       64.769
+   Set_Hamiltonian          =   300       43.178        127       43.188
+   Poisson                  =   181       11.613        295       11.626
+   Diagonalization          =   163       57.321        607       57.349
+   Mixing_DM                =   252        8.327         83        8.334
+   Force                    =    48        4.980        227        4.980
+   Total_Energy             =     2        3.245          0        3.247
+   Set_Aden_Grid            =   358        0.159        647       16.879
+   Set_Orbitals_Grid        =   349        0.258        300        1.148
+   Set_Density_Grid         =   282        4.621        254       19.372
+   RestartFileDFT           =   470        0.701        403        1.873
+   Mulliken_Charge          =   595        0.712          0        0.729
+   FFT(2D)_Density          =   181       40.780         15       40.787
+   Others                   =   259       11.811        317       27.989
+
+The calculation was normally finished.

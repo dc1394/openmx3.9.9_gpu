@@ -1,0 +1,23 @@
+OpenMX Ver.3.9
+  icc version 18.0.5, compiler option -O3  -xHOST -ip -no-prec-div -qopenmp -Dkcomp -fp-model precise
+
+  sekirei (Intel Xeon E5-2680v3 12core 2.5GHz)
+  6 processes (MPI) x 4 thread (OpenMP) 
+
+   1  input_example/Benzene.dat        Elapsed time(s)=    3.69  diff Utot= 0.000000000034  diff Force= 0.000000000005
+   2  input_example/C60.dat            Elapsed time(s)=   11.54  diff Utot= 0.000000000005  diff Force= 0.000000000006
+   3  input_example/CO.dat             Elapsed time(s)=    6.14  diff Utot= 0.000000000106  diff Force= 0.000000001979
+   4  input_example/Cr2.dat            Elapsed time(s)=    5.80  diff Utot= 0.000000000364  diff Force= 0.000000000033
+   5  input_example/Crys-MnO.dat       Elapsed time(s)=   58.73  diff Utot= 0.000000000003  diff Force= 0.000000000005
+   6  input_example/GaAs.dat           Elapsed time(s)=   48.60  diff Utot= 0.000000000010  diff Force= 0.000000000002
+   7  input_example/Glycine.dat        Elapsed time(s)=    3.39  diff Utot= 0.000000000001  diff Force= 0.000000000000
+   8  input_example/Graphite4.dat      Elapsed time(s)=    9.05  diff Utot= 0.000000000016  diff Force= 0.000000000019
+   9  input_example/H2O-EF.dat         Elapsed time(s)=    3.04  diff Utot= 0.000000000002  diff Force= 0.000000000001
+  10  input_example/H2O.dat            Elapsed time(s)=    2.69  diff Utot= 0.000000000000  diff Force= 0.000000000019
+  11  input_example/HMn.dat            Elapsed time(s)=   10.50  diff Utot= 0.000000000085  diff Force= 0.000000000022
+  12  input_example/Methane.dat        Elapsed time(s)=    2.05  diff Utot= 0.000000000003  diff Force= 0.000000000002
+  13  input_example/Mol_MnO.dat        Elapsed time(s)=    6.41  diff Utot= 0.000000000617  diff Force= 0.000000000018
+  14  input_example/Ndia2.dat          Elapsed time(s)=    5.59  diff Utot= 0.000000000000  diff Force= 0.000000000000
+
+
+Total elapsed time (s)      177.21

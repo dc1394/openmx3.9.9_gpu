@@ -1,0 +1,15 @@
+OpenMX Ver.3.9
+  icc compiler Ver. 14.0.2.144, compiler option -openmp -O3 -xAVX -ip -no-prec-div
+
+  hster (Intel(R) Xeon(R) CPU E5-2640 0 @ 2.50GHz)
+  640 processes (MPI) x 1 thread (OpenMP)
+
+   1  large2_example/C1000.dat         Elapsed time(s)=  777.60  diff Utot= 0.000000007341  diff Force= 0.000000008795
+   2  large2_example/Fe1000.dat        Elapsed time(s)= 8181.70  diff Utot= 0.000000002241  diff Force= 0.000000011061
+   3  large2_example/GRA1024.dat       Elapsed time(s)=  927.20  diff Utot= 0.000000012903  diff Force= 0.000000004981
+   4  large2_example/Ih-Ice1200.dat    Elapsed time(s)=  445.88  diff Utot= 0.000000000216  diff Force= 0.000000001451
+   5  large2_example/Pt500.dat         Elapsed time(s)= 2629.20  diff Utot= 0.000000015832  diff Force= 0.000000001879
+   6  large2_example/R-TiO2-1050.dat   Elapsed time(s)=  844.58  diff Utot= 0.000000002263  diff Force= 0.000000001108
+   7  large2_example/Si1000.dat        Elapsed time(s)=  658.53  diff Utot= 0.000000000404  diff Force= 0.000000000908
+
+Total elapsed time (s)    14464.69

@@ -1,0 +1,890 @@
+
+The number of threads in each node for OpenMP parallelization is 2.
+
+
+*******************************************************
+*******************************************************
+ Welcome to OpenMX   Ver. 3.7.33                           
+ Copyright (C), 2002-2014, T. Ozaki                    
+ OpenMX comes with ABSOLUTELY NO WARRANTY.             
+ This is free software, and you are welcome to         
+ redistribute it under the constitution of the GNU-GPL.
+*******************************************************
+*******************************************************
+
+Automatic determination of Kerker_factor:   2.255694241287
+
+
+<Input_std>  Your input file was normally read.
+<Input_std>  The system includes 3 species and 10 atoms.
+
+*******************************************************
+                     PAO and VPS                       
+*******************************************************
+
+<SetPara_DFT>  PAOs of species C were normally found.
+<SetPara_DFT>  PAOs of species O were normally found.
+<SetPara_DFT>  PAOs of species H were normally found.
+<SetPara_DFT>  VPSs of species C were normally found.
+               C_PBE19.vps is j-dependent.
+               In case of scf.SpinOrbit.Coupling=off,
+               j-dependent pseudo potentials are averaged by j-degeneracy,
+               which corresponds to a scalar relativistic treatment.
+<SetPara_DFT>  VPSs of species O were normally found.
+               O_PBE19.vps is j-dependent.
+               In case of scf.SpinOrbit.Coupling=off,
+               j-dependent pseudo potentials are averaged by j-degeneracy,
+               which corresponds to a scalar relativistic treatment.
+<SetPara_DFT>  VPSs of species H were normally found.
+               H_PBE19.vps is j-dependent.
+               In case of scf.SpinOrbit.Coupling=off,
+               j-dependent pseudo potentials are averaged by j-degeneracy,
+               which corresponds to a scalar relativistic treatment.
+
+*******************************************************
+     Fourier transform of PAO and projectors of VNL    
+*******************************************************
+
+<FT_PAO>          Fourier transform of pseudo atomic orbitals
+<FT_NLP>          Fourier transform of non-local projectors
+<FT_ProExpn_VNA>  Fourier transform of VNA separable projectors
+<FT_VNA>          Fourier transform of VNA potentials
+<FT_ProductPAO>   Fourier transform of product of PAOs
+
+*******************************************************
+  Allocation of atoms to proccesors at MD_iter=    1     
+*******************************************************
+
+ proc =   0  # of atoms=   1  estimated weight=         1.00000
+ proc =   1  # of atoms=   1  estimated weight=         1.00000
+ proc =   2  # of atoms=   1  estimated weight=         1.00000
+ proc =   3  # of atoms=   1  estimated weight=         1.00000
+ proc =   4  # of atoms=   1  estimated weight=         1.00000
+ proc =   5  # of atoms=   1  estimated weight=         1.00000
+ proc =   6  # of atoms=   1  estimated weight=         1.00000
+ proc =   7  # of atoms=   1  estimated weight=         1.00000
+ proc =   8  # of atoms=   1  estimated weight=         1.00000
+ proc =   9  # of atoms=   1  estimated weight=         1.00000
+
+
+
+
+*******************************************************
+        Analysis of neighbors and setting of grids        
+*******************************************************
+
+TFNAN=      90   Average FNAN=   9.00000
+TSNAN=       0   Average SNAN=   0.00000
+<truncation> CpyCell= 1 ct_AN=   1 FNAN SNAN   9   0
+<truncation> CpyCell= 1 ct_AN=   2 FNAN SNAN   9   0
+<truncation> CpyCell= 1 ct_AN=   3 FNAN SNAN   9   0
+<truncation> CpyCell= 1 ct_AN=   4 FNAN SNAN   9   0
+<truncation> CpyCell= 1 ct_AN=   5 FNAN SNAN   9   0
+<truncation> CpyCell= 1 ct_AN=   6 FNAN SNAN   9   0
+<truncation> CpyCell= 1 ct_AN=   7 FNAN SNAN   9   0
+<truncation> CpyCell= 1 ct_AN=   8 FNAN SNAN   9   0
+<truncation> CpyCell= 1 ct_AN=   9 FNAN SNAN   9   0
+<truncation> CpyCell= 1 ct_AN=  10 FNAN SNAN   9   0
+TFNAN=      90   Average FNAN=   9.00000
+TSNAN=       0   Average SNAN=   0.00000
+<truncation> CpyCell= 2 ct_AN=   1 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   2 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   3 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   4 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   5 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   6 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   7 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   8 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   9 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=  10 FNAN SNAN   9   0
+TFNAN=      90   Average FNAN=   9.00000
+TSNAN=       0   Average SNAN=   0.00000
+<truncation> CpyCell= 2 ct_AN=   1 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   2 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   3 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   4 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   5 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   6 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   7 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   8 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=   9 FNAN SNAN   9   0
+<truncation> CpyCell= 2 ct_AN=  10 FNAN SNAN   9   0
+<Check_System> The system is molecule.
+lattice vectors (bohr)
+A  = 28.345889828684,  0.000000000000,  0.000000000000
+B  =  0.000000000000, 28.345889828684,  0.000000000000
+C  =  0.000000000000,  0.000000000000, 28.345889828684
+reciprocal lattice vectors (bohr^-1)
+RA =  0.221661247721,  0.000000000000,  0.000000000000
+RB =  0.000000000000,  0.221661247721,  0.000000000000
+RC =  0.000000000000,  0.000000000000,  0.221661247721
+Grid_Origin  0.000000000000  0.000000000000  0.000000000000
+Cell_Volume =  22775.624000226504 (Bohr^3)
+GridVol     =      0.005560455078 (Bohr^3)
+Grid_Origin  0.000000000000  0.000000000000  0.000000000000
+Cell_Volume =  22775.624000226504 (Bohr^3)
+GridVol     =      0.005560455078 (Bohr^3)
+<UCell_Box> Info. of cutoff energy and num. of grids
+lattice vectors (bohr)
+A  = 28.345889828684,  0.000000000000,  0.000000000000
+B  =  0.000000000000, 28.345889828684,  0.000000000000
+C  =  0.000000000000,  0.000000000000, 28.345889828684
+reciprocal lattice vectors (bohr^-1)
+RA =  0.221661247721,  0.000000000000,  0.000000000000
+RB =  0.000000000000,  0.221661247721,  0.000000000000
+RC =  0.000000000000,  0.000000000000,  0.221661247721
+Required cutoff energy (Ryd) for 3D-grids = 300.0000
+    Used cutoff energy (Ryd) for 3D-grids = 314.4557, 314.4557, 314.4557
+Num. of grids of a-, b-, and c-axes = 160, 160, 160
+Grid_Origin  0.000000000000  0.000000000000  0.000000000000
+Cell_Volume =  22775.624000226504 (Bohr^3)
+GridVol     =      0.005560455078 (Bohr^3)
+Cell vectors (bohr) of the grid cell (gtv)
+  gtv_a =  0.177161811429,  0.000000000000,  0.000000000000
+  gtv_b =  0.000000000000,  0.177161811429,  0.000000000000
+  gtv_c =  0.000000000000,  0.000000000000,  0.177161811429
+  |gtv_a| =  0.177161811429
+  |gtv_b| =  0.177161811429
+  |gtv_c| =  0.177161811429
+Num. of grids overlapping with atom    1 = 258385
+Num. of grids overlapping with atom    2 = 258406
+Num. of grids overlapping with atom    3 = 258414
+Num. of grids overlapping with atom    4 = 258359
+Num. of grids overlapping with atom    5 = 258353
+Num. of grids overlapping with atom    6 = 258350
+Num. of grids overlapping with atom    7 = 94172
+Num. of grids overlapping with atom    8 = 94132
+Num. of grids overlapping with atom    9 = 94143
+Num. of grids overlapping with atom   10 = 94156
+
+*******************************************************
+             SCF calculation at MD = 1                
+*******************************************************
+
+<MD= 1>  Calculation of the overlap matrix
+<MD= 1>  Calculation of the nonlocal matrix
+<MD= 1>  Calculation of the VNA projector matrix
+
+******************* MD= 1  SCF= 1 *******************
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.4193  3.4193 sum   6.8385
+    2    C  MulP   1.8245  1.8245 sum   3.6490
+    3    C  MulP   1.8246  1.8246 sum   3.6493
+    4    O  MulP   3.4190  3.4190 sum   6.8380
+    5    C  MulP   1.0601  1.0601 sum   2.1203
+    6    O  MulP   3.5601  3.5601 sum   7.1203
+    7    H  MulP   0.4731  0.4731 sum   0.9462
+    8    H  MulP   0.4731  0.4731 sum   0.9462
+    9    H  MulP   0.4731  0.4731 sum   0.9461
+   10    H  MulP   0.4731  0.4731 sum   0.9461
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.050000000000
+<DFT>  Uele   =  -18.798527622666  dUele     =   1.000000000000
+<DFT>  NormRD =    1.000000000000  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 2 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.3830  3.3830 sum   6.7659
+    2    C  MulP   1.8593  1.8593 sum   3.7185
+    3    C  MulP   1.8594  1.8594 sum   3.7187
+    4    O  MulP   3.3827  3.3827 sum   6.7654
+    5    C  MulP   1.1483  1.1483 sum   2.2966
+    6    O  MulP   3.5151  3.5151 sum   7.0302
+    7    H  MulP   0.4631  0.4631 sum   0.9261
+    8    H  MulP   0.4631  0.4631 sum   0.9261
+    9    H  MulP   0.4631  0.4631 sum   0.9261
+   10    H  MulP   0.4631  0.4631 sum   0.9261
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.002419048682
+<DFT>  Uele   =  -18.742226388839  dUele     =   0.056301233827
+<DFT>  NormRD =    4.435006455389  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 3 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.3815  3.3815 sum   6.7630
+    2    C  MulP   1.8606  1.8606 sum   3.7212
+    3    C  MulP   1.8607  1.8607 sum   3.7214
+    4    O  MulP   3.3812  3.3812 sum   6.7625
+    5    C  MulP   1.1519  1.1519 sum   2.3038
+    6    O  MulP   3.5133  3.5133 sum   7.0267
+    7    H  MulP   0.4627  0.4627 sum   0.9254
+    8    H  MulP   0.4627  0.4627 sum   0.9254
+    9    H  MulP   0.4627  0.4627 sum   0.9254
+   10    H  MulP   0.4627  0.4627 sum   0.9254
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =  -18.738721943189  dUele     =   0.003504445650
+<DFT>  NormRD =    4.412376378624  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 4 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.2581  3.2581 sum   6.5163
+    2    C  MulP   1.9733  1.9733 sum   3.9466
+    3    C  MulP   1.9734  1.9734 sum   3.9468
+    4    O  MulP   3.2579  3.2579 sum   6.5159
+    5    C  MulP   1.4667  1.4667 sum   2.9334
+    6    O  MulP   3.3461  3.3461 sum   6.6921
+    7    H  MulP   0.4311  0.4311 sum   0.8622
+    8    H  MulP   0.4311  0.4311 sum   0.8622
+    9    H  MulP   0.4311  0.4311 sum   0.8622
+   10    H  MulP   0.4311  0.4311 sum   0.8622
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =  -18.484216055168  dUele     =   0.254505888022
+<DFT>  NormRD =    2.580013474500  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 5 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1937  3.1937 sum   6.3874
+    2    C  MulP   2.0363  2.0363 sum   4.0727
+    3    C  MulP   2.0364  2.0364 sum   4.0729
+    4    O  MulP   3.1935  3.1935 sum   6.3870
+    5    C  MulP   1.6390  1.6390 sum   3.2779
+    6    O  MulP   3.2479  3.2479 sum   6.4959
+    7    H  MulP   0.4133  0.4133 sum   0.8266
+    8    H  MulP   0.4133  0.4133 sum   0.8266
+    9    H  MulP   0.4133  0.4133 sum   0.8266
+   10    H  MulP   0.4133  0.4133 sum   0.8266
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =  -18.439567705283  dUele     =   0.044648349885
+<DFT>  NormRD =    1.693005792899  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 6 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1603  3.1603 sum   6.3206
+    2    C  MulP   2.0709  2.0709 sum   4.1418
+    3    C  MulP   2.0710  2.0710 sum   4.1420
+    4    O  MulP   3.1601  3.1601 sum   6.3202
+    5    C  MulP   1.7217  1.7217 sum   3.4435
+    6    O  MulP   3.2027  3.2027 sum   6.4054
+    7    H  MulP   0.4033  0.4033 sum   0.8066
+    8    H  MulP   0.4033  0.4033 sum   0.8066
+    9    H  MulP   0.4033  0.4033 sum   0.8066
+   10    H  MulP   0.4033  0.4033 sum   0.8066
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =  -18.452944618180  dUele     =   0.013376912897
+<DFT>  NormRD =    1.244245980370  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 7 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1429  3.1429 sum   6.2857
+    2    C  MulP   2.0899  2.0899 sum   4.1797
+    3    C  MulP   2.0900  2.0900 sum   4.1800
+    4    O  MulP   3.1427  3.1427 sum   6.2854
+    5    C  MulP   1.7603  1.7603 sum   3.5205
+    6    O  MulP   3.1836  3.1836 sum   6.3672
+    7    H  MulP   0.3977  0.3977 sum   0.7954
+    8    H  MulP   0.3977  0.3977 sum   0.7954
+    9    H  MulP   0.3977  0.3977 sum   0.7954
+   10    H  MulP   0.3977  0.3977 sum   0.7954
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =  -18.473254847210  dUele     =   0.020310229031
+<DFT>  NormRD =    0.963056907173  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 8 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1337  3.1337 sum   6.2675
+    2    C  MulP   2.1004  2.1004 sum   4.2008
+    3    C  MulP   2.1006  2.1006 sum   4.2011
+    4    O  MulP   3.1336  3.1336 sum   6.2671
+    5    C  MulP   1.7785  1.7785 sum   3.5571
+    6    O  MulP   3.1752  3.1752 sum   6.3505
+    7    H  MulP   0.3945  0.3945 sum   0.7890
+    8    H  MulP   0.3945  0.3945 sum   0.7890
+    9    H  MulP   0.3945  0.3945 sum   0.7890
+   10    H  MulP   0.3945  0.3945 sum   0.7890
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =  -18.487082901372  dUele     =   0.013828054162
+<DFT>  NormRD =    0.758273773776  Criterion =   0.000001000000
+
+******************* MD= 1  SCF= 9 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1289  3.1289 sum   6.2578
+    2    C  MulP   2.1064  2.1064 sum   4.2129
+    3    C  MulP   2.1066  2.1066 sum   4.2132
+    4    O  MulP   3.1287  3.1287 sum   6.2574
+    5    C  MulP   1.7875  1.7875 sum   3.5751
+    6    O  MulP   3.1711  3.1711 sum   6.3423
+    7    H  MulP   0.3927  0.3927 sum   0.7853
+    8    H  MulP   0.3927  0.3927 sum   0.7853
+    9    H  MulP   0.3927  0.3927 sum   0.7854
+   10    H  MulP   0.3927  0.3927 sum   0.7854
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =  -18.492872948717  dUele     =   0.005790047345
+<DFT>  NormRD =    0.600211330759  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=10 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1262  3.1262 sum   6.2524
+    2    C  MulP   2.1100  2.1100 sum   4.2199
+    3    C  MulP   2.1101  2.1101 sum   4.2202
+    4    O  MulP   3.1260  3.1260 sum   6.2520
+    5    C  MulP   1.7922  1.7922 sum   3.5844
+    6    O  MulP   3.1689  3.1689 sum   6.3377
+    7    H  MulP   0.3917  0.3917 sum   0.7833
+    8    H  MulP   0.3917  0.3917 sum   0.7833
+    9    H  MulP   0.3917  0.3917 sum   0.7833
+   10    H  MulP   0.3917  0.3917 sum   0.7833
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =  -18.492399225035  dUele     =   0.000473723682
+<DFT>  NormRD =    0.476012907504  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=11 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1246  3.1246 sum   6.2493
+    2    C  MulP   2.1121  2.1121 sum   4.2242
+    3    C  MulP   2.1122  2.1122 sum   4.2245
+    4    O  MulP   3.1244  3.1244 sum   6.2488
+    5    C  MulP   1.7947  1.7947 sum   3.5894
+    6    O  MulP   3.1674  3.1674 sum   6.3348
+    7    H  MulP   0.3911  0.3911 sum   0.7822
+    8    H  MulP   0.3911  0.3911 sum   0.7822
+    9    H  MulP   0.3911  0.3911 sum   0.7823
+   10    H  MulP   0.3911  0.3911 sum   0.7823
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.200000000000
+<DFT>  Uele   =  -18.487922257164  dUele     =   0.004476967871
+<DFT>  NormRD =    0.377947487049  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=12 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1236  3.1236 sum   6.2473
+    2    C  MulP   2.1134  2.1134 sum   4.2269
+    3    C  MulP   2.1136  2.1136 sum   4.2272
+    4    O  MulP   3.1234  3.1234 sum   6.2468
+    5    C  MulP   1.7961  1.7961 sum   3.5923
+    6    O  MulP   3.1664  3.1664 sum   6.3327
+    7    H  MulP   0.3909  0.3909 sum   0.7817
+    8    H  MulP   0.3909  0.3909 sum   0.7817
+    9    H  MulP   0.3909  0.3909 sum   0.7817
+   10    H  MulP   0.3909  0.3909 sum   0.7817
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.481307727951  dUele     =   0.006614529213
+<DFT>  NormRD =    0.300422571358  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=13 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1211  3.1211 sum   6.2422
+    2    C  MulP   2.1160  2.1160 sum   4.2320
+    3    C  MulP   2.1162  2.1162 sum   4.2323
+    4    O  MulP   3.1209  3.1209 sum   6.2417
+    5    C  MulP   1.7984  1.7984 sum   3.5969
+    6    O  MulP   3.1610  3.1610 sum   6.3219
+    7    H  MulP   0.3916  0.3916 sum   0.7832
+    8    H  MulP   0.3916  0.3916 sum   0.7832
+    9    H  MulP   0.3916  0.3916 sum   0.7833
+   10    H  MulP   0.3916  0.3916 sum   0.7833
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.415844735393  dUele     =   0.065462992559
+<DFT>  NormRD =    0.023818783688  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=14 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1199  3.1199 sum   6.2398
+    2    C  MulP   2.1160  2.1160 sum   4.2319
+    3    C  MulP   2.1161  2.1161 sum   4.2323
+    4    O  MulP   3.1197  3.1197 sum   6.2393
+    5    C  MulP   1.7991  1.7991 sum   3.5982
+    6    O  MulP   3.1617  3.1617 sum   6.3234
+    7    H  MulP   0.3919  0.3919 sum   0.7837
+    8    H  MulP   0.3919  0.3919 sum   0.7837
+    9    H  MulP   0.3919  0.3919 sum   0.7838
+   10    H  MulP   0.3919  0.3919 sum   0.7838
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.417386384864  dUele     =   0.001541649471
+<DFT>  NormRD =    0.011071919029  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=15 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1209  3.1209 sum   6.2417
+    2    C  MulP   2.1157  2.1157 sum   4.2314
+    3    C  MulP   2.1159  2.1159 sum   4.2318
+    4    O  MulP   3.1206  3.1206 sum   6.2412
+    5    C  MulP   1.7997  1.7997 sum   3.5995
+    6    O  MulP   3.1595  3.1595 sum   6.3190
+    7    H  MulP   0.3919  0.3919 sum   0.7838
+    8    H  MulP   0.3919  0.3919 sum   0.7838
+    9    H  MulP   0.3920  0.3920 sum   0.7839
+   10    H  MulP   0.3920  0.3920 sum   0.7839
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.419991295596  dUele     =   0.002604910732
+<DFT>  NormRD =    0.009880397722  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=16 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1204  3.1204 sum   6.2409
+    2    C  MulP   2.1156  2.1156 sum   4.2313
+    3    C  MulP   2.1158  2.1158 sum   4.2316
+    4    O  MulP   3.1202  3.1202 sum   6.2404
+    5    C  MulP   1.7988  1.7988 sum   3.5975
+    6    O  MulP   3.1611  3.1611 sum   6.3222
+    7    H  MulP   0.3920  0.3920 sum   0.7840
+    8    H  MulP   0.3920  0.3920 sum   0.7840
+    9    H  MulP   0.3921  0.3921 sum   0.7841
+   10    H  MulP   0.3921  0.3921 sum   0.7841
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.416861715889  dUele     =   0.003129579707
+<DFT>  NormRD =    0.003129794226  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=17 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1204  3.1204 sum   6.2407
+    2    C  MulP   2.1157  2.1157 sum   4.2314
+    3    C  MulP   2.1159  2.1159 sum   4.2317
+    4    O  MulP   3.1201  3.1201 sum   6.2402
+    5    C  MulP   1.7993  1.7993 sum   3.5986
+    6    O  MulP   3.1606  3.1606 sum   6.3213
+    7    H  MulP   0.3920  0.3920 sum   0.7840
+    8    H  MulP   0.3920  0.3920 sum   0.7840
+    9    H  MulP   0.3920  0.3920 sum   0.7841
+   10    H  MulP   0.3920  0.3920 sum   0.7841
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.416278518237  dUele     =   0.000583197651
+<DFT>  NormRD =    0.000849621797  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=18 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1204  3.1204 sum   6.2408
+    2    C  MulP   2.1157  2.1157 sum   4.2313
+    3    C  MulP   2.1158  2.1158 sum   4.2317
+    4    O  MulP   3.1201  3.1201 sum   6.2403
+    5    C  MulP   1.7992  1.7992 sum   3.5985
+    6    O  MulP   3.1607  3.1607 sum   6.3214
+    7    H  MulP   0.3920  0.3920 sum   0.7840
+    8    H  MulP   0.3920  0.3920 sum   0.7840
+    9    H  MulP   0.3920  0.3920 sum   0.7841
+   10    H  MulP   0.3920  0.3920 sum   0.7841
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.416959623355  dUele     =   0.000681105118
+<DFT>  NormRD =    0.000079868363  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=19 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1204  3.1204 sum   6.2408
+    2    C  MulP   2.1157  2.1157 sum   4.2314
+    3    C  MulP   2.1159  2.1159 sum   4.2317
+    4    O  MulP   3.1201  3.1201 sum   6.2403
+    5    C  MulP   1.7992  1.7992 sum   3.5984
+    6    O  MulP   3.1607  3.1607 sum   6.3214
+    7    H  MulP   0.3920  0.3920 sum   0.7839
+    8    H  MulP   0.3920  0.3920 sum   0.7840
+    9    H  MulP   0.3920  0.3920 sum   0.7841
+   10    H  MulP   0.3920  0.3920 sum   0.7841
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.416995992194  dUele     =   0.000036368839
+<DFT>  NormRD =    0.000081278054  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=20 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1204  3.1204 sum   6.2408
+    2    C  MulP   2.1157  2.1157 sum   4.2314
+    3    C  MulP   2.1158  2.1158 sum   4.2317
+    4    O  MulP   3.1201  3.1201 sum   6.2403
+    5    C  MulP   1.7992  1.7992 sum   3.5984
+    6    O  MulP   3.1607  3.1607 sum   6.3214
+    7    H  MulP   0.3920  0.3920 sum   0.7840
+    8    H  MulP   0.3920  0.3920 sum   0.7840
+    9    H  MulP   0.3920  0.3920 sum   0.7841
+   10    H  MulP   0.3920  0.3920 sum   0.7841
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.416955787671  dUele     =   0.000040204523
+<DFT>  NormRD =    0.000004888188  Criterion =   0.000001000000
+
+******************* MD= 1  SCF=21 *******************
+<Poisson>  Poisson's equation using FFT...
+<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...
+<Cluster>  Solving the eigenvalue problem...
+    1    O  MulP   3.1204  3.1204 sum   6.2408
+    2    C  MulP   2.1157  2.1157 sum   4.2314
+    3    C  MulP   2.1158  2.1158 sum   4.2317
+    4    O  MulP   3.1201  3.1201 sum   6.2403
+    5    C  MulP   1.7992  1.7992 sum   3.5984
+    6    O  MulP   3.1607  3.1607 sum   6.3214
+    7    H  MulP   0.3920  0.3920 sum   0.7840
+    8    H  MulP   0.3920  0.3920 sum   0.7840
+    9    H  MulP   0.3920  0.3920 sum   0.7841
+   10    H  MulP   0.3920  0.3920 sum   0.7841
+ Sum of MulP: up   =    17.00000 down          =    17.00000
+              total=    34.00000 ideal(neutral)=    34.00000
+<DFT>  Total Spin Moment (muB) =  0.000000000000
+<DFT>  Mixing_weight= 0.020000000000
+<DFT>  Uele   =  -18.416956389167  dUele     =   0.000000601496
+<DFT>  NormRD =    0.000010312880  Criterion =   0.000001000000
+
+ *********************************************** 
+                                                 
+      NATURAL ATOMIC ORBITAL (NAO) Analysis      
+                                                 
+ *********************************************** 
+
+## Threshold for occupied or Rydberg orbital in NAO calc.: 0.850000 elec.
+ Maximum number of L = 1 
+ Maximum number of M = 2 
+ Size of full matrix = 56 
+
+<< 1 >> Setting density & overlap matrices P & S 
+<< 2 >> Intraatomic orthogonalization 
+<< 2-2 >> Symmetry averaging of P & S 
+<< 2-3 >> Formation of pre-NAOs 
+<< 2-4 >> Construction of S & P for pre-NAOs 
+<< 3-1 >> OWSO of NMB orbitals (Ow) 
+<< 3-2 >> Schmidt interatomic orthogonalization of NRB to NMB (O_schm) 
+<< 3-3 >> Symmetry averaging of NRB orbitals (N_ryd) 
+<< 3-4 >> OWSO of NRB orbitals (Ow) 
+<< 3-5 >> Symmetry averaging of whole orbitals to construct NAOs (N_red) 
+<< 3-6 >> Energy of each NAO 
+
+   1   O :   6.46917105 
+   2   C :   4.09908587 
+   3   C :   4.09909317 
+   4   O :   6.46902031 
+   5   C :   3.14623972 
+   6   O :   6.50714720 
+   7   H :   0.80250093 
+   8   H :   0.80249967 
+   9   H :   0.80262024 
+  10   H :   0.80262185 
+------------------------
+  Total  :  34.00000000 
+
+ ## Global atom num.: 1 ( O ) / NP =   6.4692
+---------------------------------------------------------------------------------
+ NP in NAO         0.0013  1.6803  0.0046  1.6731  0.0055  1.3000  0.0073  1.7972
+ Energy (Hartree)  1.2529 -0.7196  0.4452 -0.3208  0.7108 -0.2935  0.4327 -0.3005
+---------------------------------------------------------------------------------
+ 1 s              -1.8000  1.2493 -0.0776  0.1255 -0.0125 -0.0027  0.0000  0.0000
+ 2 s               1.9201  0.0014  0.0530 -0.0030  0.0163  0.0015 -0.0000 -0.0000
+ 1 px             -0.4312  0.1031 -0.6568  1.0499  0.0431  0.0115 -0.0000 -0.0000
+ 2 px              0.1913 -0.0062  1.7251  0.0215 -0.0500 -0.0052  0.0000  0.0000
+ 1 py             -0.1040 -0.0056  0.0371  0.0110 -2.1699  1.0361 -0.0000 -0.0000
+ 2 py              0.0573  0.0025 -0.0493 -0.0052  3.4499  0.1576  0.0000  0.0000
+ 1 pz              0.0000 -0.0000 -0.0000 -0.0000 -0.0000 -0.0000 -0.6206  1.0131
+ 2 pz             -0.0000 -0.0000  0.0000  0.0000  0.0000  0.0000  1.7312  0.0267
+
+ ## Global atom num.: 2 ( C ) / NP =   4.0991
+---------------------------------------------------------------------------------
+ NP in NAO         0.0013  1.0283  0.0045  0.9432  0.0029  0.8956  0.0029  1.2205
+ Energy (Hartree)  1.9753 -0.1935  0.4865 -0.1139  0.4461 -0.1210  0.6998 -0.1062
+---------------------------------------------------------------------------------
+ 1 s              -7.5232  0.9475 -0.5382 -0.0734 -0.3346 -0.0879  0.0000  0.0000
+ 2 s               4.8035  0.5054  0.3618  0.0663  0.3175  0.0600 -0.0000 -0.0000
+ 1 px             -0.6631 -0.0564 -2.0012  0.9877 -0.1112  0.0339 -0.0000 -0.0000
+ 2 px              0.4636  0.0540  2.1912  0.3239  0.0473  0.0054  0.0000  0.0000
+ 1 py             -0.4193 -0.0721 -0.1991  0.0176 -1.6929  1.0609 -0.0000 -0.0000
+ 2 py              0.4031  0.0495  0.0527  0.0064  1.9940  0.2862  0.0000  0.0000
+ 1 pz              0.0000  0.0000 -0.0000 -0.0000 -0.0000 -0.0000 -2.9560  0.9033
+ 2 pz             -0.0000 -0.0000  0.0000  0.0000  0.0000  0.0000  2.8684  0.4442
+
+ ## Global atom num.: 3 ( C ) / NP =   4.0991
+---------------------------------------------------------------------------------
+ NP in NAO         0.0013  1.0283  0.0039  1.1019  0.0034  0.7372  0.0028  1.2204
+ Energy (Hartree)  1.9753 -0.1935  0.4462 -0.1148  0.4863 -0.1202  0.6998 -0.1063
+---------------------------------------------------------------------------------
+ 1 s              -7.5234  0.9476  0.6322  0.1110  0.0449 -0.0280  0.0000  0.0000
+ 2 s               4.8036  0.5053 -0.4793 -0.0889  0.0446  0.0097 -0.0000 -0.0000
+ 1 px              0.7830  0.0879 -2.0426  1.0375 -0.1425 -0.0510  0.0000  0.0000
+ 2 px             -0.6119 -0.0728  2.1709  0.3164  0.0810  0.0166 -0.0000 -0.0000
+ 1 py              0.0498 -0.0252 -0.0546 -0.0346 -1.6518  1.0113 -0.0000 -0.0000
+ 2 py              0.0542  0.0084  0.0756  0.0156  2.0146  0.2934  0.0000  0.0000
+ 1 pz              0.0000  0.0000  0.0000  0.0000 -0.0000 -0.0000 -2.9562  0.9034
+ 2 pz             -0.0000 -0.0000 -0.0000 -0.0000  0.0000  0.0000  2.8686  0.4440
+
+ ## Global atom num.: 4 ( O ) / NP =   6.4690
+---------------------------------------------------------------------------------
+ NP in NAO         0.0013  1.6803  0.0055  1.5401  0.0045  1.4329  0.0073  1.7972
+ Energy (Hartree)  1.2529 -0.7197  0.5115 -0.3106  0.6445 -0.3038  0.4327 -0.3005
+---------------------------------------------------------------------------------
+ 1 s              -1.8000  1.2493  0.0701 -0.1000  0.0355 -0.0759  0.0000  0.0000
+ 2 s               1.9201  0.0014 -0.0524  0.0016 -0.0179  0.0030 -0.0000 -0.0000
+ 1 px              0.4101 -0.0801 -1.1403  1.0558  0.7037  0.0028  0.0000  0.0000
+ 2 px             -0.1886  0.0036  2.2726  0.0635 -0.8040 -0.0631 -0.0000 -0.0000
+ 1 py              0.1690 -0.0651  0.7097  0.0033 -1.6862  1.0301  0.0000  0.0000
+ 2 py             -0.0659  0.0057 -0.8047 -0.0631  2.9023  0.1157 -0.0000 -0.0000
+ 1 pz              0.0000 -0.0000  0.0000  0.0000  0.0000  0.0000 -0.6205  1.0131
+ 2 pz             -0.0000 -0.0000 -0.0000 -0.0000 -0.0000 -0.0000  1.7311  0.0267
+
+ ## Global atom num.: 5 ( C ) / NP =   3.1462
+---------------------------------------------------------------------------------
+ NP in NAO         0.0056  0.7204  0.0058  0.7480  0.0130  0.7538  0.0019  0.8978
+ Energy (Hartree)  1.1113 -0.1256  0.6559 -0.0624  0.6133 -0.0207  0.4118 -0.1880
+---------------------------------------------------------------------------------
+ 1 s              -4.3230  1.2245 -0.2619 -0.0832  0.8072  0.2563  0.0000  0.0000
+ 2 s               2.8858  0.4538  0.1514  0.0400 -0.4664 -0.1232 -0.0000 -0.0000
+ 1 px             -0.5200 -0.0516 -2.6137  0.7630 -0.1060 -0.0634  0.0000  0.0000
+ 2 px              0.4240  0.0346  2.5865  0.6228  0.0789  0.0237 -0.0000 -0.0000
+ 1 py              1.6023  0.1589 -0.1060 -0.0634 -2.3214  0.9377 -0.0000 -0.0000
+ 2 py             -1.3065 -0.1066  0.0789  0.0237  2.3689  0.5574  0.0000  0.0000
+ 1 pz              0.0000  0.0000  0.0000  0.0000 -0.0000 -0.0000 -1.1370  0.8885
+ 2 pz             -0.0000 -0.0000 -0.0000 -0.0000  0.0000  0.0000  1.6037  0.3694
+
+ ## Global atom num.: 6 ( O ) / NP =   6.5071
+---------------------------------------------------------------------------------
+ NP in NAO         0.0047  1.7309  0.0063  1.7655  0.0042  1.5479  0.0050  1.4427
+ Energy (Hartree)  1.2487 -0.6291  0.5080 -0.2203  0.4146 -0.2427  0.4501 -0.2352
+---------------------------------------------------------------------------------
+ 1 s              -1.6390  1.2793 -0.0122  0.0633  0.0376 -0.1950 -0.0000 -0.0000
+ 2 s               1.7412  0.0016  0.0174 -0.0006 -0.0535  0.0019  0.0000  0.0000
+ 1 px             -0.1556  0.0537 -0.6378  1.0217 -0.0636 -0.0315  0.0000  0.0000
+ 2 px              0.0329 -0.0036  1.6759  0.0452  0.0761  0.0078 -0.0000 -0.0000
+ 1 py              0.4795 -0.1654 -0.0636 -0.0315 -0.4623  1.1087 -0.0000 -0.0000
+ 2 py             -0.1013  0.0112  0.0761  0.0078  1.4662  0.0236  0.0000  0.0000
+ 1 pz             -0.0000  0.0000  0.0000  0.0000 -0.0000 -0.0000 -0.4972  1.0173
+ 2 pz              0.0000  0.0000 -0.0000 -0.0000  0.0000  0.0000  1.5308  0.0353
+
+ ## Global atom num.: 7 ( H ) / NP =   0.8025
+---------------------------------
+ NP in NAO         0.0024  0.8001
+ Energy (Hartree)  0.7646  0.0478
+---------------------------------
+ 1 s              -2.6257  1.0991
+ 2 s               1.8649  0.3778
+
+ ## Global atom num.: 8 ( H ) / NP =   0.8025
+---------------------------------
+ NP in NAO         0.0024  0.8001
+ Energy (Hartree)  0.7646  0.0478
+---------------------------------
+ 1 s              -2.6257  1.0991
+ 2 s               1.8649  0.3778
+
+ ## Global atom num.: 9 ( H ) / NP =   0.8026
+---------------------------------
+ NP in NAO         0.0024  0.8002
+ Energy (Hartree)  0.7644  0.0476
+---------------------------------
+ 1 s              -2.6257  1.0993
+ 2 s               1.8649  0.3777
+
+ ## Global atom num.: 10 ( H ) / NP =   0.8026
+---------------------------------
+ NP in NAO         0.0024  0.8002
+ Energy (Hartree)  0.7644  0.0476
+---------------------------------
+ 1 s              -2.6257  1.0993
+ 2 s               1.8649  0.3777
+
+
+<MD= 1>  Force calculation
+  Force calculation #1
+  Force calculation #2
+  Force calculation #3
+  Force calculation #4
+  Force calculation #5
+<MD= 1>  Total Energy
+  Force calculation #6
+  Force calculation #7
+
+*******************************************************
+                  Dipole moment (Debye)                 
+*******************************************************
+
+ Absolute D        6.39382014
+
+                      Dx                Dy                Dz
+ Total              1.97195427       -6.08213222       -0.00005245
+ Core            1137.19859584     1216.93567126     1198.43515963
+ Electron       -1135.22664156    -1223.01780348    -1198.43521209
+ Back ground       -0.00000000       -0.00000000       -0.00000000
+
+*******************************************************
+                Total Energy (Hartree) at MD = 1        
+*******************************************************
+
+  Uele  =     -18.416956389167
+
+  Ukin  =      49.983924677556
+  UH0   =    -185.781641556815
+  UH1   =       0.245446616255
+  Una   =     -54.821773799730
+  Unl   =       8.736676167161
+  Uxc0  =      -9.418706420921
+  Uxc1  =      -9.418706420921
+  Ucore =     131.919428591942
+  Uhub  =       0.000000000000
+  Ucs   =       0.000000000000
+  Uzs   =       0.000000000000
+  Uzo   =       0.000000000000
+  Uef   =       0.000000000000
+  UvdW  =       0.000000000000
+  Utot  =     -68.555352145473
+
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy 
+
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+*******************************************************
+           Computational times (s) at MD = 1            
+*******************************************************
+
+  DFT in total      =   16.94217
+
+  Set_OLP_Kin       =    0.18696
+  Set_Nonlocal      =    0.15060
+  Set_ProExpn_VNA   =    0.40348
+  Set_Hamiltonian   =    6.72576
+  Poisson           =    1.04179
+  diagonalization   =    0.10746
+  Mixing_DM         =    4.08523
+  Force             =    0.59889
+  Total_Energy      =    0.38653
+  Set_Aden_Grid     =    0.09132
+  Set_Orbitals_Grid =    0.12525
+  Set_Density_Grid  =    1.46888
+  RestartFileDFT    =    0.20750
+  Mulliken_Charge   =    0.01081
+  FFT(2D)_Density   =    0.98817
+
+*******************************************************
+             MD or geometry opt. at MD = 1              
+*******************************************************
+
+
+outputting data on grids to files...
+
+
+***********************************************************
+***********************************************************
+               Computational Time (second)                 
+***********************************************************
+***********************************************************
+
+                               Min_ID   Min_Time       Max_ID   Max_Time
+   Total Computational Time =     1       21.061          0       21.067
+   readfile                 =     2        3.276          6        3.278
+   truncation               =     3        0.808          2        0.868
+   MD_pac                   =     0        0.006          9        0.010
+   OutData                  =     1        0.000          0        0.004
+   DFT                      =     2       16.885          3       16.945
+
+*** In DFT ***
+
+   Set_OLP_Kin              =     8        0.140          1        0.187
+   Set_Nonlocal             =     5        0.130          3        0.181
+   Set_ProExpn_VNA          =     3        0.387          6        0.404
+   Set_Hamiltonian          =     2        6.726          7        6.726
+   Poisson                  =     0        1.042          8        1.042
+   Diagonalization          =     0        0.107          7        0.108
+   Mixing_DM                =     1        4.085          5        4.085
+   Force                    =     0        0.599          5        0.599
+   Total_Energy             =     2        0.384          0        0.387
+   Set_Aden_Grid            =     1        0.090          8        0.106
+   Set_Orbitals_Grid        =     3        0.124          8        0.297
+   Set_Density_Grid         =     8        1.397          5        1.536
+   RestartFileDFT           =     7        0.180          3        0.229
+   Mulliken_Charge          =     4        0.011          0        0.011
+   FFT(2D)_Density          =     7        0.988          8        0.988
+   Others                   =     2        0.127          0        0.364
+
+The calculation was normally finished.

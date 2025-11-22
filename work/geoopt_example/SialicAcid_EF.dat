@@ -1,0 +1,107 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                    SialicAcid_EF
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (1-3)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       4
+<Definition.of.Atomic.Species
+ H   H6.0-s2p1     H_PBE19
+ C   C6.0-s2p1     C_PBE19
+ N   N6.0-s2p1     N_PBE19
+ O   O6.0-s2p1     O_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        40
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=Ang.
+  1    C      2.582389    0.082263    0.275981  2.0 2.0
+  2    C      2.373302   -1.138641    1.194045  2.0 2.0
+  3    C      1.025279   -1.046303    1.915805  2.0 2.0
+  4    O      1.494760    0.417412   -0.551026  3.0 3.0
+  5    O      2.737365    1.290409    0.959881  3.0 3.0
+  6    C      3.786642   -0.218196   -0.669598  2.0 2.0
+  7    C     -0.094548   -0.880994    0.852978  2.0 2.0
+  8    O      0.818810   -2.142299    2.769607  3.0 3.0
+  9    C      0.189860    0.406427    0.032303  2.0 2.0
+ 10    O      3.643031   -0.765984   -1.887826  3.0 3.0
+ 11    N     -1.439593   -0.763227    1.473170  2.5 2.5
+ 12    C     -0.794830    0.555420   -1.164775  2.0 2.0
+ 13    C     -2.201474   -1.933622    1.785979  2.0 2.0
+ 14    C     -0.699037    1.970172   -1.816905  2.0 2.0
+ 15    O     -0.492165   -0.473838   -2.086758  3.0 3.0
+ 16    C     -3.380212   -1.734942    2.703342  2.0 2.0
+ 17    C     -1.692264    2.084875   -3.001286  2.0 2.0
+ 18    O     -1.043670    2.903447   -0.812168  3.0 3.0
+ 19    O     -1.330304    3.229879   -3.734910  3.0 3.0
+ 20    H      2.425174   -2.068894    0.591604  0.5 0.5
+ 21    H      3.200545   -1.206435    1.928208  0.5 0.5
+ 22    H      1.026448   -0.193694    2.636486  0.5 0.5
+ 23    H      3.581516    1.287328    1.392610  0.5 0.5
+ 24    O      4.952256   -0.033514   -0.388556  3.0 3.0
+ 25    H     -0.102022   -1.766810    0.166650  0.5 0.5
+ 26    H      0.735183   -2.921643    2.231726  0.5 0.5
+ 27    H      0.107549    1.303998    0.694823  0.5 0.5
+ 28    H      2.725125   -0.850757   -2.119188  0.5 0.5
+ 29    H     -1.471475   -0.065661    2.186538  0.5 0.5
+ 30    H     -1.836523    0.400014   -0.786384  0.5 0.5
+ 31    O     -1.917639   -2.999691    1.261455  3.0 3.0
+ 32    H      0.345774    2.154635   -2.170503  0.5 0.5
+ 33    H     -0.997689   -0.290669   -2.871991  0.5 0.5
+ 34    H     -4.034390   -0.927209    2.348403  0.5 0.5
+ 35    H     -3.989613   -2.645567    2.777278  0.5 0.5
+ 36    H     -3.048059   -1.477466    3.718235  0.5 0.5
+ 37    H     -1.627818    1.184534   -3.650635  0.5 0.5
+ 38    H     -2.737481    2.157517   -2.640910  0.5 0.5
+ 39    H     -0.814953    3.755808   -1.157336  0.5 0.5
+ 40    H     -2.005246    3.361919   -4.386353  0.5 0.5
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+#<Atoms.UnitVectors          
+#  16.0   0.0   0.0
+#   0.0  14.0   0.0
+#   0.0   0.0  15.0
+#Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization       off         # On|Off
+scf.ElectronicTemperature  100.0       # default=300 (K)
+scf.energycutoff           180.0       # default=150 (Ry)
+scf.maxIter                100         # default=40
+scf.EigenvalueSolver       cluster     # Recursion|Cluster|Band
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.100       # default=0.30 
+scf.Min.Mixing.Weight      0.010       # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History          16         # default=5
+scf.Mixing.StartPulay       9          # default=6
+scf.criterion             1.0e-9       # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     EF         # Nomd|Opt|NVE|NVT_VS|NVT_NH
+                                       # Constraint_Opt|DIIS2|Constraint_DIIS2
+MD.Opt.DIIS.History          4         # default=4
+MD.Opt.StartDIIS             20        # default=5
+MD.Opt.EveryDIIS           10000       # default=10
+MD.maxIter                   200       # default=1
+MD.TimeStep                1.0         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)

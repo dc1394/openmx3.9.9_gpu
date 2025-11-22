@@ -1,0 +1,131 @@
+#
+#  a non-spin polarized V4(C6H6)5 molecule
+#
+
+#
+# File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                     nsV4Bz5 
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+Species.Number       3
+<Definition.of.Atomic.Species
+ H   H5.0-s2p2        H_PBE19
+ C   C5.0-s2p2d1      C_PBE19
+ V   V8.0-s2p2d2f1    V_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        64 
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates
+1  C   -1.44864   0.00000   0.01287   2.0   2.0
+2  C   -0.72389   1.25322   0.01287   2.0   2.0
+3  C    0.72389   1.25322   0.01287   2.0   2.0
+4  C    1.44864   0.00000   0.01287   2.0   2.0
+5  C    0.72389  -1.25322   0.01287   2.0   2.0
+6  C   -0.72389  -1.25322   0.01287   2.0   2.0
+7  C   -1.47760  -0.00000   3.40000   2.0   2.0
+8  C   -0.73888   1.28095   3.40000   2.0   2.0
+9  C    0.73888   1.28095   3.40000   2.0   2.0
+10 C    1.47760  -0.00000   3.40000   2.0   2.0
+11 C    0.73888  -1.28095   3.40000   2.0   2.0
+12 C   -0.73888  -1.28095   3.40000   2.0   2.0
+13 C   -1.44864  -0.00000   6.78713   2.0   2.0
+14 C   -0.72389   1.25322   6.78713   2.0   2.0
+15 C    0.72389   1.25322   6.78713   2.0   2.0
+16 C    1.44864  -0.00000   6.78713   2.0   2.0
+17 C    0.72389  -1.25322   6.78713   2.0   2.0
+18 C   -0.72389  -1.25322   6.78713   2.0   2.0
+19 C   -1.44864   0.00000   10.17426  2.0   2.0
+20 C   -0.72389   1.25322   10.17426  2.0   2.0
+21 C    0.72389   1.25322   10.17426  2.0   2.0
+22 C    1.44864   0.00000   10.17426  2.0   2.0
+23 C    0.72389  -1.25322   10.17426  2.0   2.0
+24 C   -0.72389  -1.25322   10.17426  2.0   2.0
+25 C   -1.47760  -0.00000   13.56139  2.0   2.0
+26 C   -0.73888   1.28095   13.56139  2.0   2.0
+27 C    0.73888   1.28095   13.56139  2.0   2.0
+28 C    1.47760  -0.00000   13.56139  2.0   2.0
+29 C    0.73888  -1.28095   13.56139  2.0   2.0
+30 C   -0.73888  -1.28095   13.56139  2.0   2.0
+31 H   -2.56672  -0.00000   0.01287   0.5   0.5
+32 H    2.56672  -0.00000   0.01287   0.5   0.5
+33 H   -1.28314   2.22168   0.01287   0.5   0.5
+34 H    1.28314   2.22168   0.01287   0.5   0.5
+35 H    1.28314  -2.22168   0.01287   0.5   0.5
+36 H   -1.28314  -2.22168   0.01287   0.5   0.5
+37 H   -2.59820  -0.00000   3.40000   0.5   0.5
+38 H    2.59820   0.00000   3.40000   0.5   0.5
+39 H   -1.30055   2.25086   3.40000   0.5   0.5
+40 H    1.30055   2.25086   3.40000   0.5   0.5
+41 H    1.30055  -2.25086   3.40000   0.5   0.5
+42 H   -1.30055  -2.25086   3.40000   0.5   0.5
+43 H   -2.56672   0.00000   6.78713   0.5   0.5
+44 H    2.56672   0.00000   6.78713   0.5   0.5
+45 H   -1.28314   2.22168   6.78713   0.5   0.5
+46 H    1.28314   2.22168   6.78713   0.5   0.5
+47 H    1.28314  -2.22168   6.78713   0.5   0.5
+48 H   -1.28314  -2.22168   6.78713   0.5   0.5
+49 H   -2.56672  -0.00000  10.17426   0.5   0.5
+50 H    2.56672  -0.00000  10.17426   0.5   0.5
+51 H   -1.28314   2.22168  10.17426   0.5   0.5
+52 H    1.28314   2.22168  10.17426   0.5   0.5
+53 H    1.28314  -2.22168  10.17426   0.5   0.5
+54 H   -1.28314  -2.22168  10.17426   0.5   0.5
+55 H   -2.56672  -0.00000  13.56139   0.5   0.5
+56 H    2.56672  -0.00000  13.56139   0.5   0.5
+57 H   -1.28314   2.22168  13.56139   0.5   0.5
+58 H    1.28314   2.22168  13.56139   0.5   0.5
+59 H    1.28314  -2.22168  13.56139   0.5   0.5
+60 H   -1.28314  -2.22168  13.56139   0.5   0.5
+61 V    0.00000  -0.00000   1.70752   6.5   6.5
+62 V    0.00000   0.00000   5.09248   6.5   6.5
+63 V    0.00000   0.00000   8.47961   6.5   6.5
+64 V    0.00000   0.00000  11.86654   6.5   6.5
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang # Ang|AU
+<Atoms.UnitVectors                     
+  13.0   0.0   0.0         
+   0.0  13.0   0.0         
+   0.0   0.0  23.0         
+Atoms.UnitVectors>         
+                            
+#                           
+# SCF or Electronic System  
+#
+
+scf.XcType                  GGA-PBE    # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        off        # On|Off|NC
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           350.0       # default=150 (Ry)
+scf.maxIter                 180        # default=40
+scf.EigenvalueSolver       Cluster     # DC|GDC|Cluster|Band
+scf.Kgrid                  1 1 1       # means n1 x n2 x n3
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History          40         # default=5
+scf.Mixing.StartPulay       20         # default=6
+scf.criterion             1.0e-10      # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                      nomd      # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Opt.DIIS.History          7         # default=7
+MD.Opt.StartDIIS             5         # default=5
+MD.maxIter                  200        # default=1
+MD.TimeStep                 1.0        # default=0.5 (fs)
+MD.Opt.criterion         1.0e-4        # default=1.0e-4 (Hartree/bohr)

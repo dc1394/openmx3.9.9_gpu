@@ -1,0 +1,129 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                       negf-chain
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+DATA.PATH                   ../DFT_DATA19
+
+
+NEGF.filename.hks.l     lead-chain.hks
+NEGF.filename.hks.r     lead-chain.hks
+
+NEGF.Num.Poles             100       # default=150
+NEGF.scf.Kgrid             1 1       # default=1 1
+NEGF.SCF.Iter.Band          50
+
+NEGF.bias.voltage          0.1       # default=0.0 (eV)
+NEGF.bias.neq.im.energy    0.01      # default=0.01 (eV)
+NEGF.bias.neq.energy.step  0.02      # default=0.02 (eV) 
+
+Dos.fileout                 off      # on|off, default=off
+NEGF.Dos.energyrange     -15.0 25.0 5.0e-3  #default=-10.0 10.0 5.0e-3 (eV)
+NEGF.Dos.energy.div        200       # default=200
+NEGF.Dos.Kgrid             1 1       # default=1 1 
+
+#
+# Transmission & Eigen Channel
+#
+
+NEGF.tran.Analysis         on        #  default on
+NEGF.tran.energydiv        200       # default=200
+NEGF.tran.energyrange -10 10 1.0e-3  # default=-10.0 10.0 1.0e-3 (eV)
+NEGF.tran.Kgrid            1 1       # default= 1 1
+NEGF.tran.Channel          on        #  default on
+NEGF.Channel.Nkpoint        1        # default=1
+<NEGF.Channel.kpoint
+0.0  0.0
+NEGF.Channel.kpoint>
+# default 0.0 0.0
+NEGF.Channel.Nenergy        1        # default=1
+<NEGF.Channel.energy
+0.0
+NEGF.Channel.energy>
+# default 0.0
+NEGF.Channel.Num            5        # defualt=5(for collinear), 10(for Non-collinear)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+ C    C5.0-s2p2d1      C_CA19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+
+Atoms.Number        18
+<Atoms.SpeciesAndCoordinates 
+ 1  C  3.000  0.000  0.000  2.0 2.0
+ 2  C  4.500  0.000  0.000  2.0 2.0
+ 3  C  6.000  0.000  0.000  2.0 2.0
+ 4  C  7.500  0.000  0.000  2.0 2.0
+ 5  C  9.000  0.000  0.000  2.0 2.0
+ 6  C 10.500  0.000  0.000  2.0 2.0
+ 7  C 12.000  0.000  0.000  2.0 2.0
+ 8  C 13.500  0.000  0.000  2.0 2.0
+ 9  C 15.000  0.000  0.000  2.0 2.0
+10  C 16.500  0.000  0.000  2.0 2.0
+11  C 18.000  0.000  0.000  2.0 2.0
+12  C 19.500  0.000  0.000  2.0 2.0
+13  C 21.000  0.000  0.000  2.0 2.0
+14  C 22.500  0.000  0.000  2.0 2.0
+15  C 24.000  0.000  0.000  2.0 2.0
+16  C 25.500  0.000  0.000  2.0 2.0
+17  C 27.000  0.000  0.000  2.0 2.0
+18  C 28.500  0.000  0.000  2.0 2.0
+Atoms.SpeciesAndCoordinates> 
+
+#
+# Lead-Left
+#
+
+LeftLeadAtoms.Number         3
+<LeftLeadAtoms.SpeciesAndCoordinates           # Unit=Ang.
+ 1  C -1.500  0.000  0.000  2.0 2.0
+ 2  C  0.000  0.000  0.000  2.0 2.0
+ 3  C  1.500  0.000  0.000  2.0 2.0
+LeftLeadAtoms.SpeciesAndCoordinates>
+
+#
+# Lead-Right
+#
+
+RightLeadAtoms.Number        3 
+<RightLeadAtoms.SpeciesAndCoordinates           # Unit=Ang.
+ 1  C 30.000  0.000  0.000  2.0 2.0
+ 2  C 31.500  0.000  0.000  2.0 2.0
+ 3  C 33.000  0.000  0.000  2.0 2.0
+RightLeadAtoms.SpeciesAndCoordinates>
+
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                  LDA        # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        off        # On|Off|NC
+scf.ElectronicTemperature  600.0       # default=300 (K)
+scf.energycutoff           180.0       # default=150 (Ry)
+scf.maxIter                 500        # default=40
+scf.EigenvalueSolver       NEGF        # DC|GDC|Cluster|Band
+#scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstegr
+scf.Kgrid                  1 1 1       # means n1 x n2 x n3
+scf.Mixing.Type          rmm-diisk     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight      0.020      # default=0.30
+scf.Min.Mixing.Weight       0.020      # default=0.001
+scf.Max.Mixing.Weight       0.050      # default=0.40
+scf.Mixing.History          100         # default=5
+scf.Mixing.StartPulay       20         # default=6
+scf.criterion             1.0e-7       # default=1.0e-6 (Hartree)
+scf.Kerker.factor          30.0        # default=1
+NEGF.Poisson.Solver       FFT

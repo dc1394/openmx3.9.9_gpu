@@ -1,0 +1,150 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                     lead-l-8zgnr
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ C  C5.0-s2p1  C_CA19
+ H  H5.0-s2    H_CA19
+Definition.of.Atomic.Species>
+
+
+NEGF.output_hks    true
+NEGF.filename.hks  lead-l-8zgnr.hks
+
+
+#
+# Atoms
+#
+
+Atoms.Number       36
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates 
+   1  C     0.0000005     0.0361626     0.0012037     2.5000000     1.5000000
+   2  C     0.0000005     0.7140385     1.2211879     2.5000000     1.5000000
+   3  C     0.0000004     2.1457201     1.2213117     2.5000000     1.5000000
+   4  C     0.0000001     2.8501725     0.0013209     2.5000000     1.5000000
+   5  C    -0.0000001     4.2700744     0.0012023     2.5000000     1.5000000
+   6  C    -0.0000002     4.9766306     1.2212146     2.5000000     1.5000000
+   7  C     0.0000001     6.3942050     1.2213979     2.5000000     1.5000000
+   8  C     0.0000001     7.1014018     0.0014044     2.5000000     1.5000000
+   9  C    -0.0000001     8.5186603     0.0014042     2.5000000     1.5000000
+  10  C     0.0000001     9.2258519     1.2213977     2.5000000     1.5000000
+  11  C     0.0000004    10.6434033     1.2212143     2.5000000     1.5000000
+  12  C     0.0000003    11.3499296     0.0012020     2.5000000     1.5000000
+  13  C    -0.0000002    12.7697977     0.0013211     2.5000000     1.5000000
+  14  C    -0.0000004    13.4742418     1.2213119     2.5000000     1.5000000
+  15  C    -0.0000004    14.9059644     1.2211875     2.5000000     1.5000000
+  16  C    -0.0000004    15.5838921     0.0012032     2.5000000     1.5000000
+  17  H     0.0000003    -1.0818549     0.0012134     0.5000000     0.5000000
+  18  H    -0.0000005    16.7019089     0.0012129     0.5000000     0.5000000
+  19  C     0.0000005     0.0361626     2.4412037     2.5000000     1.5000000
+  20  C     0.0000005     0.7140385     3.6611879     2.5000000     1.5000000
+  21  C     0.0000004     2.1457201     3.6613117     2.5000000     1.5000000
+  22  C     0.0000001     2.8501725     2.4413209     2.5000000     1.5000000
+  23  C    -0.0000001     4.2700744     2.4412023     2.5000000     1.5000000
+  24  C    -0.0000002     4.9766306     3.6612146     2.5000000     1.5000000
+  25  C     0.0000001     6.3942050     3.6613979     2.5000000     1.5000000
+  26  C     0.0000001     7.1014018     2.4414044     2.5000000     1.5000000
+  27  C    -0.0000001     8.5186603     2.4414042     2.5000000     1.5000000
+  28  C     0.0000001     9.2258519     3.6613977     2.5000000     1.5000000
+  29  C     0.0000004    10.6434033     3.6612143     2.5000000     1.5000000
+  30  C     0.0000003    11.3499296     2.4412020     2.5000000     1.5000000
+  31  C    -0.0000002    12.7697977     2.4413211     2.5000000     1.5000000
+  32  C    -0.0000004    13.4742418     3.6613119     2.5000000     1.5000000
+  33  C    -0.0000004    14.9059644     3.6611875     2.5000000     1.5000000
+  34  C    -0.0000004    15.5838921     2.4412032     2.5000000     1.5000000
+  35  H     0.0000003    -1.0818549     2.4412134     0.5000000     0.5000000
+  36  H    -0.0000005    16.7019089     2.4412129     0.5000000     0.5000000
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang # Ang|AU
+<Atoms.UnitVectors 
+ 0.000  0.000  4.88
+ 10.000 0.000 0.000 
+ 0.000 27.000 0.000 
+Atoms.UnitVectors>
+
+
+#
+# SCF or Electronic System
+#
+
+
+scf.XcType                 LSDA-CA     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        on         # On|Off|NC
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           120.0       # default=150 (Ry)
+#scf.Ngrid                  140 140 100  # about=200 (Ry)
+scf.maxIter                1000         # default=40
+scf.EigenvalueSolver       Band     # DC|GDC|Cluster|Band
+scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstegr
+scf.Kgrid                  201 1 1       # means n1 x n2 x n3
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Kerker.factor          10.0        # default=1
+scf.Init.Mixing.Weight     0.001       # default=0.30
+scf.Min.Mixing.Weight      0.001       # default=0.001
+scf.Max.Mixing.Weight      0.105       # default=0.40
+scf.Mixing.History          40       # default=5
+scf.Mixing.StartPulay       10       # default=6
+scf.Mixing.EveryPulay        1          # default=6
+scf.criterion             1.0e-9       # default=1.0e-6 (Hartree)
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type               Nomd    # Opt|EF|BFGS|RF|DIIS
+MD.Opt.DIIS.History   18    # default=3
+MD.Opt.StartDIIS      6     # default=5
+MD.Opt.EveryDIIS      5     # default=10
+MD.maxIter            2000   #
+MD.Opt.criterion    1.0e-4  # default=1.0e-4 (a.u.)
+
+
+#
+# Band dispersion
+#
+
+Band.dispersion              off      # on|off, default=off
+<Band.KPath.UnitCell
+ 0.000 0.000  4.88
+ 10.000 0.000 0.000 
+ 0.000 27.000 0.000 
+Band.KPath.UnitCell>
+
+Band.Nkpath                1
+<Band.kpath                
+   601  0.0 0.0 0.0   0.5 0.0 0.0   G X
+Band.kpath>
+
+
+#
+# DOS and PDOS
+#
+
+Dos.fileout                  off      # on|off, default=off
+Dos.Erange              -20.0  20.0    # default = -20 20
+Dos.Kgrid                601 1 1      # default = Kgrid1 Kgrid2 Kgrid3
+
+DosGauss.fileout      off
+DosGauss.Num.Mesh    4000
+DosGauss.Width      0.01
+
+MO.fileout                   off       # on|off
+num.HOMOs                     1        # default=1
+num.LUMOs                     1        # default=1
+MO.Nkpoint                    1        # default=1
+<MO.kpoint
+  0.0  0.0  0.0
+MO.kpoint>
+

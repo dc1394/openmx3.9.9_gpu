@@ -1,0 +1,185 @@
+#
+#  SCF calculation of a H-Si(111)-PC interface by the GGA-PBE and
+#  the band method
+#
+
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                   Al-Si111_ESM 
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number        2
+<Definition.of.Atomic.Species
+   Si   Si7.0-s2p2d1   Si_PBE19
+   Al   Al7.0-s2p2d1   Al_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         10
+Atoms.SpeciesAndCoordinates.Unit  Frac  # Ang|AU
+<Atoms.SpeciesAndCoordinates
+ 1    Al    0.7127323     0.0000000     0.0000000     1.5     1.5 
+ 2    Si    0.6455516     0.0000000     0.0000000     2.0     2.0 
+ 3    Si    0.6231613     0.6666700     0.3333300     2.0     2.0 
+ 4    Si    0.5559806     0.6666700     0.3333300     2.0     2.0 
+ 5    Si    0.5335904     0.3333300     0.6666700     2.0     2.0 
+ 6    Si    0.4664096     0.3333300     0.6666700     2.0     2.0 
+ 7    Si    0.4440194     0.0000000     0.0000000     2.0     2.0 
+ 8    Si    0.3768387     0.0000000     0.0000000     2.0     2.0 
+ 9    Si    0.3544484     0.6666700     0.3333300     2.0     2.0 
+10    Al    0.2872677     0.6666700     0.3333300     1.5     1.5 
+Atoms.SpeciesAndCoordinates>
+
+Atoms.UnitVectors.Unit      Ang # Ang|AU
+<Atoms.UnitVectors
+ 35.000000  0.000000  0.000000
+  0.000000  3.839590  0.000000
+  0.000000 -1.919795  3.325182
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        off        # On|Off|NC
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           150.0       # default=150 (Ry)
+scf.maxIter                250         # default=40
+scf.EigenvalueSolver       Band        # DC|GDC|Cluster|Band|Krylov
+scf.Kgrid                  1 3 3       # means n1 x n2 x n3
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Mixing.EveryPulay      1
+scf.Init.Mixing.Weight     0.30        # default=0.30
+scf.Min.Mixing.Weight      0.001       # default=0.001
+scf.Max.Mixing.Weight      0.700       # default=0.40
+scf.Mixing.History         20          # default=5
+scf.Mixing.StartPulay       6          # default=6
+scf.Kerker.factor          8.0
+scf.criterion             1.0e-6       # default=1.0e-6 (Hartree)
+scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstevx
+scf.restart                off
+
+scf.system.charge          0.0050
+
+ESM.switch                   on3      # off, on1=v|v|v, on2=m|v|m, on3=v|v|m, on4=on2+EF
+ESM.potential.difference     0.0      # default=0.0 (eV)
+ESM.wall.switch              off
+ESM.wall.position            6.0      # default=10.0 (ang)
+ESM.wall.height            100.0      # default=100.0 (eV)
+ESM.buffer.range             4.5      # default=10.0 (ang)
+
+scf.ProExpn.VNA            on         # default=on
+scf.BufferL.VNA             5         # default=5
+scf.RadialF.VNA             7         # default=7
+
+#
+# 1D FFT
+#
+
+1DFFT.NumGridK             900         # default=900
+1DFFT.NumGridR             900         # default=900
+1DFFT.EnergyCutoff        3600.0       # default=3600 (Ry)
+
+#
+# Orbital Optimization
+#
+
+orbitalOpt.Method           Off        # Off|Unrestricted|Restricted
+orbitalOpt.InitCoes     Symmetrical    # Symmetrical|Free
+orbitalOpt.initPrefactor   0.1         # default=0.1
+orbitalOpt.scf.maxIter      12         # default=12
+orbitalOpt.MD.maxIter        2         # default=5
+orbitalOpt.per.MDIter        2         # default=1000000
+orbitalOpt.criterion      1.0e-4       # default=1.0e-4 (Hartree/borh)^2
+
+#
+# output of contracted orbitals
+#
+
+CntOrb.fileout               off       # on|off, default=off
+Num.CntOrb.Atoms              1        # default=1
+<Atoms.Cont.Orbitals
+ 1
+Atoms.Cont.Orbitals>
+
+#
+# SCF Order-N
+#
+
+orderN.HoppingRanges        7.0        # default=5.0 (Ang)
+orderN.NumHoppings           2         # default=2
+orderN.KrylovH.order        550
+orderN.Exact.Inverse.S      on
+orderN.KrylovS.order       1600
+orderN.Recalc.Buffer        on
+orderN.Expand.Core          on
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                    Nomd        # Nomd|Constant_Energy_MD|Opt
+                                       # Constraint_Opt|DIIS2|Constraint_DIIS2
+MD.Opt.DIIS.History         10         # default=3
+MD.Opt.StartDIIS            20         # default=5
+MD.Opt.EveryDIIS           200         # default=200
+MD.maxIter                 200         # default=1
+MD.TimeStep                1.2         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-3       # default=1.0e-4 (Hartree/bohr)
+MD.Opt.DIIS_Mixing          0.4        # default=0.5
+<MD.TempControl
+  1
+  200  20  600.0  0.0
+MD.TempControl>
+
+#
+# Band dispersion
+#
+
+Band.dispersion              off       # on|off, default=off
+# if <Band.KPath.UnitCell does not exist,
+#     the reciprical lattice vector is employed.
+Band.Nkpath                5
+<Band.kpath
+   25  0.0 0.0 0.0   1.0 0.0 0.0   g X
+   25  1.0 0.0 0.0   1.0 0.5 0.0   X W
+   25  1.0 0.5 0.0   0.5 0.5 0.5   W L
+   25  0.5 0.5 0.5   0.0 0.0 0.0   L g
+   25  0.0 0.0 0.0   1.0 1.0 0.0   g X
+Band.kpath>
+
+#
+# MO output
+#
+
+MO.fileout                       off   # on|off
+num.HOMOs                         1    # default=2
+num.LUMOs                         1    # default=2
+MO.Nkpoint                        2    # default=1
+<MO.kpoint
+  0.0  0.0  0.0
+  0.0  0.0  0.2
+MO.kpoint>
+
+#
+# DOS and PDOS
+#
+
+Dos.fileout                  off       # on|off, default=off
+Dos.Erange              -15.0  20.0    # default = -20 20
+Dos.Kgrid                 6  6  6     # default = Kgrid1 Kgrid2 Kgrid3
+
+
+

@@ -1,0 +1,5 @@
+   1  cddf_example/Febcc-Col_k30x30x30.dat       Elapsed time(s)=   72.23  diff Real= 0.001401628572  diff Imag= 0.004194021427
+   2  cddf_example/Mn12.dat                      Elapsed time(s)=  113.13  diff Real= 0.000078500000  diff Imag= 0.000324181000
+   3  cddf_example/Si2_k10x10x10.dat             Elapsed time(s)=   21.47  diff Real= 0.000005194000  diff Imag= 0.000005262000
+   4  cddf_example/Si2_k1xk1xk1.dat              Elapsed time(s)=   22.07  diff Real= 0.001680882000  diff Imag= 0.001646454000
+   5  cddf_example/VO2R-k16xk16x16.dat           Elapsed time(s)=  137.12  diff Real= 0.000032320000  diff Imag= 0.000116939000

@@ -1,0 +1,91 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      si8-LNO
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+DATA.PATH         ../DFT_DATA19
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+   Si    Si7.0-s2p2d1   Si_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         8
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           
+    1  Si   0.000000000000  0.000000000000  0.000000000000   2.0 2.0
+    2  Si   0.000000000000  2.715000000000  2.715000000000   2.0 2.0
+    3  Si   2.715000000000  0.000000000000  2.715000000000   2.0 2.0
+    4  Si   2.715000000000  2.715000000000  0.000000000000   2.0 2.0
+    5  Si   1.357500000000  1.357500000000  1.357500000000   2.0 2.0
+    6  Si   1.357500000000  4.072500000000  4.072500000000   2.0 2.0
+    7  Si   4.072500000000  1.357500000000  4.072500000000   2.0 2.0
+    8  Si   4.072500000000  4.072500000000  1.357500000000   2.0 2.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang # Ang|AU
+<Atoms.UnitVectors                     
+ 5.430000000000  0.000000000000  0.000000000000
+ 0.000000000000  5.430000000000  0.000000000000
+ 0.000000000000  0.000000000000  5.430000000000
+Atoms.UnitVectors>
+
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        off        # On|Off|NC
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           300.0       # default=150 (Ry)
+scf.maxIter                 100        # default=40
+scf.EigenvalueSolver      dc-lno       # DC|GDC|Cluster|Band
+scf.Kgrid                 1 1 1        # means n1 x n2 x n3
+scf.ProExpn.VNA             off        # default=on 
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.10        # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.400       # default=0.40 
+scf.Mixing.History          10         # default=5
+scf.Mixing.StartPulay       12         # default=6
+scf.Mixing.EveryPulay       1          # default=5
+scf.criterion             1.0e-7       # default=1.0e-6 (Hartree) 
+ 
+#
+# SCF Order-N
+#
+
+orderN.HoppingRanges       8.0       # default = 7.0 (Ang.) 
+#orderN.LNO.Buffer          0.2       # default = 0.3
+
+<LNOs.Num
+  Si 4
+LNOs.Num>
+
+#
+# MD or Geometry Optimization
+#
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     nomd       # Nomd|Constant_Energy_MD|Opt
+                                       # Constraint_Opt|DIIS2|Constraint_DIIS2
+MD.maxIter                 5000        # default=1
+MD.TimeStep                2.0         # default=0.5 (fs)
+<MD.TempControl
+  1 
+ 10000  10  3500.0  0.2
+MD.TempControl>

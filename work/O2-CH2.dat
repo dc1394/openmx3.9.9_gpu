@@ -1,0 +1,79 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      O2-CH2
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+  O   O7.0_1s-s4p3d2      O_PBE19_1s
+  O1  O7.0_1s_CH-s4p3d2   O_PBE19_1s
+Definition.of.Atomic.Species>
+
+
+#
+# Atoms
+#
+
+
+
+Atoms.Number         2
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=Ang.
+ 1  O1  0.0000  0.000  0.000  4.5 3.5
+ 2  O   1.2074  0.000  0.000  4.5 3.5
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+<Atoms.UnitVectors                     
+  14.0   0.0   0.0  
+   0.0  14.0   0.0  
+   0.0   0.0  14.0  
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.restart                 off
+scf.coulomb.cutoff          on
+scf.core.hole               on
+<core.hole.state  
+  1 s 2
+core.hole.state>  
+
+scf.system.charge            1.0       # default=0.0
+
+scf.XcType                GGA-PBE      # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        on         # On|Off|NC
+scf.ElectronicTemperature  100.0       # default=300 (K)
+scf.energycutoff           500.0       # default=150 (Ry)
+scf.maxIter                100         # default=40
+scf.EigenvalueSolver        cluster    # DC|GDC|Cluster|Band
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.ProExpn.VNA              on
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.10        # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.400       # default=0.40 
+scf.Mixing.History          7          # default=5
+scf.Mixing.StartPulay       15          # default=6
+scf.criterion             1.0e-8       # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     nomd       # Nomd|Opt|NVE|NVT_VS|NVT_NH
+                                       # Constraint_Opt|DIIS2|Constraint_DIIS2
+MD.Opt.DIIS.History          4
+MD.Opt.StartDIIS            20         # default=5
+MD.maxIter                 100         # default=1
+MD.TimeStep                1.0         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)

@@ -1,0 +1,113 @@
+#
+#  GaFeO3: NC calc.
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      GGFF
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       3
+<Definition.of.Atomic.Species
+ Ga  Ga7.0-s1p1d1        Ga_PBE19
+ Fe  Fe6.0S-s1p1d2f1     Fe_PBE19S
+ O    O5.0-s1p1d1        O_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        40
+Atoms.SpeciesAndCoordinates.Unit   Ang  # Ang|AU
+<Atoms.SpeciesAndCoordinates            
+1   Ga   1.329220   0.000000   0.900994    6.5   6.5    0.0  0.0 0.0  0.0  1   off
+2   Ga   1.401680   2.898368   4.116048    6.5   6.5    0.0  0.0 0.0  0.0  1   off
+3   Fe   1.338234   5.487593   0.970750    9.0   5.0    0.0  0.0 0.0  0.0  1   off
+4   Fe   0.297453   7.477801   3.442665    5.0   9.0    0.0  0.0 0.0  0.0  1   off
+5   O    2.837139   4.032300   4.952569    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+6   O    4.269710   4.088696   2.635307    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+7   O    8.714445   1.879860   3.337446    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+8   O    1.368688   1.847902   0.779364    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+9   O    1.484204   6.320089   4.311905    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+10  O    1.473702   8.825943   2.614477    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+11  Ga   3.046380   0.000000   3.441294    6.5   6.5    0.0  0.0 0.0  0.0  1   off
+12  Ga   2.973920   2.898368   6.656348    6.5   6.5    0.0  0.0 0.0  0.0  1   off
+13  Fe   3.037366   5.487593   3.511050    9.0   5.0    0.0  0.0 0.0  0.0  1   off
+14  Fe   4.078147   7.477801   5.982965    5.0   9.0    0.0  0.0 0.0  0.0  1   off
+15  O    1.538461   4.032300   7.492869    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+16  O    0.105890   4.088696   5.175607    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+17  O   -4.338845   1.879860   0.797146    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+18  O    3.006912   1.847902   3.319664    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+19  O    2.891396   6.320089   6.852205    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+20  O    2.901898   8.825943   5.154777    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+21  Ga   5.704820   4.699650   1.639306    6.5   6.5    0.0  0.0 0.0  0.0  1   off
+22  Ga   5.777280   7.598018  -1.575748    6.5   6.5    0.0  0.0 0.0  0.0  1   off
+23  Fe   5.713834  10.187243   1.569550    9.0   5.0    0.0  0.0 0.0  0.0  1   off
+24  Fe   4.673053  12.177451  -0.902365    5.0   9.0    0.0  0.0 0.0  0.0  1   off
+25  O    7.212739   8.731950  -2.412269    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+26  O    8.645310   8.788346  -0.095007    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+27  O    4.338845   6.579510  -0.797146    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+28  O    5.744288   6.547552   1.760936    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+29  O    5.859804  11.019739  -1.771605    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+30  O    5.849302  13.525593  -0.074177    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+31  Ga  -1.329220   4.699650  -0.900994    6.5   6.5    0.0  0.0 0.0  0.0  1   off
+32  Ga  -1.401680   7.598018  -4.116048    6.5   6.5    0.0  0.0 0.0  0.0  1   off
+33  Fe  -1.338234  10.187243  -0.970750    9.0   5.0    0.0  0.0 0.0  0.0  1   off 
+34  Fe  -0.297453  12.177451  -3.442665    5.0   9.0    0.0  0.0 0.0  0.0  1   off 
+35  O   -2.837139   8.731950   0.128031    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+36  O   -4.269710   8.788346  -2.635307    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+37  O    0.036755   6.579510  -3.337446    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+38  O   -1.368688   6.547552  -0.779364    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+39  O   -1.484204   1.620439   0.768695    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+40  O   -1.473702  13.525593  -2.614477    3.0   3.0    0.0  0.0 0.0  0.0  1   off
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang  #  Ang|AU
+<Atoms.UnitVectors                      # unit=AU
+ 8.7512   0.000     0.000
+ 0.000    9.3993    0.000
+ 0.000    0.000     5.0806
+Atoms.UnitVectors>
+
+<Hubbard.U.values                 #  eV
+ Ga  1s 0.0   1p 0.0    1d 0.0
+ Fe  1s 0.0   1p 0.0    1d 4.0   2d 2.0   1f 1.0 
+ O   1s 0.0   1p 0.0    1d 0.0
+Hubbard.U.values>
+
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                GGA-PBE      # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization       NC          # On|Off|NC
+scf.SpinOrbit.Coupling     on          # On|Off, default=off       
+scf.partialCoreCorrection  On          # On|Off
+scf.Hubbard.U              On          # On|Off , default=off
+scf.Hubbard.Occupation     dual        # onsite|full|dual, default=dual
+scf.ElectronicTemperature  500.0       # default=300 (K)
+scf.energycutoff           280.0       # default=150 (Ry)
+scf.maxIter                300         # default=40
+scf.EigenvalueSolver       Band        # Recursion|Cluster|Band
+scf.Kgrid                  4 4 4       # means 4x4x4
+scf.Mixing.Type            Rmm-Diis    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.020       # default=0.30 
+scf.Min.Mixing.Weight      0.020       # default=0.001 
+scf.Max.Mixing.Weight      0.070       # default=0.40 
+scf.Mixing.History          50         # default=5
+scf.Mixing.StartPulay       20         # default=6
+scf.criterion             1.0e-10      # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     Nomd       # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                   1         # default=1
+MD.TimeStep                 1.0        # default=0.5 (fs)
+MD.Opt.criterion          1.0e-3       # default=1.0e-4 (Hartree/bohr)

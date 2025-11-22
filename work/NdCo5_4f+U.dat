@@ -1,0 +1,113 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                     ndco5_4f+u
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+DATA.PATH                     ../DFT_DATA19
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+  Nd    Nd8.0-s2p2d2f1   Nd_CA19
+  Co    Co6.0S-s2p2d1    Co_CA19S
+Definition.of.Atomic.Species>
+
+<Hubbard.U.values                 #  eV
+ Nd  1s 0.0 2s 0.0 1p 0.0 2p 0.0 1d 0.0 2d 0.0 1f 4.0  
+ Co  1s 0.0 2s 0.0 1p 0.0 2p 0.0 1d 0.0
+Hubbard.U.values>
+
+#
+# Atoms
+#
+
+Atoms.Number         6
+Atoms.SpeciesAndCoordinates.Unit   frac # Ang|AU
+<Atoms.SpeciesAndCoordinates           
+  1  Nd  0.000   0.000   0.000     9.0 5.0  on
+  2  Co  0.500   0.000   0.500     5.0 10.0 off
+  3  Co  0.000   0.500   0.500     5.0 10.0 off
+  4  Co  0.500   0.500   0.500     5.0 10.0 off
+  5  Co  0.3333333333  0.6666666666  0.0     5.0 10.0 off
+  6  Co  0.6666666666  0.3333333333  0.0     5.0 10.0 off
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang # Ang|AU
+<Atoms.UnitVectors          
+ 4.8200 0.0000 0.0000
+-2.4100 4.17424244624099427738 0.0000 
+ 0.0000 0.0000 3.8192258964
+Atoms.UnitVectors>
+
+
+ 4.6700 0.0000 0.0000
+-2.3350 4.04433863567332848036 0.0000 
+ 0.0000 0.0000 3.70037031872509960158
+
+ 4.7200 0.0000 0.0000
+-2.3600 4.08763990586255041270 0.0000 
+ 0.0000 0.0000 3.7399888446
+
+ 4.7700 0.0000 0.0000
+-2.3850 4.13094117605177234504 0.0000 
+ 0.0000 0.0000 3.7796073705
+
+ 4.8200 0.0000 0.0000
+-2.4100 4.17424244624099427738 0.0000 
+ 0.0000 0.0000 3.8192258964
+
+ 5.0200 0.0000 0.0000
+-2.5100 4.34744752699788200673 0.0 
+ 0.0000 0.0000 3.9777 
+
+ 5.0700 0.0000 0.0000
+-2.5350 4.3907487972 0.0 
+ 0.0000 0.0000 4.0173185259 
+
+ 5.1200 0.0000 0.0000
+-2.5600 4.4340500674 0.0 
+ 0.0000 0.0000 4.0569370518
+
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 LSDA-CA     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        on         # On|Off|NC
+scf.Hubbard.U               on         # On|Off , default=off
+scf.Hubbard.Occupation      dual       # onsite|full|dual, default=onsite
+scf.ElectronicTemperature   1000.0     # default=300 (K)
+#scf.energycutoff            500.0      # default=150 (Ry)
+scf.Ngrid                 70 70 54   
+scf.maxIter                 1000       # default=40
+scf.EigenvalueSolver       band        # DC|GDC|Cluster|Band
+scf.Kgrid                 15 15 16     # means n1 x n2 x n3
+scf.ProExpn.VNA             off        # default=on 
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.001       # default=0.30 
+scf.Min.Mixing.Weight      0.01        # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History          50         # default=5
+scf.Mixing.StartPulay       17         # default=6
+scf.Mixing.EveryPulay        1         # default=5
+scf.Mixing.Control.Temp     off        # default=off
+scf.criterion             1.0e-7       # default=1.0e-6 (Hartree) 
+scf.restart                off
+
+#
+# 1D FFT
+#
+  
+1DFFT.NumGridK             900         # default=900
+1DFFT.NumGridR             900         # default=900
+1DFFT.EnergyCutoff        3600         # default=3DFFT.EnergyCutoff*3.0 (Ry)
+
+MD.Type                   EvsLC        #
+MD.EvsLC.Step    1.07066381156316916400     # default=0.4%
+MD.maxIter                  4          # default=1

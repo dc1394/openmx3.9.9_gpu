@@ -1,0 +1,17 @@
+OpenMX Ver.3.9
+  icc version 18.0.5, compiler option -O3  -xHOST -ip -no-prec-div -qopenmp -Dkcomp -fp-model precise
+
+  enaga (Intel Xeon 6148 20core 2.4GHz)
+  180 processes (MPI) x 2 thread (OpenMP) 
+
+   1  large2_example/C1000.dat         Elapsed time(s)=  631.53  diff Utot= 0.000000005156  diff Force= 0.000000004703
+   2  large2_example/Fe1000.dat        Elapsed time(s)= 6109.09  diff Utot= 0.000000071275  diff Force= 0.000000003591
+   3  large2_example/GRA1024.dat       Elapsed time(s)=  771.87  diff Utot= 0.000000017340  diff Force= 0.000000003231
+   4  large2_example/Ih-Ice1200.dat    Elapsed time(s)=  397.79  diff Utot= 0.000000000910  diff Force= 0.000000000007
+   5  large2_example/Pt500.dat         Elapsed time(s)= 4769.46  diff Utot= 0.000000004940  diff Force= 0.000000002444
+   6  large2_example/R-TiO2-1050.dat   Elapsed time(s)=  929.03  diff Utot= 0.000000003991  diff Force= 0.000000003032
+   7  large2_example/Si1000.dat        Elapsed time(s)=  568.38  diff Utot= 0.000000000633  diff Force= 0.000000001302
+
+
+Total elapsed time (s)    14177.15
+

@@ -1,0 +1,118 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      nben_p10
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (1-3)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       4
+<Definition.of.Atomic.Species
+ H   H5.0-s2p1        H_CA19
+ C   C5.0-s2p2d1      C_CA19
+ N   N5.0-s2p2d1      N_CA19
+ O   O5.0-s2p2d1      O_CA19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        14
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           
+     1      C    1.26549  -1.23017  -0.00000   2.0 2.0
+     2      H    1.81145  -2.19460  -0.00000   0.5 0.5
+     3      C   -0.15689  -1.24592   0.00000   2.0 2.0  
+     4      C   -0.87270  -0.00000  -0.00000   2.0 2.0
+     5      C   -0.15689   1.24592  -0.00000   2.0 2.0
+     6      C    1.26549   1.23017  -0.00000   2.0 2.0
+     7      C    1.98037  -0.00000  -0.00000   2.0 2.0
+     8      H   -0.72429  -2.19753   0.00000   0.5 0.5
+     9      H   -0.72429   2.19753   0.00000   0.5 0.5
+    10      H    1.81145   2.19460  -0.00000   0.5 0.5
+    11      H    3.08935   0.00000  -0.00000   0.5 0.5
+    12      N   -2.39872  -0.00000  -0.00000   2.5 2.5
+    13      O   -3.10127   1.22206   0.00000   3.0 3.0
+    14      O   -3.10127  -1.22206  -0.00000   3.0 3.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+<Atoms.UnitVectors                     
+  20.0   0.0   0.0
+   0.0  20.0   0.0
+   0.0   0.0  12.0
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization       Off         # On|Off
+scf.ElectronicTemperature  500.0       # default=300 (K)
+scf.energycutoff           130.0       # default=150 (Ry)
+scf.maxIter                60          # default=40
+scf.EigenvalueSolver       cluster     # DC|Cluster|Band
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.400       # default=0.40 
+scf.Mixing.History          7          # default=5
+scf.Mixing.StartPulay       5          # default=6
+scf.criterion             1.0e-8       # default=1.0e-6 (Hartree) 
+scf.Electric.Field      10.0 0.0 0.0   # default=0.0 0.0 0.0 (GV/m) 
+
+#
+# restart using *.rst
+#
+
+scf.restart                  off       # on|off, default=off
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     nomd       # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.maxIter                  1          # default=1
+MD.TimeStep                1.0         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
+
+#
+# MO output
+#
+
+MO.fileout                   off       # on|off, default=off
+num.HOMOs                     1        # default=1
+num.LUMOs                     1        # default=1
+
+#
+# DOS and PDOS
+#
+
+Dos.fileout                  off       # on|off, default=off
+Dos.Erange              -10.0  10.0    # default = -20 20 
+Dos.Kgrid                 1  1  1      # default = Kgrid1 Kgrid2 Kgrid3
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

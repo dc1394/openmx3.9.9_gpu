@@ -1,0 +1,56 @@
+#
+# File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                       c2
+level.of.stdout                   1    # default=1 (1-2)
+level.of.fileout                  0    # default=1 (1-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+  C     C5.0-s1p1       C_CA19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         2
+Atoms.SpeciesAndCoordinates.Unit   frac # Ang|AU
+<Atoms.SpeciesAndCoordinates
+ 1  C   0.500  0.500  0.490    3.0  1.0
+ 2  C   0.680  0.510  0.530    3.0  1.0
+Atoms.SpeciesAndCoordinates>
+
+Atoms.UnitVectors.Unit             Ang # Ang|AU
+<Atoms.UnitVectors                     
+  10.0   0.0   0.0  
+   0.0  10.0   0.0  
+   0.0   0.0  10.0  
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                  LSDA-CA    # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization        on         # On|Off
+scf.ElectronicTemperature  10.0        # default=300 (K)
+scf.energycutoff           100.0       # default=150 (Ry)
+scf.maxIter                 500        # default=40
+scf.EigenvalueSolver      cluster      # DC|GDC|Cluster|Band
+scf.Kgrid                  1 1 1       # means n1 x n2 x n3
+scf.Mixing.Type           rmm-diish    # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.100       # default=0.40 
+scf.Mixing.History         90          # default=5
+scf.Mixing.StartPulay      30          # default=6
+scf.criterion             1.0e-11      # default=1.0e-6 (Hartree) 
+scf.ProExpn.VNA             off        # default=on
+scf.stress.tensor            on        # default=off

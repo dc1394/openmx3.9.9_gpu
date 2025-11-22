@@ -1,0 +1,65 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      Crys-MnO
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ Mn  Mn6.0-s2p2d1     Mn_PBE19
+ O   O5.0-s2p2d1      O_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        4
+Atoms.SpeciesAndCoordinates.Unit   AU  # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=AU
+ 1  Mn   0.000     0.000     0.000     10.0  5.0
+ 2  Mn   4.1905    4.1905    0.000      5.0 10.0  
+ 3   O   4.1905    0.000     0.000      3.0  3.0
+ 4   O   4.1905    4.1905    4.1905     3.0  3.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             AU  #  Ang|AU
+<Atoms.UnitVectors                     # unit=AU
+ 8.3810    4.1905    4.1905
+ 4.1905    8.3810    4.1905
+ 4.1905    4.1905    8.3810 
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization       On          # On|Off|NC
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           150.0       # default=150 (Ry)
+scf.maxIter                80          # default=40
+scf.EigenvalueSolver       Band        # Recursion|Cluster|Band
+scf.Kgrid                  5 5 5       # means 4x4x4
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.010       # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History          20         # default=5
+scf.Mixing.StartPulay        5         # default=6
+scf.criterion             1.0e-10      # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     nomd       # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                   1         # default=1
+MD.TimeStep                 0.01       # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)

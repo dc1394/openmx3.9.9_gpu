@@ -1,0 +1,133 @@
+#
+# File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                       c2
+level.of.stdout                   1    # default=1 (1-2)
+level.of.fileout                  0    # default=1 (1-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+  C     C5.0-s1p1       C_CA19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         2
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           
+  1  C   0.000  0.000  0.000    2.0  2.0
+  2  C   0.600  0.500  0.400    2.0  2.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang # Ang|AU
+<Atoms.UnitVectors                     
+  10.0   0.0   0.0  
+   0.0  10.0   0.0  
+   0.0   0.0  10.0  
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                  LDA        # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization        off        # On|Off
+scf.ElectronicTemperature   50.0       # default=300 (K)
+scf.energycutoff           100.0       # default=150 (Ry)
+scf.maxIter                 50         # default=40
+scf.EigenvalueSolver      cluster      # DC|GDC|Cluster|Band
+scf.Kgrid                  1 1 1       # means n1 x n2 x n3
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.0001      # default=0.30 
+scf.Min.Mixing.Weight      0.0001      # default=0.001 
+scf.Max.Mixing.Weight      0.0100      # default=0.40 
+scf.Mixing.History          6          # default=5
+scf.Mixing.StartPulay      30          # default=6
+scf.criterion             1.0e-10       # default=1.0e-6 (Hartree) 
+scf.ProExpn.VNA             on         # default=on
+
+#
+# 1D FFT
+#
+
+1DFFT.NumGridK             900         # default=900
+1DFFT.NumGridR             900         # default=900
+1DFFT.EnergyCutoff        3600.0       # default=3DFFT.EnergyCutoff*3.0 (Ry)
+
+#
+# Orbital Optimization
+#
+
+orbitalOpt.Method           off        # Off|Unrestricted|Restricted
+orbitalOpt.InitCoes     Symmetrical    # Symmetrical|Free
+orbitalOpt.initPrefactor   0.1         # default=0.1
+orbitalOpt.scf.maxIter      20         # default=12
+orbitalOpt.MD.maxIter        5         # default=5
+orbitalOpt.per.MDIter        2         # default=1000000
+orbitalOpt.criterion      1.0e-4       # default=1.0e-4 (Hartree/borh)^2
+
+#
+# output of contracted orbitals
+#
+
+CntOrb.fileout               off       # on|off, default=off
+Num.CntOrb.Atoms              1        # default=1
+<Atoms.Cont.Orbitals
+ 1
+Atoms.Cont.Orbitals>
+ 
+#
+# SCF Order-N
+#
+
+orderN.HoppingRanges        4.0        # default=5.0 (Ang) 
+orderN.NumHoppings           1         # default=2
+orderN.RecursiveLevels     100        # default=10
+
+#
+# restart using *.rst
+#
+
+scf.restart                  off       # on|off, default=off
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     opt        # Nomd|Opt|NVE|NVT_VS|NVT_NH
+MD.maxIter                    3        # default=1
+MD.TimeStep                 1.0        # default=0.5 (fs)
+MD.Opt.criterion         1.0e-4        # default=1.0e-4 (Hartree/bohr)
+
+#
+# MO output
+#
+
+MO.fileout                   off       # on|off, default=off
+num.HOMOs                     1        # default=1
+num.LUMOs                     1        # default=1
+
+#
+# DOS and PDOS
+#
+
+Dos.fileout                  off       # on|off, default=off
+Dos.Erange              -10.0  10.0    # default = -20 20 
+Dos.Kgrid                 1  1  1      # default = Kgrid1 Kgrid2 Kgrid3
+
+#
+# output Hamiltonian and overlap
+#
+
+HS.fileout                    off      # on|off, default=off
+
+
+
+

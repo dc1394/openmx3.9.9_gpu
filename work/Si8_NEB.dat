@@ -1,0 +1,89 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      si8_neb
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (1-3)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+   Si   Si7.0-s2p2d1  Si_PBE19
+   H    H6.0-s2p1     H_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         9
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=Ang.
+   1   Si   -0.07231314460708    0.07582547190924   -0.07214714973755     2.0     2.0
+   2   Si   -0.20223741273140    2.75209667600991    2.60162023602192     2.0     2.0     
+   3   Si    2.60016864732328   -0.04489948391789    2.60035518818134     2.0     2.0     
+   4   Si    2.60144984974479    2.75219870005958   -0.20203045232360     2.0     2.0     
+   5   Si    1.33879659189322    1.49321788114136    1.33888665860190     2.0     2.0     
+   6   Si    1.18612360322053    4.09969708396062    3.94578566400787     2.0     2.0     
+   7   Si    3.94992621866721    1.33478699982324    3.95017458486668     2.0     2.0     
+   8   Si    3.94566713518901    4.09973124113426    1.18635966085897     2.0     2.0     
+   9    H    2.29861980714410    2.47574766455348    2.29885022668067     0.5     0.5     
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+<Atoms.UnitVectors                     # unit=Ang.
+  5.430000000000  0.000000000000  0.000000000000
+  0.000000000000  5.430000000000  0.000000000000
+  0.000000000000  0.000000000000  5.430000000000
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization       off         # On|Off
+scf.ElectronicTemperature  600.0       # default=300 (K)
+scf.energycutoff           180.0       # default=150 (Ry)
+scf.maxIter                100         # default=40
+scf.EigenvalueSolver       band        # Recursion|Cluster|Band
+scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstegr
+scf.Kgrid                  6 6 6       # means 4x4x4
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History          8          # default=5
+scf.Mixing.StartPulay       6          # default=6
+scf.Mixing.EveryPulay       1          # default=6
+scf.criterion             1.0e-9       # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     NEB        # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Opt.DIIS.History          5         # default=7
+MD.Opt.StartDIIS            10         # default=5
+MD.maxIter                  100        # default=1
+MD.TimeStep                1.0         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
+
+MD.NEB.Number.Images        8          # default=10
+
+ 
+<NEB.Atoms.SpeciesAndCoordinates           # Unit=Ang.
+   1   Si    0.11447174692916   -0.04508638502887    0.11484089448274     2.0     2.0
+   2   Si    0.11180501770032    2.75149581798243    2.91605219972856     2.0     2.0
+   3   Si    2.78690005390050    0.07535201020321    2.78732083335932     2.0     2.0
+   4   Si    2.91572797986635    2.75156855109157    0.11218772570543     2.0     2.0
+   5   Si    1.37576828916102    1.49259919716021    1.37613407387849     2.0     2.0
+   6   Si    1.52716502772102    4.09920109820673    4.19815686339537     2.0     2.0
+   7   Si    4.19471695983853    1.33387468384417    4.19510337186289     2.0     2.0
+   8   Si    4.19778252474940    4.09927764210375    1.52757782577684     2.0     2.0
+   9    H    0.42001285851685    2.48354232538117    0.42003475932894     0.5     0.5
+NEB.Atoms.SpeciesAndCoordinates>

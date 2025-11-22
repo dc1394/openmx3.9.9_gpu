@@ -1,0 +1,115 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      nacl
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (1-3)
+
+#
+# restart using a restart file, *.rst  
+#
+
+scf.restart                      off   # on|off,default=off
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+   Na   Na9.0-s2p2     Na_CA19
+   Cl   Cl7.0-s2p2d1   Cl_CA19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         2
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=Ang.
+  1   Na   0.05000  0.00000  0.00000   4.5 4.5
+  2   Cl   2.81500  2.81500  2.81500   3.5 3.5
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+<Atoms.UnitVectors                     # unit=Ang.
+  0.00000   2.81500   2.81500 
+  2.81500   0.00000   2.81500
+  2.81500   2.81500   0.00000
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 LDA         # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization       off         # On|Off
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           150.0       # default=150 (Ry)
+scf.maxIter                170         # default=40
+scf.EigenvalueSolver       band        # Recursion|Cluster|Band
+scf.Kgrid                  9 9 9       # means 4x4x4
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History          6          # default=5
+scf.Mixing.StartPulay      12          # default=6
+scf.criterion             1.0e-9       # default=1.0e-6 (Hartree) 
+scf.system.charge          0.0         # default=0.0
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     nomd       # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Opt.DIIS.History          3         # default=7
+MD.maxIter                  100        # default=1
+MD.TimeStep                0.5         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
+
+#
+# Band dispersion 
+#
+# if <Band.KPath.UnitCell does not exist,
+#     the reciprical lattice vector is employed. 
+
+Band.dispersion             off       # on|off, default=off
+Band.Nkpath                  4
+<Band.kpath                
+   25  0.00 0.00 0.00   0.50 0.00 0.00   g X
+   25  0.50 0.00 0.00   0.50 0.25 0.00   X W
+   25  0.50 0.25 0.00   0.25 0.25 0.25   W L
+   25  0.25 0.25 0.25   0.00 0.00 0.00   L g
+Band.kpath>
+
+#
+# MO output
+#
+
+MO.fileout                   off       # on|off
+num.HOMOs                    3         # default=1
+num.LUMOs                    3         # default=1
+MO.Nkpoint                   1         # default=1 
+<MO.kpoint
+  0.0  0.0  0.0
+MO.kpoint>
+
+#
+# DOS and PDOS
+#
+
+Dos.fileout                  off       # on|off, default=off
+Dos.Erange              -20.0  20.0    # default = -20 20 
+Dos.Kgrid                12  12  12    # default = Kgrid1 Kgrid2 Kgrid3
+
+Voronoi.charge               off       # on|off, default = off
+
+
+#
+# output Hamiltonian and overlap
+#
+
+HS.fileout                   on        # on|off, default=off

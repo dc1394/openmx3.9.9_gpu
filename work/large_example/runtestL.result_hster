@@ -1,0 +1,26 @@
+OpenMX Ver.3.9
+  icc compiler Ver. 14.0.2.144, compiler option -openmp -O3 -xAVX -ip -no-prec-div
+
+  hster (Intel(R) Xeon(R) CPU E5-2640 0 @ 2.50GHz)
+  640 processes (MPI) x 1 thread (OpenMP)
+
+   1  large_example/5_5_13COb2.dat     Elapsed time(s)=   41.66  diff Utot= 0.000000000022  diff Force= 0.000000000051
+   2  large_example/B2C62_Band.dat     Elapsed time(s)=  469.53  diff Utot= 0.000000000000  diff Force= 0.000000043754
+   3  large_example/CG15c-DC-LNO.dat   Elapsed time(s)=   40.81  diff Utot= 0.000000000120  diff Force= 0.000000000337
+   4  large_example/DIA512-1.dat       Elapsed time(s)=   20.13  diff Utot= 0.000000000020  diff Force= 0.000000000127
+   5  large_example/FeBCC.dat          Elapsed time(s)=   64.10  diff Utot= 0.000000000017  diff Force= 0.000000000003
+   6  large_example/GEL.dat            Elapsed time(s)=   59.84  diff Utot= 0.000000000003  diff Force= 0.000000000001
+   7  large_example/GFRAG.dat          Elapsed time(s)=   32.58  diff Utot= 0.000000000209  diff Force= 0.000000000023
+   8  large_example/GGFF.dat           Elapsed time(s)=  473.72  diff Utot= 0.000000000030  diff Force= 0.000000001320
+   9  large_example/MCCN.dat           Elapsed time(s)=   24.64  diff Utot= 0.000000000027  diff Force= 0.000000000129
+  10  large_example/Mn12_148_F.dat     Elapsed time(s)=   78.98  diff Utot= 0.000000000015  diff Force= 0.000000000017
+  11  large_example/N1C999.dat         Elapsed time(s)=  180.55  diff Utot= 0.000000000138  diff Force= 0.000000000046
+  12  large_example/Ni63-O64.dat       Elapsed time(s)=   58.68  diff Utot= 0.000000001412  diff Force= 0.000000000019
+  13  large_example/Pt63.dat           Elapsed time(s)=   61.88  diff Utot= 0.000000000930  diff Force= 0.000000002466
+  14  large_example/SialicAcid.dat     Elapsed time(s)=   46.14  diff Utot= 0.000000000002  diff Force= 0.000000000012
+  15  large_example/ZrB2_2x2.dat       Elapsed time(s)=  135.47  diff Utot= 0.000000000019  diff Force= 0.000000000015
+  16  large_example/nsV4Bz5.dat        Elapsed time(s)=  123.35  diff Utot= 0.000000004195  diff Force= 0.000000002524
+
+
+Total elapsed time (s)     1912.07
+

@@ -1,0 +1,134 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      mn2o
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ Mn  Mn6.0-s2p1d1     Mn_CA19
+ O   O5.0-s1p1        O_CA19
+Definition.of.Atomic.Species>
+
+<Hubbard.U.values                 #  eV
+ Mn  1s 0.0 2s 0.0 1p 0.0 1d 5.0
+ O   1s 0.0 1p 0.0
+Hubbard.U.values>
+
+#
+# Atoms
+#
+
+Atoms.Number        3
+Atoms.SpeciesAndCoordinates.Unit   Ang  # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=AU
+ 1  Mn   0.200     0.300     0.400     10.0  5.0  on
+ 2   O   1.900     0.000     0.000      3.0  3.0  on
+ 3  Mn  -0.100     1.700     0.200      5.0 10.0  on
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang  #  Ang|AU
+#<Atoms.UnitVectors                     # unit=AU
+#  11.0   0.0   0.0
+#   0.0  11.0   0.0
+#   0.0   0.0  11.0  
+#Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 LSDA-CA     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.Hubbard.U              On          # On|Off , default=off
+scf.Hubbard.Occupation     dual        # onsite|full|dual, default=dual
+scf.SpinPolarization       On          # On|Off|NC
+scf.ElectronicTemperature  600.0        # default=300 (K)
+scf.energycutoff           150.0       # default=150 (Ry)
+scf.maxIter                350         # default=40
+scf.EigenvalueSolver       cluster     # Recursion|Cluster|Band
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.0010      # default=0.30 
+scf.Min.Mixing.Weight      0.0010      # default=0.001 
+scf.Max.Mixing.Weight      0.0300      # default=0.40 
+scf.Mixing.History          20         # default=5
+scf.Mixing.StartPulay       50         # default=6
+scf.criterion             1.0e-11      # default=1.0e-6 (Hartree) 
+
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     nomd       # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                   1         # default=1
+MD.TimeStep                 0.01       # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
+
+#
+# MO output
+#
+
+MO.fileout                  off        # on|off
+num.HOMOs                    3         # default=1
+num.LUMOs                    3         # default=1
+MO.Nkpoint                   1         # default=1
+<MO.kpoint
+ 0.0  0.0  0.0
+MO.kpoint>
+
+
+#
+# Band dispersion 
+#
+# if <Band.KPath.UnitCell does not exist,
+#     the reciprical lattice vector is employed. 
+
+Band.dispersion             off        # on|off, default=off
+Band.Nkpath                  2
+<Band.kpath                
+  120  1.0 0.0 0.0   0.0 0.0 0.0    Y  G
+  120  0.0 0.0 0.0   0.0 0.0 1.0    G  Z
+Band.kpath>
+
+
+#
+# DOS and LDOS
+#
+
+Dos.fileout                 off         # on|off , default=off
+Dos.Erange              -20.0  20.0     # default = -20 20
+Dos.Kgrid                  9 9 9        # default = Kgrid1 Kgrid2 Kgrid3
+
+
+#
+# output Hamiltonian and overlap
+#
+
+HS.fileout                   off     # on|off, default=off
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

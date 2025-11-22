@@ -1,0 +1,79 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (1-3)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       3
+<Definition.of.Atomic.Species
+ Cu   Cu6.0S-s2p2d2  Cu_PBE19S
+ Ga   Ga7.0-s2p2d2   Ga_PBE19
+ S   S7.0-s3p3d2f1   S_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         8
+Atoms.SpeciesAndCoordinates.Unit   frac # Ang|AU
+<Atoms.SpeciesAndCoordinates
+   1   Ga    0.49739885059128    0.49798296071551    0.00218335015858     6.5     6.5     0.0     0.0     0.0     0.0     0     off     
+   2   Ga    0.24799745148442    0.74739729078315    0.50218062346763     6.5     6.5     0.0     0.0     0.0     0.0     0     off     
+   3   Cu   -0.00150561917260   -0.00175472581764    0.00150581710363     5.5     5.5     0.0     0.0     0.0     0.0     0     off     
+   4   Cu    0.74824958926976    0.24849179400659    0.50150792979782     5.5     5.5     0.0     0.0     0.0     0.0     0     off     
+   5    S    0.11357592790667    0.12247684462167    0.25204371755223     3.0     3.0     0.0     0.0     0.0     0.0     0     off     
+   6    S    0.63207955334430    0.62299001190916    0.25156761833966     3.0     3.0     0.0     0.0     0.0     0.0     0     off     
+   7    S    0.37299583300266    0.88207425752246    0.75156943515719     3.0     3.0     0.0     0.0     0.0     0.0     0     off     
+   8    S    0.87248441392271    0.36357458257563    0.75204185357415     3.0     3.0     0.0     0.0     0.0     0.0     0     off     
+Atoms.SpeciesAndCoordinates>
+
+Atoms.UnitVectors.Unit  AU
+
+<Atoms.UnitVectors
+ 10.157795410702109   0.003243056249777   0.007095823500695 
+  0.003243237089029  10.157803531779507   0.007096193378356 
+  5.098582320839824   5.098582702826321  10.077979963259706 
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           500.0       # default=150 (Ry)
+scf.maxIter                1000          # default=40
+scf.EigenvalueSolver       band     # Recursion|Cluster|Band
+scf.Kgrid                 14 14 13 # means n1 x n2 x n3
+scf.Mixing.Type            rmm-diisk   # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.030       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.4       # default=0.40 
+scf.Mixing.History          50          # default=5
+scf.Mixing.StartPulay      40          # default=6
+scf.criterion             1.0e-8       # default=1.0e-6 (Hartree)
+
+#
+# DOS and PDOS
+#
+
+Dos.fileout                  on       # on|off, default=off
+Dos.Erange              -2.0  2.0    # default = -20 20 
+Dos.Kgrid            14 14 13      # default = Kgrid1 Kgrid2 Kgrid3
+
+HS.fileout                   off        # on|off, default=off
+
+
+
+System.Name       GaCuS2_mp-5238_symmetrized_SOC
+scf.SpinPolarization        NC         # On|Off
+scf.SpinOrbit.Coupling      on
+MD.Type  Nomd
+MD.maxIter  1                 # Opt|EF|BFGS|RF|DIIS

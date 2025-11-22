@@ -1,0 +1,76 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      dia8_dc
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (1-3)
+memory.usage.fileout             on    # default=off, on|off
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+  C   C5.0-s1p1      C_CA19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         8
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=Ang.
+ 1  C  0.000000000  0.000000000  0.000000000   2.0 2.0
+ 2  C  0.000000000  1.783500000  1.783500000   2.0 2.0
+ 3  C  1.783500000  0.000000000  1.783500000   2.0 2.0
+ 4  C  1.783500000  1.783500000  0.000000000   2.0 2.0
+ 5  C  0.891750000  0.891750000  0.891750000   2.0 2.0
+ 6  C  0.891750000  2.675250000  2.675250000   2.0 2.0
+ 7  C  2.675250000  0.891750000  2.675250000   2.0 2.0
+ 8  C  2.675250000  2.675250000  0.891750000   2.0 2.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+<Atoms.UnitVectors                     # unit=Ang.
+  3.567000000   0.000000000   0.000000000 
+  0.000000000   3.567000000   0.000000000
+  0.000000000   0.000000000   3.567000000
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 LDA         # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization       off         # On|Off
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           120.0       # default=150 (Ry)
+scf.maxIter                40          # default=40
+scf.EigenvalueSolver       DC          # Recursion|Cluster|Band
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History          6          # default=5
+scf.Mixing.StartPulay      12          # default=6
+scf.criterion             1.0e-10      # default=1.0e-6 (Hartree) 
+ 
+#
+# SCF Order-N
+#
+
+orderN.HoppingRanges        6.0        # default=5.0 (Ang) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     nomd       # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Opt.DIIS.History          3         # default=7
+MD.maxIter                  100        # default=1
+MD.TimeStep                0.5         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)

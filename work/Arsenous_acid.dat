@@ -1,0 +1,71 @@
+System.CurrrentDirectory ./
+System.Name ASA
+level.of.stdout 1
+level.of.fileout 1
+
+Species.Number 3
+<Definition.of.Atomic.Species
+H   H6.0-s2p1     H_PBE19
+As As9.0-s3p3d2f2 As_PBE19
+O  O6.0-s2p2d1    O_PBE19
+Definition.of.Atomic.Species>
+
+Atoms.Number 7
+Atoms.SpeciesAndCoordinates.Unit Ang
+<Atoms.SpeciesAndCoordinates
+1 As -0.06241700 0.03192000 -0.43117500 7.5 7.5
+2 O -1.56916200 0.33927500 0.54656000 3.0 3.0
+3 H -1.40508400 0.02386800 1.46500100 0.5 0.5
+4 O 0.47272000 -1.51669800 0.37303700 3.0 3.0
+5 H 1.29607900 -1.29543700 0.86552500 0.5 0.5
+6 O 1.20771500 0.96899300 0.54278600 3.0 3.0
+7 H 1.27858300 1.88563700 0.19919500 0.5 0.5
+Atoms.SpeciesAndCoordinates>
+
+Atoms.UnitVectors.Unit Ang
+<Atoms.UnitVectors
+21.68805 0.00270 -0.00015
+0.00194 30.23267 0.00024
+-0.00011 0.00024 29.97246
+Atoms.UnitVectors>
+
+scf.XcType GGA-PBE
+scf.SpinPolarization off
+scf.ElectronicTemperature 300.0
+scf.energycutoff 250.0
+scf.maxIter 100
+scf.EigenvalueSolver Cluster
+scf.Kgrid 1 1 1
+scf.Mixing.Type rmm-diisk
+scf.Init.Mixing.Weight 0.05
+scf.Min.Mixing.Weight 0.01
+scf.Max.Mixing.Weight 0.30
+scf.Mixing.History 25
+scf.Mixing.StartPulay 15
+scf.criterion 1.0e-7
+
+#
+# vdW
+#
+
+scf.dftD off
+DFT.scale8 0.7875
+DFTD.a1 0.4289
+DFT.a2 4.4407
+
+version.dftD 3
+DFTD3.damp bj
+DFTD.IntDirection 0 0 0
+DFT.scale6 1.0
+
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type Opt # EF |EF|BFGS|RF|DIIS
+MD.Opt.DIIS.History 3 # default=3
+MD.Opt.StartDIIS 20 # default=5
+#MD.Opt.EveryDIIS 10000 # default=10
+MD.maxIter 200 #
+MD.Opt.criterion 1.0e-4 # default=1.0e-4 (a.u.)

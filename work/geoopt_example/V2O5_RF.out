@@ -1,0 +1,3256 @@
+***********************************************************
+***********************************************************
+
+  This calculation was performed by OpenMX Ver. 3.9
+  using 112 MPI processes and 1 OpenMP threads.
+
+  Sat Nov 23 00:28:26 2019
+
+***********************************************************
+***********************************************************
+
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      V2O5_RF
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ V   V6.0-s2p2d1      V_PBE19
+ O   O5.0-s2p2d1      O_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        14
+Atoms.SpeciesAndCoordinates.Unit   ang   # Ang|AU
+<Atoms.SpeciesAndCoordinates             # Unit=Ang
+   1     V   1.180820108850    0.890800750000   -0.514303766241 6.5 6.5
+   2     V  -1.180820108850    2.672402250000    0.514303766241 6.5 6.5
+   3     V   4.612963891150    0.890800750000   -0.514303766241 6.5 6.5
+   4     V   6.974604108850    2.672402250000    0.514303766241 6.5 6.5
+   5     O   1.226746971116    0.890800750000    2.493354237767 3.0 3.0
+   6     O  -1.226746971116    2.672402250000   -2.493354237767 3.0 3.0
+   7     O   4.567037028884    0.890800750000    2.493354237767 3.0 3.0
+   8     O   7.020530971116    2.672402250000   -2.493354237767 3.0 3.0
+   9     O  -0.792807381603    0.890800750000    0.029728510807 3.0 3.0
+  10     O   0.792807381603    2.672402250000   -0.029728510807 3.0 3.0
+  11     O   6.586591381603    0.890800750000    0.029728510807 3.0 3.0
+  12     O   5.000976618397    2.672402250000   -0.029728510807 3.0 3.0
+  13     O   2.896892000000    0.890800750000   -0.008714640764 3.0 3.0
+  14     O   8.690676000000    2.672402250000    0.008714640764 3.0 3.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang  #  Ang|AU
+<Atoms.UnitVectors                      # unit=Ang
+ 11.587568  0.000     0.000
+  0.000000  3.563203  0.000
+  0.000000  0.000     4.602471
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization       Off         # On|Off|NC
+scf.ElectronicTemperature  100.0       # default=300 (K)
+scf.energycutoff           300.0       # default=150 (Ry)
+scf.maxIter                80          # default=40
+scf.EigenvalueSolver       Band        # Recursion|Cluster|Band
+scf.Kgrid                  2 2 2       # means 4x4x4
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.010       # default=0.001 
+scf.Max.Mixing.Weight      0.400       # default=0.40 
+scf.Mixing.History          12         # default=5
+scf.Mixing.StartPulay       15         # default=6
+scf.criterion             1.0e-8       # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     RF         # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Opt.DIIS.History          3         # default=3
+MD.Opt.StartDIIS            10         # default=5
+MD.Opt.EveryDIIS           10000       # default=10
+MD.maxIter                  200        # default=1xsx
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
+
+
+
+
+
+
+***********************************************************
+***********************************************************
+
+  Required cutoff energy (Ryd) for 3D-grids = 300.0000
+      Used cutoff energy (Ryd) for 3D-grids = 296.4012, 282.1148, 300.6093
+  Num. of grids of a-, b-, and c-axes = 120, 36, 48
+
+  Num.Grid1.   120
+  Num.Grid2.    36
+  Num.Grid3.    48
+
+
+  Cell_Volume =   1282.390904653498 (Bohr^3)
+  GridVol     =      0.006184369718 (Bohr^3)
+  Cell vectors (bohr) of the grid cell (gtv)
+    gtv_a =  0.182477736617,  0.000000000000,  0.000000000000
+    gtv_b =  0.000000000000,  0.187041036436,  0.000000000000
+    gtv_c =  0.000000000000,  0.000000000000,  0.181196022091
+    |gtv_a| =  0.182477736617
+    |gtv_b| =  0.187041036436
+    |gtv_c| =  0.181196022091
+
+***********************************************************
+***********************************************************
+
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 1                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.736575071199
+   SCF=   2  NormRD= 10.100062106975  Uele= -102.736575071199
+   SCF=   3  NormRD=  9.790561916443  Uele= -102.754559074315
+   SCF=   4  NormRD=  3.784887943173  Uele= -103.269593060387
+   SCF=   5  NormRD=  1.491998238782  Uele= -103.519562448516
+   SCF=   6  NormRD=  0.974616378807  Uele= -103.081815986459
+   SCF=   7  NormRD=  0.671389524649  Uele= -102.744486124323
+   SCF=   8  NormRD=  0.497383130287  Uele= -102.410700218070
+   SCF=   9  NormRD=  0.636646980335  Uele= -102.485132518745
+   SCF=  10  NormRD=  0.207870176177  Uele= -102.352854058907
+   SCF=  11  NormRD=  0.173417062833  Uele= -102.326789842929
+   SCF=  12  NormRD=  0.111860140698  Uele= -102.284127862940
+   SCF=  13  NormRD=  0.072108824911  Uele= -102.257035582258
+   SCF=  14  NormRD=  0.047965983886  Uele= -102.241915946059
+   SCF=  15  NormRD=  0.031394056257  Uele= -102.229563886624
+   SCF=  16  NormRD=  0.075812075808  Uele= -102.233302763881
+   SCF=  17  NormRD=  0.002868273627  Uele= -102.211524739789
+   SCF=  18  NormRD=  0.004873799977  Uele= -102.211729975582
+   SCF=  19  NormRD=  0.000445818530  Uele= -102.211737558236
+   SCF=  20  NormRD=  0.000408417509  Uele= -102.211732695423
+   SCF=  21  NormRD=  0.000086862743  Uele= -102.211752188449
+   SCF=  22  NormRD=  0.000033249721  Uele= -102.211709681746
+   SCF=  23  NormRD=  0.000056772713  Uele= -102.211716793903
+   SCF=  24  NormRD=  0.000003197917  Uele= -102.211724510502
+   SCF=  25  NormRD=  0.000002822058  Uele= -102.211721530809
+   SCF=  26  NormRD=  0.000000908944  Uele= -102.211721544785
+   SCF=  27  NormRD=  0.000000366785  Uele= -102.211721943865
+   SCF=  28  NormRD=  0.000000061488  Uele= -102.211722011125
+   SCF=  29  NormRD=  0.000000111592  Uele= -102.211721962853
+   SCF=  30  NormRD=  0.000000026415  Uele= -102.211721960120
+
+*******************************************************
+        Total energy (Hartree) at MD = 1        
+*******************************************************
+
+  Uele.       -102.211721960120
+
+  Ukin.        239.113205397096
+  UH0.       -3850.252039905229
+  UH1.           0.207688704026
+  Una.        -279.688042044369
+  Unl.          29.776619886879
+  Uxc0.        -38.659143046417
+  Uxc1.        -38.659143046417
+  Ucore.      3485.697014005274
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.463840049157
+
+  UpV.           0.000000000000
+  Enpy.       -452.463840049157
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.257725715637
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 2                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.114059243541
+   SCF=   2  NormRD=  0.063374816077  Uele= -102.173968382350
+   SCF=   3  NormRD=  0.080463160448  Uele= -102.166447681024
+   SCF=   4  NormRD=  0.032727573305  Uele= -102.209311143514
+   SCF=   5  NormRD=  0.006667718701  Uele= -102.197227287724
+   SCF=   6  NormRD=  0.007459801537  Uele= -102.196326495805
+   SCF=   7  NormRD=  0.002236247249  Uele= -102.198893467724
+   SCF=   8  NormRD=  0.001307189666  Uele= -102.198874835385
+   SCF=   9  NormRD=  0.000628730809  Uele= -102.198675352989
+   SCF=  10  NormRD=  0.000044031571  Uele= -102.198692679674
+   SCF=  11  NormRD=  0.000034594442  Uele= -102.198705569764
+   SCF=  12  NormRD=  0.000008801722  Uele= -102.198707476879
+   SCF=  13  NormRD=  0.000006280168  Uele= -102.198707416533
+   SCF=  14  NormRD=  0.000002056968  Uele= -102.198707403359
+   SCF=  15  NormRD=  0.000001072973  Uele= -102.198707525931
+   SCF=  16  NormRD=  0.000000280750  Uele= -102.198707449037
+   SCF=  17  NormRD=  0.000000387189  Uele= -102.198707470775
+   SCF=  18  NormRD=  0.000000019765  Uele= -102.198707474515
+
+*******************************************************
+        Total energy (Hartree) at MD = 2        
+*******************************************************
+
+  Uele.       -102.198707474515
+
+  Ukin.        239.004947146023
+  UH0.       -3849.761414656155
+  UH1.           0.206873065982
+  Una.        -279.511859314966
+  Unl.          29.769112781900
+  Uxc0.        -38.646597213991
+  Uxc1.        -38.646597213991
+  Ucore.      3485.120936480753
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.464598924444
+
+  UpV.           0.000000000000
+  Enpy.       -452.464598924444
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258188247681
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 3                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.190027756772
+   SCF=   2  NormRD=  0.014707407864  Uele= -102.189528085553
+   SCF=   3  NormRD=  0.015084361936  Uele= -102.194624440662
+   SCF=   4  NormRD=  0.010340897703  Uele= -102.190950998165
+   SCF=   5  NormRD=  0.008310454072  Uele= -102.193726531271
+   SCF=   6  NormRD=  0.000661489900  Uele= -102.192754910093
+   SCF=   7  NormRD=  0.000673168855  Uele= -102.192975552618
+   SCF=   8  NormRD=  0.000254339352  Uele= -102.192880230526
+   SCF=   9  NormRD=  0.000141248812  Uele= -102.192852370623
+   SCF=  10  NormRD=  0.000017816060  Uele= -102.192855853012
+   SCF=  11  NormRD=  0.000009579831  Uele= -102.192871500963
+   SCF=  12  NormRD=  0.000004888044  Uele= -102.192870657012
+   SCF=  13  NormRD=  0.000001664083  Uele= -102.192866949496
+   SCF=  14  NormRD=  0.000001048055  Uele= -102.192866810990
+   SCF=  15  NormRD=  0.000001029196  Uele= -102.192866615863
+   SCF=  16  NormRD=  0.000000046722  Uele= -102.192866897936
+   SCF=  17  NormRD=  0.000000096057  Uele= -102.192866915444
+   SCF=  18  NormRD=  0.000000025406  Uele= -102.192866909656
+
+*******************************************************
+        Total energy (Hartree) at MD = 3        
+*******************************************************
+
+  Uele.       -102.192866909656
+
+  Ukin.        238.996018357521
+  UH0.       -3849.613748633978
+  UH1.           0.206791089479
+  Una.        -279.499131414634
+  Unl.          29.768715119775
+  Uxc0.        -38.645622993807
+  Uxc1.        -38.645622993807
+  Ucore.      3484.967747302304
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.464854167147
+
+  UpV.           0.000000000000
+  Enpy.       -452.464854167147
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258152484894
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 4                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.187430577033
+   SCF=   2  NormRD=  0.000504154964  Uele= -102.187312306111
+   SCF=   3  NormRD=  0.000428628715  Uele= -102.187382717721
+   SCF=   4  NormRD=  0.000645083659  Uele= -102.187123818685
+   SCF=   5  NormRD=  0.000507917731  Uele= -102.187385209607
+   SCF=   6  NormRD=  0.000063622831  Uele= -102.187307808827
+   SCF=   7  NormRD=  0.000115859452  Uele= -102.187308411757
+   SCF=   8  NormRD=  0.000032068350  Uele= -102.187294205714
+   SCF=   9  NormRD=  0.000004191610  Uele= -102.187294276218
+   SCF=  10  NormRD=  0.000003799514  Uele= -102.187297175144
+   SCF=  11  NormRD=  0.000000545896  Uele= -102.187297198441
+   SCF=  12  NormRD=  0.000000638420  Uele= -102.187296654018
+   SCF=  13  NormRD=  0.000000243988  Uele= -102.187296645710
+
+*******************************************************
+        Total energy (Hartree) at MD = 4        
+*******************************************************
+
+  Uele.       -102.187296645710
+
+  Ukin.        238.984112049781
+  UH0.       -3849.466409579612
+  UH1.           0.206689853236
+  Una.        -279.481273923991
+  Unl.          29.768086248700
+  Uxc0.        -38.644293842866
+  Uxc1.        -38.644293842866
+  Ucore.      3484.812300797912
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.465082239705
+
+  UpV.           0.000000000000
+  Enpy.       -452.465082239705
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258135795593
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 5                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.181935164868
+   SCF=   2  NormRD=  0.000814989054  Uele= -102.181997400347
+   SCF=   3  NormRD=  0.000730674799  Uele= -102.181987035802
+   SCF=   4  NormRD=  0.000934789230  Uele= -102.182046151292
+   SCF=   5  NormRD=  0.000354833923  Uele= -102.181998095742
+   SCF=   6  NormRD=  0.000137355841  Uele= -102.182017072678
+   SCF=   7  NormRD=  0.000163748978  Uele= -102.181974368184
+   SCF=   8  NormRD=  0.000036345996  Uele= -102.182016869950
+   SCF=   9  NormRD=  0.000008369551  Uele= -102.182008642611
+   SCF=  10  NormRD=  0.000008613971  Uele= -102.182009454553
+   SCF=  11  NormRD=  0.000000872192  Uele= -102.182008886155
+   SCF=  12  NormRD=  0.000001111753  Uele= -102.182009085961
+   SCF=  13  NormRD=  0.000000751230  Uele= -102.182009211871
+   SCF=  14  NormRD=  0.000000072060  Uele= -102.182009203888
+
+*******************************************************
+        Total energy (Hartree) at MD = 5        
+*******************************************************
+
+  Uele.       -102.182009203888
+
+  Ukin.        238.970671686594
+  UH0.       -3849.321000514688
+  UH1.           0.206579632662
+  Una.        -279.460743359650
+  Unl.          29.767339556530
+  Uxc0.        -38.642780941033
+  Uxc1.        -38.642780941033
+  Ucore.      3484.657424886683
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.465289993937
+
+  UpV.           0.000000000000
+  Enpy.       -452.465289993937
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258135795593
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 6                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.169651342349
+   SCF=   2  NormRD=  0.001336866348  Uele= -102.169278805986
+   SCF=   3  NormRD=  0.001547393617  Uele= -102.169426451889
+   SCF=   4  NormRD=  0.000834291004  Uele= -102.168953621540
+   SCF=   5  NormRD=  0.001056009861  Uele= -102.169280299929
+   SCF=   6  NormRD=  0.000438115329  Uele= -102.169058648507
+   SCF=   7  NormRD=  0.000139896187  Uele= -102.169172557171
+   SCF=   8  NormRD=  0.000074922734  Uele= -102.169124756826
+   SCF=   9  NormRD=  0.000020930628  Uele= -102.169117188350
+   SCF=  10  NormRD=  0.000016414223  Uele= -102.169121614064
+   SCF=  11  NormRD=  0.000001092838  Uele= -102.169124215998
+   SCF=  12  NormRD=  0.000001531784  Uele= -102.169123083393
+   SCF=  13  NormRD=  0.000000426661  Uele= -102.169123066455
+   SCF=  14  NormRD=  0.000000275882  Uele= -102.169123196806
+   SCF=  15  NormRD=  0.000000078146  Uele= -102.169123293414
+   SCF=  16  NormRD=  0.000000048141  Uele= -102.169123291150
+
+*******************************************************
+        Total energy (Hartree) at MD = 6        
+*******************************************************
+
+  Uele.       -102.169123291150
+
+  Ukin.        238.937409531775
+  UH0.       -3848.968952461795
+  UH1.           0.206311692383
+  Una.        -279.409755164515
+  Unl.          29.765526383867
+  Uxc0.        -38.639032782400
+  Uxc1.        -38.639032782400
+  Ucore.      3484.281776023313
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.465749559772
+
+  UpV.           0.000000000000
+  Enpy.       -452.465749559772
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258140563965
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 7                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.158971774844
+   SCF=   2  NormRD=  0.002325401105  Uele= -102.158144926223
+   SCF=   3  NormRD=  0.002290669540  Uele= -102.158248223650
+   SCF=   4  NormRD=  0.001980330010  Uele= -102.157439848688
+   SCF=   5  NormRD=  0.001385756016  Uele= -102.158151127608
+   SCF=   6  NormRD=  0.000520748727  Uele= -102.157805289305
+   SCF=   7  NormRD=  0.000495537584  Uele= -102.157963326181
+   SCF=   8  NormRD=  0.000135925434  Uele= -102.157850054306
+   SCF=   9  NormRD=  0.000020819027  Uele= -102.157849403783
+   SCF=  10  NormRD=  0.000019643392  Uele= -102.157857955870
+   SCF=  11  NormRD=  0.000002921339  Uele= -102.157859951346
+   SCF=  12  NormRD=  0.000005915085  Uele= -102.157857979196
+   SCF=  13  NormRD=  0.000001873740  Uele= -102.157857254395
+   SCF=  14  NormRD=  0.000000455928  Uele= -102.157857219555
+   SCF=  15  NormRD=  0.000000147186  Uele= -102.157857551749
+   SCF=  16  NormRD=  0.000000093329  Uele= -102.157857547186
+
+*******************************************************
+        Total energy (Hartree) at MD = 7        
+*******************************************************
+
+  Uele.       -102.157857547186
+
+  Ukin.        238.907994885950
+  UH0.       -3848.656994818695
+  UH1.           0.206079477047
+  Una.        -279.364565465279
+  Unl.          29.763966938403
+  Uxc0.        -38.635718335219
+  Uxc1.        -38.635718335219
+  Ucore.      3483.948839747271
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.466115905740
+
+  UpV.           0.000000000000
+  Enpy.       -452.466115905740
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258145332336
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 8                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.148258435804
+   SCF=   2  NormRD=  0.003766817828  Uele= -102.148060639255
+   SCF=   3  NormRD=  0.004522065493  Uele= -102.148151520343
+   SCF=   4  NormRD=  0.001839357029  Uele= -102.147904185372
+   SCF=   5  NormRD=  0.001673309272  Uele= -102.148212867051
+   SCF=   6  NormRD=  0.000500987593  Uele= -102.147921729665
+   SCF=   7  NormRD=  0.000633108503  Uele= -102.148178255757
+   SCF=   8  NormRD=  0.000255725148  Uele= -102.147999621042
+   SCF=   9  NormRD=  0.000034133032  Uele= -102.148025163239
+   SCF=  10  NormRD=  0.000035260206  Uele= -102.148026343554
+   SCF=  11  NormRD=  0.000003954553  Uele= -102.148027926093
+   SCF=  12  NormRD=  0.000004735766  Uele= -102.148027518439
+   SCF=  13  NormRD=  0.000004490669  Uele= -102.148026935210
+   SCF=  14  NormRD=  0.000000248446  Uele= -102.148026803977
+   SCF=  15  NormRD=  0.000000060240  Uele= -102.148027070287
+   SCF=  16  NormRD=  0.000000109791  Uele= -102.148027052293
+   SCF=  17  NormRD=  0.000000049190  Uele= -102.148027034187
+   SCF=  18  NormRD=  0.000000030360  Uele= -102.148027038986
+
+*******************************************************
+        Total energy (Hartree) at MD = 8        
+*******************************************************
+
+  Uele.       -102.148027038986
+
+  Ukin.        238.882200185649
+  UH0.       -3848.379156711440
+  UH1.           0.205878320030
+  Una.        -279.324899901734
+  Unl.          29.762628611471
+  Uxc0.        -38.632812911914
+  Uxc1.        -38.632812911914
+  Ucore.      3483.652562633019
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.466412686833
+
+  UpV.           0.000000000000
+  Enpy.       -452.466412686833
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258154869080
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 9                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.140287260429
+   SCF=   2  NormRD=  0.003015472852  Uele= -102.139942284086
+   SCF=   3  NormRD=  0.003471301935  Uele= -102.140002941470
+   SCF=   4  NormRD=  0.001764562019  Uele= -102.139622811141
+   SCF=   5  NormRD=  0.001615829068  Uele= -102.140006795392
+   SCF=   6  NormRD=  0.000489248240  Uele= -102.139703572668
+   SCF=   7  NormRD=  0.000540650610  Uele= -102.139937232636
+   SCF=   8  NormRD=  0.000204923372  Uele= -102.139784647962
+   SCF=   9  NormRD=  0.000030895448  Uele= -102.139796815665
+   SCF=  10  NormRD=  0.000031319162  Uele= -102.139800147331
+   SCF=  11  NormRD=  0.000003485009  Uele= -102.139803177210
+   SCF=  12  NormRD=  0.000003534030  Uele= -102.139802378282
+   SCF=  13  NormRD=  0.000002589130  Uele= -102.139801252431
+   SCF=  14  NormRD=  0.000000433538  Uele= -102.139801234610
+   SCF=  15  NormRD=  0.000000063997  Uele= -102.139801602520
+   SCF=  16  NormRD=  0.000000112406  Uele= -102.139801589320
+   SCF=  17  NormRD=  0.000000045623  Uele= -102.139801572535
+   SCF=  18  NormRD=  0.000000030273  Uele= -102.139801575772
+
+*******************************************************
+        Total energy (Hartree) at MD = 9        
+*******************************************************
+
+  Uele.       -102.139801575772
+
+  Ukin.        238.860543937141
+  UH0.       -3848.137802921341
+  UH1.           0.205712364902
+  Una.        -279.291667679682
+  Unl.          29.761541118432
+  Uxc0.        -38.630380176197
+  Uxc1.        -38.630380176197
+  Ucore.      3483.395781134723
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.466652398219
+
+  UpV.           0.000000000000
+  Enpy.       -452.466652398219
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258164405823
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=10                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.120691025775
+   SCF=   2  NormRD=  0.004974646787  Uele= -102.121740151182
+   SCF=   3  NormRD=  0.005659344196  Uele= -102.121315855032
+   SCF=   4  NormRD=  0.003135833551  Uele= -102.122268023122
+   SCF=   5  NormRD=  0.002697269289  Uele= -102.121817227684
+   SCF=   6  NormRD=  0.000705536687  Uele= -102.121999104115
+   SCF=   7  NormRD=  0.000853702541  Uele= -102.121679383960
+   SCF=   8  NormRD=  0.000315582486  Uele= -102.121958343624
+   SCF=   9  NormRD=  0.000046623122  Uele= -102.121924383915
+   SCF=  10  NormRD=  0.000050262774  Uele= -102.121918801233
+   SCF=  11  NormRD=  0.000005447259  Uele= -102.121910477786
+   SCF=  12  NormRD=  0.000006115313  Uele= -102.121911924633
+   SCF=  13  NormRD=  0.000003566773  Uele= -102.121913888850
+   SCF=  14  NormRD=  0.000000872621  Uele= -102.121913875342
+   SCF=  15  NormRD=  0.000000155948  Uele= -102.121913277636
+   SCF=  16  NormRD=  0.000000178003  Uele= -102.121913295324
+   SCF=  17  NormRD=  0.000000122497  Uele= -102.121913341458
+   SCF=  18  NormRD=  0.000000058124  Uele= -102.121913335361
+
+*******************************************************
+        Total energy (Hartree) at MD =10        
+*******************************************************
+
+  Uele.       -102.121913335361
+
+  Ukin.        238.812004045855
+  UH0.       -3847.603230196280
+  UH1.           0.205350085073
+  Una.        -279.216886240022
+  Unl.          29.759148230516
+  Uxc0.        -38.624921790526
+  Uxc1.        -38.624921790526
+  Ucore.      3482.826357968109
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.467099687801
+
+  UpV.           0.000000000000
+  Enpy.       -452.467099687801
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258202552795
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=11                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.102258201302
+   SCF=   2  NormRD=  0.034255288467  Uele= -102.109015133724
+   SCF=   3  NormRD=  0.021727792045  Uele= -102.113810331407
+   SCF=   4  NormRD=  0.025964398961  Uele= -102.112088338002
+   SCF=   5  NormRD=  0.029587667870  Uele= -102.122401051535
+   SCF=   6  NormRD=  0.004888637277  Uele= -102.114305454768
+   SCF=   7  NormRD=  0.004811830774  Uele= -102.115505396596
+   SCF=   8  NormRD=  0.000329695414  Uele= -102.115564956353
+   SCF=   9  NormRD=  0.001010322787  Uele= -102.115437715120
+   SCF=  10  NormRD=  0.000040711365  Uele= -102.115394118090
+   SCF=  11  NormRD=  0.000037867852  Uele= -102.115413458609
+   SCF=  12  NormRD=  0.000009796544  Uele= -102.115415844806
+   SCF=  13  NormRD=  0.000019211713  Uele= -102.115413541356
+   SCF=  14  NormRD=  0.000004902436  Uele= -102.115412832367
+   SCF=  15  NormRD=  0.000000956343  Uele= -102.115412806035
+   SCF=  16  NormRD=  0.000000346273  Uele= -102.115413107592
+   SCF=  17  NormRD=  0.000000490712  Uele= -102.115413034514
+   SCF=  18  NormRD=  0.000000044357  Uele= -102.115413012176
+   SCF=  19  NormRD=  0.000000058212  Uele= -102.115413019218
+
+*******************************************************
+        Total energy (Hartree) at MD =11        
+*******************************************************
+
+  Uele.       -102.115413019218
+
+  Ukin.        238.789661609094
+  UH0.       -3847.262361666631
+  UH1.           0.205188291077
+  Una.        -279.183296005575
+  Unl.          29.758136791873
+  Uxc0.        -38.622477807370
+  Uxc1.        -38.622477807370
+  Ucore.      3482.470220777431
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.467405817472
+
+  UpV.           0.000000000000
+  Enpy.       -452.467405817472
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258259773254
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=12                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.078871344794
+   SCF=   2  NormRD=  0.023210890857  Uele= -102.085511037524
+   SCF=   3  NormRD=  0.014083302355  Uele= -102.087892893113
+   SCF=   4  NormRD=  0.021695808325  Uele= -102.090920548724
+   SCF=   5  NormRD=  0.016248160477  Uele= -102.085881876134
+   SCF=   6  NormRD=  0.002597443533  Uele= -102.089272228340
+   SCF=   7  NormRD=  0.002612881646  Uele= -102.088637182223
+   SCF=   8  NormRD=  0.000668614567  Uele= -102.089282644074
+   SCF=   9  NormRD=  0.000515405193  Uele= -102.089134314003
+   SCF=  10  NormRD=  0.000042931903  Uele= -102.089072643186
+   SCF=  11  NormRD=  0.000042170618  Uele= -102.089084522537
+   SCF=  12  NormRD=  0.000010250980  Uele= -102.089099589518
+   SCF=  13  NormRD=  0.000015306131  Uele= -102.089097876870
+   SCF=  14  NormRD=  0.000004051093  Uele= -102.089095516960
+   SCF=  15  NormRD=  0.000000464065  Uele= -102.089094947105
+   SCF=  16  NormRD=  0.000000922372  Uele= -102.089095095324
+   SCF=  17  NormRD=  0.000000195299  Uele= -102.089095139378
+   SCF=  18  NormRD=  0.000000029486  Uele= -102.089095157987
+   SCF=  19  NormRD=  0.000000039446  Uele= -102.089095156081
+
+*******************************************************
+        Total energy (Hartree) at MD =12        
+*******************************************************
+
+  Uele.       -102.089095156081
+
+  Ukin.        238.701370232940
+  UH0.       -3931.751788730358
+  UH1.           0.204625047653
+  Una.        -279.049973715451
+  Unl.          29.754597015648
+  Uxc0.        -38.612778850584
+  Uxc1.        -38.612778850584
+  Ucore.      3566.898904842468
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.467823008268
+
+  UpV.           0.000000000000
+  Enpy.       -452.467823008268
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258493423462
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=13                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.107670689506
+   SCF=   2  NormRD=  0.020297456416  Uele= -102.105198072171
+   SCF=   3  NormRD=  0.018506349289  Uele= -102.098085522782
+   SCF=   4  NormRD=  0.015942222593  Uele= -102.102341273321
+   SCF=   5  NormRD=  0.015467834191  Uele= -102.096601824364
+   SCF=   6  NormRD=  0.001554063223  Uele= -102.098805942871
+   SCF=   7  NormRD=  0.001647630857  Uele= -102.098920540301
+   SCF=   8  NormRD=  0.000931448531  Uele= -102.098742183432
+   SCF=   9  NormRD=  0.000123526046  Uele= -102.098691134095
+   SCF=  10  NormRD=  0.000122920061  Uele= -102.098740784895
+   SCF=  11  NormRD=  0.000008796119  Uele= -102.098746450029
+   SCF=  12  NormRD=  0.000014899524  Uele= -102.098739883181
+   SCF=  13  NormRD=  0.000002649557  Uele= -102.098738993098
+   SCF=  14  NormRD=  0.000005124658  Uele= -102.098740009903
+   SCF=  15  NormRD=  0.000000211811  Uele= -102.098740741455
+   SCF=  16  NormRD=  0.000000328635  Uele= -102.098740669300
+   SCF=  17  NormRD=  0.000000138677  Uele= -102.098740667458
+
+*******************************************************
+        Total energy (Hartree) at MD =13        
+*******************************************************
+
+  Uele.       -102.098740667458
+
+  Ukin.        238.729736557077
+  UH0.       -3932.022558667299
+  UH1.           0.204827909466
+  Una.        -279.093994285708
+  Unl.          29.755847469149
+  Uxc0.        -38.616042687617
+  Uxc1.        -38.616042687617
+  Ucore.      3567.190345705039
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.467880687511
+
+  UpV.           0.000000000000
+  Enpy.       -452.467880687511
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258452892303
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=14                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.098459878875
+   SCF=   2  NormRD=  0.005746884210  Uele= -102.097362763706
+   SCF=   3  NormRD=  0.007072227452  Uele= -102.099637264959
+   SCF=   4  NormRD=  0.003164521604  Uele= -102.098080335240
+   SCF=   5  NormRD=  0.003775251325  Uele= -102.098721593207
+   SCF=   6  NormRD=  0.000356245820  Uele= -102.098739409368
+   SCF=   7  NormRD=  0.000898156696  Uele= -102.098668820422
+   SCF=   8  NormRD=  0.000206852151  Uele= -102.098664701200
+   SCF=   9  NormRD=  0.000040897775  Uele= -102.098682326480
+   SCF=  10  NormRD=  0.000010728084  Uele= -102.098682776995
+   SCF=  11  NormRD=  0.000005040339  Uele= -102.098681881808
+   SCF=  12  NormRD=  0.000003067564  Uele= -102.098680610320
+   SCF=  13  NormRD=  0.000001867803  Uele= -102.098680735429
+   SCF=  14  NormRD=  0.000000935738  Uele= -102.098680951982
+   SCF=  15  NormRD=  0.000000117275  Uele= -102.098681195596
+   SCF=  16  NormRD=  0.000000171372  Uele= -102.098681123070
+   SCF=  17  NormRD=  0.000000035866  Uele= -102.098681097767
+   SCF=  18  NormRD=  0.000000045822  Uele= -102.098681105448
+
+*******************************************************
+        Total energy (Hartree) at MD =14        
+*******************************************************
+
+  Uele.       -102.098681105448
+
+  Ukin.        238.727206232972
+  UH0.       -3932.022028821803
+  UH1.           0.204835766321
+  Una.        -279.090906194930
+  Unl.          29.755836116653
+  Uxc0.        -38.615865992844
+  Uxc1.        -38.615865992844
+  Ucore.      3567.188867699932
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.467921186543
+
+  UpV.           0.000000000000
+  Enpy.       -452.467921186543
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258471965790
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=15                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.101999594513
+   SCF=   2  NormRD=  0.019672494889  Uele= -102.099002634145
+   SCF=   3  NormRD=  0.023147628257  Uele= -102.106129525250
+   SCF=   4  NormRD=  0.009784675504  Uele= -102.101422976322
+   SCF=   5  NormRD=  0.008678485404  Uele= -102.103476325560
+   SCF=   6  NormRD=  0.002327418111  Uele= -102.103696857098
+   SCF=   7  NormRD=  0.003573442101  Uele= -102.103820417851
+   SCF=   8  NormRD=  0.000470148487  Uele= -102.103454435669
+   SCF=   9  NormRD=  0.000154155384  Uele= -102.103495169803
+   SCF=  10  NormRD=  0.000063162520  Uele= -102.103517597170
+   SCF=  11  NormRD=  0.000016734240  Uele= -102.103517030957
+   SCF=  12  NormRD=  0.000007034266  Uele= -102.103505017248
+   SCF=  13  NormRD=  0.000009335597  Uele= -102.103505769014
+   SCF=  14  NormRD=  0.000002677182  Uele= -102.103507965995
+   SCF=  15  NormRD=  0.000000554600  Uele= -102.103508553523
+   SCF=  16  NormRD=  0.000000701960  Uele= -102.103508354500
+   SCF=  17  NormRD=  0.000000158503  Uele= -102.103508253508
+   SCF=  18  NormRD=  0.000000132788  Uele= -102.103508258532
+
+*******************************************************
+        Total energy (Hartree) at MD =15        
+*******************************************************
+
+  Uele.       -102.103508258532
+
+  Ukin.        238.726111077326
+  UH0.       -3932.155491196243
+  UH1.           0.204990028434
+  Una.        -279.093061401067
+  Unl.          29.756147552338
+  Uxc0.        -38.616442160151
+  Uxc1.        -38.616442160151
+  Ucore.      3567.326151888836
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468036370679
+
+  UpV.           0.000000000000
+  Enpy.       -452.468036370679
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258531570435
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=16                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.106796108632
+   SCF=   2  NormRD=  0.008277344998  Uele= -102.105635446213
+   SCF=   3  NormRD=  0.005461590763  Uele= -102.104234156675
+   SCF=   4  NormRD=  0.014527549755  Uele= -102.106679821813
+   SCF=   5  NormRD=  0.003004176843  Uele= -102.103706114723
+   SCF=   6  NormRD=  0.000929485154  Uele= -102.104059533189
+   SCF=   7  NormRD=  0.001318911158  Uele= -102.103887706413
+   SCF=   8  NormRD=  0.000292915652  Uele= -102.104056309490
+   SCF=   9  NormRD=  0.000092199685  Uele= -102.103999078447
+   SCF=  10  NormRD=  0.000055368996  Uele= -102.104001726811
+   SCF=  11  NormRD=  0.000008841915  Uele= -102.104000283940
+   SCF=  12  NormRD=  0.000009584461  Uele= -102.104005292843
+   SCF=  13  NormRD=  0.000005415429  Uele= -102.104005233589
+   SCF=  14  NormRD=  0.000001823803  Uele= -102.104004696234
+   SCF=  15  NormRD=  0.000000138847  Uele= -102.104004084390
+   SCF=  16  NormRD=  0.000000315646  Uele= -102.104004214387
+   SCF=  17  NormRD=  0.000000136286  Uele= -102.104004222811
+
+*******************************************************
+        Total energy (Hartree) at MD =16        
+*******************************************************
+
+  Uele.       -102.104004222811
+
+  Ukin.        238.730802676731
+  UH0.       -3932.209718070583
+  UH1.           0.205032974462
+  Una.        -279.099816385758
+  Unl.          29.756249232019
+  Uxc0.        -38.617015384665
+  Uxc1.        -38.617015384665
+  Ucore.      3567.383422891164
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468057451298
+
+  UpV.           0.000000000000
+  Enpy.       -452.468057451298
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258498191833
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=17                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.099616817944
+   SCF=   2  NormRD=  0.006359314304  Uele= -102.103138966826
+   SCF=   3  NormRD=  0.005305553281  Uele= -102.103000778123
+   SCF=   4  NormRD=  0.008363139584  Uele= -102.107092290522
+   SCF=   5  NormRD=  0.003302158204  Uele= -102.104317389477
+   SCF=   6  NormRD=  0.001271745114  Uele= -102.104610930071
+   SCF=   7  NormRD=  0.001355363178  Uele= -102.104610507691
+   SCF=   8  NormRD=  0.000181250404  Uele= -102.104872584727
+   SCF=   9  NormRD=  0.000101335327  Uele= -102.104851090380
+   SCF=  10  NormRD=  0.000020850753  Uele= -102.104810555747
+   SCF=  11  NormRD=  0.000016172986  Uele= -102.104812600663
+   SCF=  12  NormRD=  0.000002553251  Uele= -102.104819399098
+   SCF=  13  NormRD=  0.000004148217  Uele= -102.104819230371
+   SCF=  14  NormRD=  0.000002389630  Uele= -102.104818907462
+   SCF=  15  NormRD=  0.000000125799  Uele= -102.104818716131
+   SCF=  16  NormRD=  0.000000300555  Uele= -102.104818720019
+
+*******************************************************
+        Total energy (Hartree) at MD =17        
+*******************************************************
+
+  Uele.       -102.104818720019
+
+  Ukin.        238.736743659048
+  UH0.       -3932.361815159544
+  UH1.           0.205127551426
+  Una.        -279.107159258479
+  Unl.          29.756097020701
+  Uxc0.        -38.617895120026
+  Uxc1.        -38.617895120026
+  Ucore.      3567.538719620632
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468076806268
+
+  UpV.           0.000000000000
+  Enpy.       -452.468076806268
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258445739746
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=18                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.101688128663
+   SCF=   2  NormRD=  0.005700784705  Uele= -102.103034922142
+   SCF=   3  NormRD=  0.005446238680  Uele= -102.101646031985
+   SCF=   4  NormRD=  0.005658734912  Uele= -102.103674146507
+   SCF=   5  NormRD=  0.001220400671  Uele= -102.102070209451
+   SCF=   6  NormRD=  0.000744390736  Uele= -102.102176098921
+   SCF=   7  NormRD=  0.000530383343  Uele= -102.102331359373
+   SCF=   8  NormRD=  0.000101650273  Uele= -102.102322606975
+   SCF=   9  NormRD=  0.000110527484  Uele= -102.102278665901
+   SCF=  10  NormRD=  0.000014190257  Uele= -102.102282137959
+   SCF=  11  NormRD=  0.000010332525  Uele= -102.102283367696
+   SCF=  12  NormRD=  0.000002693061  Uele= -102.102288759106
+   SCF=  13  NormRD=  0.000002026425  Uele= -102.102288469301
+   SCF=  14  NormRD=  0.000002518451  Uele= -102.102287759535
+   SCF=  15  NormRD=  0.000000166828  Uele= -102.102287495997
+   SCF=  16  NormRD=  0.000000149139  Uele= -102.102287600102
+   SCF=  17  NormRD=  0.000000047370  Uele= -102.102287598945
+
+*******************************************************
+        Total energy (Hartree) at MD =18        
+*******************************************************
+
+  Uele.       -102.102287598945
+
+  Ukin.        238.732911950175
+  UH0.       -3932.350068587160
+  UH1.           0.205100646638
+  Una.        -279.100946143832
+  Unl.          29.755898385554
+  Uxc0.        -38.617476270839
+  Uxc1.        -38.617476270839
+  Ucore.      3567.523973754495
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468082535806
+
+  UpV.           0.000000000000
+  Enpy.       -452.468082535806
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258445739746
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=19                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.085985784063
+   SCF=   2  NormRD=  0.016525312522  Uele= -102.084218882331
+   SCF=   3  NormRD=  0.018234221201  Uele= -102.089899360654
+   SCF=   4  NormRD=  0.010186101447  Uele= -102.085615877241
+   SCF=   5  NormRD=  0.008492258649  Uele= -102.089103255893
+   SCF=   6  NormRD=  0.001458853513  Uele= -102.087857484893
+   SCF=   7  NormRD=  0.001898598542  Uele= -102.088028090865
+   SCF=   8  NormRD=  0.000427868966  Uele= -102.087931829645
+   SCF=   9  NormRD=  0.000405298813  Uele= -102.087943560966
+   SCF=  10  NormRD=  0.000100448301  Uele= -102.087948793130
+   SCF=  11  NormRD=  0.000010367265  Uele= -102.087948338485
+   SCF=  12  NormRD=  0.000014350944  Uele= -102.087947027142
+   SCF=  13  NormRD=  0.000001719998  Uele= -102.087946205585
+   SCF=  14  NormRD=  0.000005327492  Uele= -102.087946757355
+   SCF=  15  NormRD=  0.000000407727  Uele= -102.087947273568
+   SCF=  16  NormRD=  0.000000157943  Uele= -102.087946839276
+   SCF=  17  NormRD=  0.000000596747  Uele= -102.087946813569
+   SCF=  18  NormRD=  0.000000087989  Uele= -102.087946888785
+   SCF=  19  NormRD=  0.000000011150  Uele= -102.087946889629
+
+*******************************************************
+        Total energy (Hartree) at MD =19        
+*******************************************************
+
+  Uele.       -102.087946889629
+
+  Ukin.        238.711087588247
+  UH0.       -3932.305919388641
+  UH1.           0.204979729876
+  Una.        -279.065286700217
+  Unl.          29.754575334710
+  Uxc0.        -38.615255627611
+  Uxc1.        -38.615255627611
+  Ucore.      3567.463004310710
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468070380537
+
+  UpV.           0.000000000000
+  Enpy.       -452.468070380537
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258407592773
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=20                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.096735014479
+   SCF=   2  NormRD=  0.004670520275  Uele= -102.096178364583
+   SCF=   3  NormRD=  0.003213394878  Uele= -102.096579727540
+   SCF=   4  NormRD=  0.006458547049  Uele= -102.095365047257
+   SCF=   5  NormRD=  0.003692590057  Uele= -102.097382429703
+   SCF=   6  NormRD=  0.000543734807  Uele= -102.096543622779
+   SCF=   7  NormRD=  0.000597511544  Uele= -102.096558013211
+   SCF=   8  NormRD=  0.000235536796  Uele= -102.096504130023
+   SCF=   9  NormRD=  0.000091377626  Uele= -102.096535424297
+   SCF=  10  NormRD=  0.000027949988  Uele= -102.096554423296
+   SCF=  11  NormRD=  0.000005769715  Uele= -102.096553810972
+   SCF=  12  NormRD=  0.000008359366  Uele= -102.096550417207
+   SCF=  13  NormRD=  0.000004472965  Uele= -102.096549714421
+   SCF=  14  NormRD=  0.000000983300  Uele= -102.096549853889
+   SCF=  15  NormRD=  0.000000192423  Uele= -102.096550602251
+   SCF=  16  NormRD=  0.000000304684  Uele= -102.096550469290
+   SCF=  17  NormRD=  0.000000066662  Uele= -102.096550428539
+   SCF=  18  NormRD=  0.000000162381  Uele= -102.096550425791
+
+*******************************************************
+        Total energy (Hartree) at MD =20        
+*******************************************************
+
+  Uele.       -102.096550425791
+
+  Ukin.        238.723156402653
+  UH0.       -3932.307082725920
+  UH1.           0.205033536618
+  Una.        -279.085394237350
+  Unl.          29.755253458043
+  Uxc0.        -38.616458160075
+  Uxc1.        -38.616458160075
+  Ucore.      3567.473855727638
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468094158468
+
+  UpV.           0.000000000000
+  Enpy.       -452.468094158468
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258424282074
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=21                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.098356554782
+   SCF=   2  NormRD=  0.001712704517  Uele= -102.098124331043
+   SCF=   3  NormRD=  0.001329474240  Uele= -102.098364117840
+   SCF=   4  NormRD=  0.002374603816  Uele= -102.097494963405
+   SCF=   5  NormRD=  0.000936775751  Uele= -102.098173112631
+   SCF=   6  NormRD=  0.000243402423  Uele= -102.098089227296
+   SCF=   7  NormRD=  0.000346428894  Uele= -102.098089962092
+   SCF=   8  NormRD=  0.000113276344  Uele= -102.098050355586
+   SCF=   9  NormRD=  0.000022602465  Uele= -102.098059125804
+   SCF=  10  NormRD=  0.000013769131  Uele= -102.098063201694
+   SCF=  11  NormRD=  0.000002253903  Uele= -102.098063064253
+   SCF=  12  NormRD=  0.000001479193  Uele= -102.098061350756
+   SCF=  13  NormRD=  0.000000394103  Uele= -102.098061240240
+   SCF=  14  NormRD=  0.000000774408  Uele= -102.098061449610
+   SCF=  15  NormRD=  0.000000054129  Uele= -102.098061590729
+   SCF=  16  NormRD=  0.000000074867  Uele= -102.098061554301
+   SCF=  17  NormRD=  0.000000013530  Uele= -102.098061552233
+
+*******************************************************
+        Total energy (Hartree) at MD =21        
+*******************************************************
+
+  Uele.       -102.098061552233
+
+  Ukin.        238.725475122298
+  UH0.       -3932.291507076548
+  UH1.           0.205037769703
+  Una.        -279.089555238104
+  Unl.          29.755402596960
+  Uxc0.        -38.616679965688
+  Uxc1.        -38.616679965688
+  Ucore.      3567.460411239003
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468095518064
+
+  UpV.           0.000000000000
+  Enpy.       -452.468095518064
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258421897888
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=22                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.099404339122
+   SCF=   2  NormRD=  0.001696520212  Uele= -102.098910016997
+   SCF=   3  NormRD=  0.001048766745  Uele= -102.098831609614
+   SCF=   4  NormRD=  0.002008747358  Uele= -102.098313039805
+   SCF=   5  NormRD=  0.001717973381  Uele= -102.099089927641
+   SCF=   6  NormRD=  0.000192642016  Uele= -102.098752993902
+   SCF=   7  NormRD=  0.000285777220  Uele= -102.098783599338
+   SCF=   8  NormRD=  0.000061326644  Uele= -102.098707817482
+   SCF=   9  NormRD=  0.000068159105  Uele= -102.098719058698
+   SCF=  10  NormRD=  0.000012801398  Uele= -102.098733332628
+   SCF=  11  NormRD=  0.000002928838  Uele= -102.098733591420
+   SCF=  12  NormRD=  0.000006432334  Uele= -102.098732150902
+   SCF=  13  NormRD=  0.000000329768  Uele= -102.098731614971
+   SCF=  14  NormRD=  0.000000261876  Uele= -102.098731955053
+   SCF=  15  NormRD=  0.000000134557  Uele= -102.098731970957
+   SCF=  16  NormRD=  0.000000086276  Uele= -102.098731925177
+   SCF=  17  NormRD=  0.000000026077  Uele= -102.098731923393
+
+*******************************************************
+        Total energy (Hartree) at MD =22        
+*******************************************************
+
+  Uele.       -102.098731923393
+
+  Ukin.        238.726902690124
+  UH0.       -3932.280406352966
+  UH1.           0.205038097256
+  Una.        -279.092100887002
+  Unl.          29.755443252212
+  Uxc0.        -38.616821951065
+  Uxc1.        -38.616821951065
+  Ucore.      3567.450670072791
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468097029714
+
+  UpV.           0.000000000000
+  Enpy.       -452.468097029714
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258407592773
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=23                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.098502423508
+   SCF=   2  NormRD=  0.001281104081  Uele= -102.098849302826
+   SCF=   3  NormRD=  0.001114008859  Uele= -102.098644485280
+   SCF=   4  NormRD=  0.001439324464  Uele= -102.099212862640
+   SCF=   5  NormRD=  0.000823636303  Uele= -102.098777577327
+   SCF=   6  NormRD=  0.000216377373  Uele= -102.098801770779
+   SCF=   7  NormRD=  0.000322291021  Uele= -102.098817076114
+   SCF=   8  NormRD=  0.000113169779  Uele= -102.098867983949
+   SCF=   9  NormRD=  0.000014874585  Uele= -102.098856972721
+   SCF=  10  NormRD=  0.000006708302  Uele= -102.098845118672
+   SCF=  11  NormRD=  0.000002750372  Uele= -102.098845143461
+   SCF=  12  NormRD=  0.000003731557  Uele= -102.098846488804
+   SCF=  13  NormRD=  0.000001215260  Uele= -102.098846866400
+   SCF=  14  NormRD=  0.000000243973  Uele= -102.098846905622
+   SCF=  15  NormRD=  0.000000088025  Uele= -102.098846727511
+   SCF=  16  NormRD=  0.000000068264  Uele= -102.098846734147
+
+*******************************************************
+        Total energy (Hartree) at MD =23        
+*******************************************************
+
+  Uele.       -102.098846734147
+
+  Ukin.        238.727607171309
+  UH0.       -3932.266832902488
+  UH1.           0.205032502816
+  Una.        -279.093481552685
+  Unl.          29.755356366202
+  Uxc0.        -38.616900812473
+  Uxc1.        -38.616900812473
+  Ucore.      3567.438021830936
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468098208855
+
+  UpV.           0.000000000000
+  Enpy.       -452.468098208855
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258381366730
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=24                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -102.099288667393
+   SCF=   2  NormRD=  0.001176382403  Uele= -102.098927242861
+   SCF=   3  NormRD=  0.000864287816  Uele= -102.098987649332
+   SCF=   4  NormRD=  0.002000771275  Uele= -102.098350980258
+   SCF=   5  NormRD=  0.000748477551  Uele= -102.098988974313
+   SCF=   6  NormRD=  0.000193668339  Uele= -102.098863279500
+   SCF=   7  NormRD=  0.000238472657  Uele= -102.098853279141
+   SCF=   8  NormRD=  0.000087481377  Uele= -102.098823853388
+   SCF=   9  NormRD=  0.000023493612  Uele= -102.098825599042
+   SCF=  10  NormRD=  0.000006336055  Uele= -102.098840452252
+   SCF=  11  NormRD=  0.000004180974  Uele= -102.098839795451
+   SCF=  12  NormRD=  0.000004665710  Uele= -102.098838283573
+   SCF=  13  NormRD=  0.000000383556  Uele= -102.098837813733
+   SCF=  14  NormRD=  0.000000320992  Uele= -102.098837951263
+   SCF=  15  NormRD=  0.000000061230  Uele= -102.098838042169
+   SCF=  16  NormRD=  0.000000088424  Uele= -102.098838023461
+   SCF=  17  NormRD=  0.000000020532  Uele= -102.098838019359
+
+*******************************************************
+        Total energy (Hartree) at MD =24        
+*******************************************************
+
+  Uele.       -102.098838019359
+
+  Ukin.        238.727260956181
+  UH0.       -3932.280789144646
+  UH1.           0.205039185076
+  Una.        -279.092825038780
+  Unl.          29.755328280966
+  Uxc0.        -38.616895341887
+  Uxc1.        -38.616895341887
+  Ucore.      3567.451677425555
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.       -452.468099019421
+
+  UpV.           0.000000000000
+  Enpy.       -452.468099019421
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.258383750916
+
+***********************************************************
+***********************************************************
+           Eigenvalues (Hartree) of SCF KS-eq.           
+***********************************************************
+***********************************************************
+
+   Chemical Potential (Hatree) =  -0.25838375091553
+   Number of States            = 112.00000000000000
+   Eigenvalues
+              Up-spin           Down-spin
+
+   kloop=0
+   k1=  -0.25000 k2=  -0.25000 k3=  -0.25000
+
+    1   -2.65443046505924  -2.65443046505924
+    2   -2.65438039051327  -2.65438039051327
+    3   -2.65417106508344  -2.65417106508344
+    4   -2.65412978899230  -2.65412978899230
+    5   -1.69747686101625  -1.69747686101625
+    6   -1.69739833913402  -1.69739833913402
+    7   -1.69714539785777  -1.69714539785777
+    8   -1.69701667857904  -1.69701667857904
+    9   -1.69507586259675  -1.69507586259675
+   10   -1.69419585962329  -1.69419585962329
+   11   -1.69311758429080  -1.69311758429080
+   12   -1.69255580136804  -1.69255580136804
+   13   -1.69137118569726  -1.69137118569726
+   14   -1.69093616324033  -1.69093616324033
+   15   -1.69071011449895  -1.69071011449895
+   16   -1.69058688713420  -1.69058688713420
+   17   -0.91857461795839  -0.91857461795839
+   18   -0.91517072066966  -0.91517072066966
+   19   -0.89143112458186  -0.89143112458186
+   20   -0.88732843493021  -0.88732843493021
+   21   -0.88685145172650  -0.88685145172650
+   22   -0.88662777675697  -0.88662777675697
+   23   -0.87561112631588  -0.87561112631588
+   24   -0.87528017166142  -0.87528017166142
+   25   -0.87014666784236  -0.87014666784236
+   26   -0.87004453051592  -0.87004453051592
+   27   -0.46371805961015  -0.46371805961015
+   28   -0.46275177194453  -0.46275177194453
+   29   -0.44538453161634  -0.44538453161634
+   30   -0.44325358707820  -0.44325358707820
+   31   -0.43607443968861  -0.43607443968861
+   32   -0.42356718094460  -0.42356718094460
+   33   -0.41874421667732  -0.41874421667732
+   34   -0.41603647985682  -0.41603647985682
+   35   -0.41114395583067  -0.41114395583067
+   36   -0.40372804446471  -0.40372804446471
+   37   -0.40119379393523  -0.40119379393523
+   38   -0.39945953894925  -0.39945953894925
+   39   -0.38038679642635  -0.38038679642635
+   40   -0.37658146425292  -0.37658146425292
+   41   -0.37539486701196  -0.37539486701196
+   42   -0.36587951024143  -0.36587951024143
+   43   -0.36062315595124  -0.36062315595124
+   44   -0.35818995765135  -0.35818995765135
+   45   -0.35424442428894  -0.35424442428894
+   46   -0.35223652085925  -0.35223652085925
+   47   -0.34553494840679  -0.34553494840679
+   48   -0.34044727357652  -0.34044727357652
+   49   -0.33162243244089  -0.33162243244089
+   50   -0.32963950480442  -0.32963950480442
+   51   -0.31306360101114  -0.31306360101114
+   52   -0.31084704318320  -0.31084704318320
+   53   -0.30828887021241  -0.30828887021241
+   54   -0.30308229569573  -0.30308229569573
+   55   -0.29969227917108  -0.29969227917108
+   56   -0.29684340175482  -0.29684340175482
+   57   -0.22015065547450  -0.22015065547450
+   58   -0.21443784612664  -0.21443784612664
+   59   -0.17886968109874  -0.17886968109874
+   60   -0.17816558873228  -0.17816558873228
+   61   -0.17203223918625  -0.17203223918625
+   62   -0.16400875918696  -0.16400875918696
+   63   -0.16185441764345  -0.16185441764345
+   64   -0.15872100945726  -0.15872100945726
+   65   -0.15489090840578  -0.15489090840578
+   66   -0.15202226721840  -0.15202226721840
+   67   -0.14938234090064  -0.14938234090064
+   68   -0.14691706856541  -0.14691706856541
+   69   -0.12128178502259  -0.12128178502259
+   70   -0.10346483185454  -0.10346483185454
+   71   -0.10225787554969  -0.10225787554969
+   72   -0.09251200105574  -0.09251200105574
+   73   -0.07869268863477  -0.07869268863477
+   74   -0.07553260498382  -0.07553260498382
+   75   -0.07064709487414  -0.07064709487414
+   76   -0.05849392516334  -0.05849392516334
+   77    0.10454539741963   0.10454539741963
+   78    0.12587760420281   0.12587760420281
+   79    0.17196556369695   0.17196556369695
+   80    0.22864450683384   0.22864450683384
+   81    0.24916857763274   0.24916857763274
+   82    0.26084489471450   0.26084489471450
+   83    0.28741087054702   0.28741087054702
+   84    0.30566420036193   0.30566420036193
+   85    0.31381841965538   0.31381841965538
+   86    0.31859568182625   0.31859568182625
+   87    0.33354691030961   0.33354691030961
+   88    0.35435044371246   0.35435044371246
+   89    0.36975010132205   0.36975010132205
+   90    0.38178767798119   0.38178767798119
+   91    0.40385498601438   0.40385498601438
+   92    0.42161340521310   0.42161340521310
+   93    0.44360193210546   0.44360193210546
+   94    0.46036719110308   0.46036719110308
+   95    0.47158769853742   0.47158769853742
+   96    0.49383819062938   0.49383819062938
+   97    0.50524628946367   0.50524628946367
+   98    0.52868518911241   0.52868518911241
+   99    0.55776538945519   0.55776538945519
+  100    0.58233294637857   0.58233294637857
+  101    0.61443861765251   0.61443861765251
+  102    0.63871310101995   0.63871310101995
+  103    0.64840025069276   0.64840025069276
+  104    0.66326068584931   0.66326068584931
+  105    0.69153784150119   0.69153784150119
+  106    0.72607522338742   0.72607522338742
+  107    0.75773553489440   0.75773553489440
+  108    0.76992967976780   0.76992967976780
+  109    0.78760327118213   0.78760327118213
+  110    0.80706794024894   0.80706794024894
+  111    0.81394459733734   0.81394459733734
+  112    0.84408560864181   0.84408560864181
+  113    0.86352100568176   0.86352100568176
+  114    0.88627768995807   0.88627768995807
+  115    0.89813587357582   0.89813587357582
+  116    0.91545361982635   0.91545361982635
+  117    0.95097114140949   0.95097114140949
+  118    0.96485088998322   0.96485088998322
+  119    1.00004466279727   1.00004466279727
+  120    1.00908831525378   1.00908831525378
+  121    1.05172986256507   1.05172986256507
+  122    1.07425193904316   1.07425193904316
+  123    1.08897677850881   1.08897677850881
+  124    1.12839925335333   1.12839925335333
+  125    1.18164809973174   1.18164809973174
+  126    1.19016461404441   1.19016461404441
+  127    1.22190929850084   1.22190929850084
+  128    1.24788446836510   1.24788446836510
+  129    1.28067086076493   1.28067086076493
+  130    1.30923852970975   1.30923852970975
+  131    1.32939337068737   1.32939337068737
+  132    1.36644736766751   1.36644736766751
+  133    1.39444249534006   1.39444249534006
+  134    1.45821689931396   1.45821689931396
+  135    1.49424135432066   1.49424135432066
+  136    1.51159820920021   1.51159820920021
+  137    1.54445389584610   1.54445389584610
+  138    1.58548990816188   1.58548990816188
+  139    1.63892119767916   1.63892119767916
+  140    1.66660428505717   1.66660428505717
+  141    1.71351704135921   1.71351704135921
+  142    1.73035364409847   1.73035364409847
+  143    1.74752756270276   1.74752756270276
+  144    1.79163086315145   1.79163086315145
+  145    1.81453719419156   1.81453719419156
+  146    1.84621436463215   1.84621436463215
+  147    1.89268462590722   1.89268462590722
+  148    1.91043913257420   1.91043913257420
+  149    1.98847917167524   1.98847917167524
+  150    2.01435613364935   2.01435613364935
+  151    2.06515271087267   2.06515271087267
+  152    2.09261432631815   2.09261432631815
+  153    2.11172723225398   2.11172723225398
+  154    2.14886934133111   2.14886934133111
+  155    2.17215560951816   2.17215560951816
+  156    2.18219657829250   2.18219657829250
+  157    2.19572485336894   2.19572485336894
+  158    2.23253363428607   2.23253363428607
+  159    2.29629804476802   2.29629804476802
+  160    2.34466055997047   2.34466055997047
+  161    2.35195105366083   2.35195105366083
+  162    2.35536681861743   2.35536681861743
+  163    2.38787127577531   2.38787127577531
+  164    2.40350506515152   2.40350506515152
+  165    2.46454429883622   2.46454429883622
+  166    2.47289330349440   2.47289330349440
+  167    2.50915416865502   2.50915416865502
+  168    2.52085732679993   2.52085732679993
+  169    2.54005067871910   2.54005067871910
+  170    2.57089178881862   2.57089178881862
+  171    2.69394152346346   2.69394152346346
+  172    2.83224180824053   2.83224180824053
+  173    3.21508558747266   3.21508558747266
+  174    3.36359013334403   3.36359013334403
+  175    3.59821686999041   3.59821686999041
+  176    3.63226454354756   3.63226454354756
+  177    3.69879043838251   3.69879043838251
+  178    3.84623632599959   3.84623632599959
+  179    3.90044557203665   3.90044557203665
+  180    4.12800544650944   4.12800544650944
+  181    4.62358311333727   4.62358311333727
+  182    4.63657398796126   4.63657398796126
+
+   kloop=1
+   k1=  -0.25000 k2=  -0.25000 k3=   0.25000
+
+    1   -2.65443046556955  -2.65443046556955
+    2   -2.65438039084221  -2.65438039084221
+    3   -2.65417106616338  -2.65417106616338
+    4   -2.65412978976133  -2.65412978976133
+    5   -1.69747686065946  -1.69747686065946
+    6   -1.69739833878643  -1.69739833878643
+    7   -1.69714539786619  -1.69714539786619
+    8   -1.69701667872423  -1.69701667872423
+    9   -1.69507586192538  -1.69507586192538
+   10   -1.69419585928018  -1.69419585928018
+   11   -1.69311758443518  -1.69311758443518
+   12   -1.69255580143172  -1.69255580143172
+   13   -1.69137118547720  -1.69137118547720
+   14   -1.69093616307258  -1.69093616307258
+   15   -1.69071011483423  -1.69071011483423
+   16   -1.69058688754026  -1.69058688754026
+   17   -0.91857458167619  -0.91857458167619
+   18   -0.91517068842769  -0.91517068842769
+   19   -0.89143110820755  -0.89143110820755
+   20   -0.88732842823781  -0.88732842823781
+   21   -0.88685144452409  -0.88685144452409
+   22   -0.88662776982143  -0.88662776982143
+   23   -0.87561112787569  -0.87561112787569
+   24   -0.87528016891437  -0.87528016891437
+   25   -0.87014665573430  -0.87014665573430
+   26   -0.87004449999303  -0.87004449999303
+   27   -0.46371806725470  -0.46371806725470
+   28   -0.46275178313613  -0.46275178313613
+   29   -0.44538454583961  -0.44538454583961
+   30   -0.44325361851727  -0.44325361851727
+   31   -0.43607450045822  -0.43607450045822
+   32   -0.42356730570998  -0.42356730570998
+   33   -0.41874438238825  -0.41874438238825
+   34   -0.41603671222206  -0.41603671222206
+   35   -0.41114416046239  -0.41114416046239
+   36   -0.40372829214757  -0.40372829214757
+   37   -0.40119404647820  -0.40119404647820
+   38   -0.39945982282555  -0.39945982282555
+   39   -0.38038697039075  -0.38038697039075
+   40   -0.37658168996879  -0.37658168996879
+   41   -0.37539508630817  -0.37539508630817
+   42   -0.36587959118242  -0.36587959118242
+   43   -0.36062309411151  -0.36062309411151
+   44   -0.35818992566556  -0.35818992566556
+   45   -0.35424437842596  -0.35424437842596
+   46   -0.35223651239938  -0.35223651239938
+   47   -0.34553489938571  -0.34553489938571
+   48   -0.34044712952177  -0.34044712952177
+   49   -0.33162222156839  -0.33162222156839
+   50   -0.32963932367346  -0.32963932367346
+   51   -0.31306349167482  -0.31306349167482
+   52   -0.31084684056613  -0.31084684056613
+   53   -0.30828866627068  -0.30828866627068
+   54   -0.30308212392752  -0.30308212392752
+   55   -0.29969220454247  -0.29969220454247
+   56   -0.29684331495851  -0.29684331495851
+   57   -0.22015064219921  -0.22015064219921
+   58   -0.21443784929383  -0.21443784929383
+   59   -0.17886967896828  -0.17886967896828
+   60   -0.17816557955527  -0.17816557955527
+   61   -0.17203214249290  -0.17203214249290
+   62   -0.16400869463260  -0.16400869463260
+   63   -0.16185435902412  -0.16185435902412
+   64   -0.15872096105400  -0.15872096105400
+   65   -0.15489091830112  -0.15489091830112
+   66   -0.15202225096894  -0.15202225096894
+   67   -0.14938232571738  -0.14938232571738
+   68   -0.14691704194044  -0.14691704194044
+   69   -0.12128181171640  -0.12128181171640
+   70   -0.10346471305595  -0.10346471305595
+   71   -0.10225753760089  -0.10225753760089
+   72   -0.09251164358253  -0.09251164358253
+   73   -0.07869239425981  -0.07869239425981
+   74   -0.07553242550510  -0.07553242550510
+   75   -0.07064679621363  -0.07064679621363
+   76   -0.05849393914509  -0.05849393914509
+   77    0.10454599705796   0.10454599705796
+   78    0.12587809337481   0.12587809337481
+   79    0.17196585787143   0.17196585787143
+   80    0.22864457510391   0.22864457510391
+   81    0.24916746563772   0.24916746563772
+   82    0.26084377253570   0.26084377253570
+   83    0.28741034669862   0.28741034669862
+   84    0.30566414163744   0.30566414163744
+   85    0.31381828740471   0.31381828740471
+   86    0.31859552208041   0.31859552208041
+   87    0.33354628967657   0.33354628967657
+   88    0.35435034075047   0.35435034075047
+   89    0.36974996293084   0.36974996293084
+   90    0.38178740002954   0.38178740002954
+   91    0.40385460697719   0.40385460697719
+   92    0.42161290646314   0.42161290646314
+   93    0.44360159114429   0.44360159114429
+   94    0.46036711311806   0.46036711311806
+   95    0.47158750943847   0.47158750943847
+   96    0.49383818732172   0.49383818732172
+   97    0.50524645106079   0.50524645106079
+   98    0.52868538857438   0.52868538857438
+   99    0.55776464126079   0.55776464126079
+  100    0.58233284447539   0.58233284447539
+  101    0.61443825374681   0.61443825374681
+  102    0.63871417565173   0.63871417565173
+  103    0.64840143720435   0.64840143720435
+  104    0.66326165144992   0.66326165144992
+  105    0.69153940849738   0.69153940849738
+  106    0.72607616811128   0.72607616811128
+  107    0.75773587603518   0.75773587603518
+  108    0.76993003283703   0.76993003283703
+  109    0.78760334490708   0.78760334490708
+  110    0.80706776137421   0.80706776137421
+  111    0.81394489257751   0.81394489257751
+  112    0.84408639900625   0.84408639900625
+  113    0.86352140449378   0.86352140449378
+  114    0.88627719012815   0.88627719012815
+  115    0.89813620403827   0.89813620403827
+  116    0.91545337206784   0.91545337206784
+  117    0.95097085428267   0.95097085428267
+  118    0.96485085247765   0.96485085247765
+  119    1.00004469393772   1.00004469393772
+  120    1.00908762899430   1.00908762899430
+  121    1.05172940689455   1.05172940689455
+  122    1.07425155291809   1.07425155291809
+  123    1.08897566980292   1.08897566980292
+  124    1.12839868832958   1.12839868832958
+  125    1.18164720356437   1.18164720356437
+  126    1.19016365553198   1.19016365553198
+  127    1.22190790821357   1.22190790821357
+  128    1.24788485113177   1.24788485113177
+  129    1.28067097368646   1.28067097368646
+  130    1.30923664164535   1.30923664164535
+  131    1.32939284291835   1.32939284291835
+  132    1.36644798461782   1.36644798461782
+  133    1.39444155732081   1.39444155732081
+  134    1.45821679078022   1.45821679078022
+  135    1.49424182955464   1.49424182955464
+  136    1.51159759897093   1.51159759897093
+  137    1.54445364178886   1.54445364178886
+  138    1.58548927581966   1.58548927581966
+  139    1.63891936833211   1.63891936833211
+  140    1.66660331277290   1.66660331277290
+  141    1.71351742395266   1.71351742395266
+  142    1.73035428224573   1.73035428224573
+  143    1.74752678095678   1.74752678095678
+  144    1.79163000987330   1.79163000987330
+  145    1.81453896119306   1.81453896119306
+  146    1.84621276364538   1.84621276364538
+  147    1.89268406587541   1.89268406587541
+  148    1.91043822562642   1.91043822562642
+  149    1.98848054774722   1.98848054774722
+  150    2.01435533055815   2.01435533055815
+  151    2.06515364574813   2.06515364574813
+  152    2.09261641422597   2.09261641422597
+  153    2.11172691743151   2.11172691743151
+  154    2.14887054567859   2.14887054567859
+  155    2.17215424197348   2.17215424197348
+  156    2.18219622460904   2.18219622460904
+  157    2.19572489886579   2.19572489886579
+  158    2.23253393270893   2.23253393270893
+  159    2.29629807473833   2.29629807473833
+  160    2.34465900654270   2.34465900654270
+  161    2.35195037365633   2.35195037365633
+  162    2.35536695742642   2.35536695742642
+  163    2.38787076749343   2.38787076749343
+  164    2.40350441248610   2.40350441248610
+  165    2.46454457107019   2.46454457107019
+  166    2.47289370393217   2.47289370393217
+  167    2.50915432134346   2.50915432134346
+  168    2.52085747944405   2.52085747944405
+  169    2.54005072544899   2.54005072544899
+  170    2.57089248177014   2.57089248177014
+  171    2.69394283305386   2.69394283305386
+  172    2.83224445590893   2.83224445590893
+  173    3.21508502202406   3.21508502202406
+  174    3.36358738505222   3.36358738505222
+  175    3.59821259671043   3.59821259671043
+  176    3.63225955185454   3.63225955185454
+  177    3.69878800784177   3.69878800784177
+  178    3.84623494620086   3.84623494620086
+  179    3.90044544276889   3.90044544276889
+  180    4.12800527741980   4.12800527741980
+  181    4.62357993415222   4.62357993415222
+  182    4.63657166987447   4.63657166987447
+
+   kloop=2
+   k1=  -0.25000 k2=   0.25000 k3=  -0.25000
+
+    1   -2.65443046639619  -2.65443046639619
+    2   -2.65438039170417  -2.65438039170417
+    3   -2.65417106501263  -2.65417106501263
+    4   -2.65412978891070  -2.65412978891070
+    5   -1.69747686269014  -1.69747686269014
+    6   -1.69739834111497  -1.69739834111497
+    7   -1.69714539806878  -1.69714539806878
+    8   -1.69701667911873  -1.69701667911873
+    9   -1.69507586277451  -1.69507586277451
+   10   -1.69419585903260  -1.69419585903260
+   11   -1.69311757328395  -1.69311757328395
+   12   -1.69255578889996  -1.69255578889996
+   13   -1.69137118167974  -1.69137118167974
+   14   -1.69093616071056  -1.69093616071056
+   15   -1.69071010449239  -1.69071010449239
+   16   -1.69058687845077  -1.69058687845077
+   17   -0.91857477918003  -0.91857477918003
+   18   -0.91517088532687  -0.91517088532687
+   19   -0.89143113944257  -0.89143113944257
+   20   -0.88732844964739  -0.88732844964739
+   21   -0.88685146941449  -0.88685146941449
+   22   -0.88662779640859  -0.88662779640859
+   23   -0.87561115210165  -0.87561115210165
+   24   -0.87528019642347  -0.87528019642347
+   25   -0.87014665485821  -0.87014665485821
+   26   -0.87004451498078  -0.87004451498078
+   27   -0.46371800865437  -0.46371800865437
+   28   -0.46275174881707  -0.46275174881707
+   29   -0.44538457153556  -0.44538457153556
+   30   -0.44325361701964  -0.44325361701964
+   31   -0.43607442795741  -0.43607442795741
+   32   -0.42356715078868  -0.42356715078868
+   33   -0.41874412181723  -0.41874412181723
+   34   -0.41603641287066  -0.41603641287066
+   35   -0.41114393593001  -0.41114393593001
+   36   -0.40372800227782  -0.40372800227782
+   37   -0.40119383323874  -0.40119383323874
+   38   -0.39945954237991  -0.39945954237991
+   39   -0.38038672983360  -0.38038672983360
+   40   -0.37658145632343  -0.37658145632343
+   41   -0.37539486509637  -0.37539486509637
+   42   -0.36587938430488  -0.36587938430488
+   43   -0.36062294146751  -0.36062294146751
+   44   -0.35818990302012  -0.35818990302012
+   45   -0.35424422537822  -0.35424422537822
+   46   -0.35223627424879  -0.35223627424879
+   47   -0.34553484097387  -0.34553484097387
+   48   -0.34044722214863  -0.34044722214863
+   49   -0.33162248232129  -0.33162248232129
+   50   -0.32963961599582  -0.32963961599582
+   51   -0.31306349039517  -0.31306349039517
+   52   -0.31084706808259  -0.31084706808259
+   53   -0.30828893695097  -0.30828893695097
+   54   -0.30308238655572  -0.30308238655572
+   55   -0.29969233290596  -0.29969233290596
+   56   -0.29684343684974  -0.29684343684974
+   57   -0.22015078971168  -0.22015078971168
+   58   -0.21443797355048  -0.21443797355048
+   59   -0.17886957891974  -0.17886957891974
+   60   -0.17816549815606  -0.17816549815606
+   61   -0.17203222316999  -0.17203222316999
+   62   -0.16400873466689  -0.16400873466689
+   63   -0.16185437872024  -0.16185437872024
+   64   -0.15872090052000  -0.15872090052000
+   65   -0.15489092627876  -0.15489092627876
+   66   -0.15202220837238  -0.15202220837238
+   67   -0.14938223339800  -0.14938223339800
+   68   -0.14691700403286  -0.14691700403286
+   69   -0.12128176837029  -0.12128176837029
+   70   -0.10346480071510  -0.10346480071510
+   71   -0.10225773267438  -0.10225773267438
+   72   -0.09251185359584  -0.09251185359584
+   73   -0.07869259069645  -0.07869259069645
+   74   -0.07553259878540  -0.07553259878540
+   75   -0.07064701308699  -0.07064701308699
+   76   -0.05849398558940  -0.05849398558940
+   77    0.10454485520954   0.10454485520954
+   78    0.12587712453787   0.12587712453787
+   79    0.17196517516211   0.17196517516211
+   80    0.22864420601025   0.22864420601025
+   81    0.24916835679733   0.24916835679733
+   82    0.26084470295927   0.26084470295927
+   83    0.28741057621356   0.28741057621356
+   84    0.30566427287811   0.30566427287811
+   85    0.31381867733345   0.31381867733345
+   86    0.31859607110108   0.31859607110108
+   87    0.33354700276773   0.33354700276773
+   88    0.35435073081544   0.35435073081544
+   89    0.36975047971582   0.36975047971582
+   90    0.38178798161003   0.38178798161003
+   91    0.40385577424219   0.40385577424219
+   92    0.42161355015921   0.42161355015921
+   93    0.44360214720848   0.44360214720848
+   94    0.46036693177606   0.46036693177606
+   95    0.47158778113716   0.47158778113716
+   96    0.49383839505814   0.49383839505814
+   97    0.50524669481604   0.50524669481604
+   98    0.52868546886392   0.52868546886392
+   99    0.55776622031707   0.55776622031707
+  100    0.58233267939419   0.58233267939419
+  101    0.61443929062861   0.61443929062861
+  102    0.63871318218139   0.63871318218139
+  103    0.64840018579221   0.64840018579221
+  104    0.66326077015638   0.66326077015638
+  105    0.69153748762146   0.69153748762146
+  106    0.72607462383831   0.72607462383831
+  107    0.75773593953055   0.75773593953055
+  108    0.76992903841299   0.76992903841299
+  109    0.78760297968537   0.78760297968537
+  110    0.80706806710880   0.80706806710880
+  111    0.81394455791319   0.81394455791319
+  112    0.84408541401021   0.84408541401021
+  113    0.86352078598021   0.86352078598021
+  114    0.88627713521995   0.88627713521995
+  115    0.89813641625049   0.89813641625049
+  116    0.91545347241709   0.91545347241709
+  117    0.95097006137054   0.95097006137054
+  118    0.96485051360844   0.96485051360844
+  119    1.00004364546369   1.00004364546369
+  120    1.00908792160728   1.00908792160728
+  121    1.05173002888558   1.05173002888558
+  122    1.07425145784271   1.07425145784271
+  123    1.08897605495377   1.08897605495377
+  124    1.12839829523777   1.12839829523777
+  125    1.18164735794611   1.18164735794611
+  126    1.19016335469044   1.19016335469044
+  127    1.22190798268389   1.22190798268389
+  128    1.24788243066160   1.24788243066160
+  129    1.28067086899670   1.28067086899670
+  130    1.30923853981313   1.30923853981313
+  131    1.32939197796912   1.32939197796912
+  132    1.36644460913532   1.36644460913532
+  133    1.39444192785037   1.39444192785037
+  134    1.45821616800099   1.45821616800099
+  135    1.49423951195704   1.49423951195704
+  136    1.51159668918360   1.51159668918360
+  137    1.54445240896107   1.54445240896107
+  138    1.58548991466321   1.58548991466321
+  139    1.63892122274131   1.63892122274131
+  140    1.66660285354556   1.66660285354556
+  141    1.71351569992235   1.71351569992235
+  142    1.73035261416161   1.73035261416161
+  143    1.74752733715586   1.74752733715586
+  144    1.79163045504774   1.79163045504774
+  145    1.81453570923934   1.81453570923934
+  146    1.84621390288393   1.84621390288393
+  147    1.89268423562722   1.89268423562722
+  148    1.91043731217670   1.91043731217670
+  149    1.98847768795110   1.98847768795110
+  150    2.01435533696249   2.01435533696249
+  151    2.06515153119877   2.06515153119877
+  152    2.09261432111966   2.09261432111966
+  153    2.11172633315522   2.11172633315522
+  154    2.14886887455625   2.14886887455625
+  155    2.17215493221296   2.17215493221296
+  156    2.18219654944493   2.18219654944493
+  157    2.19572381550577   2.19572381550577
+  158    2.23253197005847   2.23253197005847
+  159    2.29629796690783   2.29629796690783
+  160    2.34466121708779   2.34466121708779
+  161    2.35195160733956   2.35195160733956
+  162    2.35536624780157   2.35536624780157
+  163    2.38787079256013   2.38787079256013
+  164    2.40350458557617   2.40350458557617
+  165    2.46454418575437   2.46454418575437
+  166    2.47289294579359   2.47289294579359
+  167    2.50915430480037   2.50915430480037
+  168    2.52085729725530   2.52085729725530
+  169    2.54005011087691   2.54005011087691
+  170    2.57089152551597   2.57089152551597
+  171    2.69394205817196   2.69394205817196
+  172    2.83224250952132   2.83224250952132
+  173    3.21508189914135   3.21508189914135
+  174    3.36358541925074   3.36358541925074
+  175    3.59821332485757   3.59821332485757
+  176    3.63226030577662   3.63226030577662
+  177    3.69878825626468   3.69878825626468
+  178    3.84623107615889   3.84623107615889
+  179    3.90044136271199   3.90044136271199
+  180    4.12800281187244   4.12800281187244
+  181    4.62358287508977   4.62358287508977
+  182    4.63657335104415   4.63657335104415
+
+   kloop=3
+   k1=  -0.25000 k2=   0.25000 k3=   0.25000
+
+    1   -2.65443046670159  -2.65443046670159
+    2   -2.65438039200701  -2.65438039200701
+    3   -2.65417106567987  -2.65417106567987
+    4   -2.65412978933632  -2.65412978933632
+    5   -1.69747686230670  -1.69747686230670
+    6   -1.69739834072128  -1.69739834072128
+    7   -1.69714539819787  -1.69714539819787
+    8   -1.69701667934352  -1.69701667934352
+    9   -1.69507586196789  -1.69507586196789
+   10   -1.69419585854835  -1.69419585854835
+   11   -1.69311757334944  -1.69311757334944
+   12   -1.69255578897030  -1.69255578897030
+   13   -1.69137118148612  -1.69137118148612
+   14   -1.69093616057566  -1.69093616057566
+   15   -1.69071010484168  -1.69071010484168
+   16   -1.69058687882878  -1.69058687882878
+   17   -0.91857474222820  -0.91857474222820
+   18   -0.91517085232645  -0.91517085232645
+   19   -0.89143112297565  -0.89143112297565
+   20   -0.88732844307757  -0.88732844307757
+   21   -0.88685146193942  -0.88685146193942
+   22   -0.88662778909324  -0.88662778909324
+   23   -0.87561115427343  -0.87561115427343
+   24   -0.87528019456858  -0.87528019456858
+   25   -0.87014664346688  -0.87014664346688
+   26   -0.87004448513652  -0.87004448513652
+   27   -0.46371801669252  -0.46371801669252
+   28   -0.46275176051804  -0.46275176051804
+   29   -0.44538458729108  -0.44538458729108
+   30   -0.44325364709242  -0.44325364709242
+   31   -0.43607448944777  -0.43607448944777
+   32   -0.42356727900264  -0.42356727900264
+   33   -0.41874428797490  -0.41874428797490
+   34   -0.41603665202853  -0.41603665202853
+   35   -0.41114414945244  -0.41114414945244
+   36   -0.40372825468125  -0.40372825468125
+   37   -0.40119408798570  -0.40119408798570
+   38   -0.39945982785159  -0.39945982785159
+   39   -0.38038690556472  -0.38038690556472
+   40   -0.37658168818727  -0.37658168818727
+   41   -0.37539508286076  -0.37539508286076
+   42   -0.36587945553026  -0.36587945553026
+   43   -0.36062286833873  -0.36062286833873
+   44   -0.35818986888365  -0.35818986888365
+   45   -0.35424416705057  -0.35424416705057
+   46   -0.35223627054928  -0.35223627054928
+   47   -0.34553479546315  -0.34553479546315
+   48   -0.34044707579680  -0.34044707579680
+   49   -0.33162226358024  -0.33162226358024
+   50   -0.32963942811433  -0.32963942811433
+   51   -0.31306337470135  -0.31306337470135
+   52   -0.31084686328327  -0.31084686328327
+   53   -0.30828873245839  -0.30828873245839
+   54   -0.30308221058204  -0.30308221058204
+   55   -0.29969225792788  -0.29969225792788
+   56   -0.29684335577724  -0.29684335577724
+   57   -0.22015077093284  -0.22015077093284
+   58   -0.21443798071255  -0.21443798071255
+   59   -0.17886955896155  -0.17886955896155
+   60   -0.17816550341266  -0.17816550341266
+   61   -0.17203212390805  -0.17203212390805
+   62   -0.16400866994859  -0.16400866994859
+   63   -0.16185432238241  -0.16185432238241
+   64   -0.15872085674486  -0.15872085674486
+   65   -0.15489093177623  -0.15489093177623
+   66   -0.15202219947547  -0.15202219947547
+   67   -0.14938222623127  -0.14938222623127
+   68   -0.14691697171494  -0.14691697171494
+   69   -0.12128180092158  -0.12128180092158
+   70   -0.10346467262441  -0.10346467262441
+   71   -0.10225740779759  -0.10225740779759
+   72   -0.09251149561006  -0.09251149561006
+   73   -0.07869229682987  -0.07869229682987
+   74   -0.07553242900386  -0.07553242900386
+   75   -0.07064670735463  -0.07064670735463
+   76   -0.05849399972917  -0.05849399972917
+   77    0.10454545385033   0.10454545385033
+   78    0.12587760959240   0.12587760959240
+   79    0.17196546345343   0.17196546345343
+   80    0.22864426539464   0.22864426539464
+   81    0.24916722895815   0.24916722895815
+   82    0.26084357030785   0.26084357030785
+   83    0.28741003633559   0.28741003633559
+   84    0.30566421370041   0.30566421370041
+   85    0.31381854848053   0.31381854848053
+   86    0.31859592804156   0.31859592804156
+   87    0.33354636498406   0.33354636498406
+   88    0.35435065004546   0.35435065004546
+   89    0.36975032757838   0.36975032757838
+   90    0.38178770201488   0.38178770201488
+   91    0.40385540888938   0.40385540888938
+   92    0.42161304440112   0.42161304440112
+   93    0.44360182829651   0.44360182829651
+   94    0.46036688164712   0.46036688164712
+   95    0.47158761443563   0.47158761443563
+   96    0.49383835634283   0.49383835634283
+   97    0.50524689867449   0.50524689867449
+   98    0.52868566683990   0.52868566683990
+   99    0.55776548965861   0.55776548965861
+  100    0.58233260397354   0.58233260397354
+  101    0.61443894940313   0.61443894940313
+  102    0.63871428872514   0.63871428872514
+  103    0.64840134828277   0.64840134828277
+  104    0.66326171421328   0.66326171421328
+  105    0.69153904642947   0.69153904642947
+  106    0.72607558126867   0.72607558126867
+  107    0.75773626977265   0.75773626977265
+  108    0.76992940305990   0.76992940305990
+  109    0.78760301709620   0.78760301709620
+  110    0.80706791208562   0.80706791208562
+  111    0.81394487938977   0.81394487938977
+  112    0.84408619482551   0.84408619482551
+  113    0.86352119780901   0.86352119780901
+  114    0.88627661914679   0.88627661914679
+  115    0.89813674702372   0.89813674702372
+  116    0.91545321150623   0.91545321150623
+  117    0.95096971353589   0.95096971353589
+  118    0.96485048870701   0.96485048870701
+  119    1.00004369659694   1.00004369659694
+  120    1.00908726888129   1.00908726888129
+  121    1.05172953584440   1.05172953584440
+  122    1.07425110919775   1.07425110919775
+  123    1.08897503606489   1.08897503606489
+  124    1.12839773942967   1.12839773942967
+  125    1.18164651630017   1.18164651630017
+  126    1.19016238519504   1.19016238519504
+  127    1.22190659507149   1.22190659507149
+  128    1.24788273518766   1.24788273518766
+  129    1.28067097144595   1.28067097144595
+  130    1.30923662458663   1.30923662458663
+  131    1.32939150792297   1.32939150792297
+  132    1.36644520454133   1.36644520454133
+  133    1.39444099962740   1.39444099962740
+  134    1.45821605402209   1.45821605402209
+  135    1.49424004094518   1.49424004094518
+  136    1.51159617699603   1.51159617699603
+  137    1.54445207624813   1.54445207624813
+  138    1.58548928638413   1.58548928638413
+  139    1.63891938322121   1.63891938322121
+  140    1.66660184857284   1.66660184857284
+  141    1.71351603653925   1.71351603653925
+  142    1.73035325437662   1.73035325437662
+  143    1.74752650057615   1.74752650057615
+  144    1.79162946678937   1.79162946678937
+  145    1.81453751631642   1.81453751631642
+  146    1.84621234290222   1.84621234290222
+  147    1.89268351705493   1.89268351705493
+  148    1.91043633430301   1.91043633430301
+  149    1.98847902681356   1.98847902681356
+  150    2.01435446180978   2.01435446180978
+  151    2.06515244347722   2.06515244347722
+  152    2.09261639398314   2.09261639398314
+  153    2.11172613836062   2.11172613836062
+  154    2.14887014921757   2.14887014921757
+  155    2.17215349798594   2.17215349798594
+  156    2.18219617017742   2.18219617017742
+  157    2.19572384883261   2.19572384883261
+  158    2.23253226014503   2.23253226014503
+  159    2.29629799388401   2.29629799388401
+  160    2.34465972944161   2.34465972944161
+  161    2.35195094112904   2.35195094112904
+  162    2.35536640313165   2.35536640313165
+  163    2.38787029460113   2.38787029460113
+  164    2.40350394016066   2.40350394016066
+  165    2.46454443456255   2.46454443456255
+  166    2.47289330976984   2.47289330976984
+  167    2.50915438692139   2.50915438692139
+  168    2.52085747312792   2.52085747312792
+  169    2.54005017159811   2.54005017159811
+  170    2.57089225468658   2.57089225468658
+  171    2.69394341787681   2.69394341787681
+  172    2.83224518978979   2.83224518978979
+  173    3.21508140398497   3.21508140398497
+  174    3.36358267940121   3.36358267940121
+  175    3.59820905868319   3.59820905868319
+  176    3.63225515535505   3.63225515535505
+  177    3.69878584105298   3.69878584105298
+  178    3.84622992206291   3.84622992206291
+  179    3.90044129572015   3.90044129572015
+  180    4.12800245836451   4.12800245836451
+  181    4.62357976645786   4.62357976645786
+  182    4.63657113176415   4.63657113176415
+
+***********************************************************
+***********************************************************
+              History of geometry optimization             
+***********************************************************
+***********************************************************
+
+  MD_iter   SD_scaling     |Maximum force|   Maximum step        Utot
+                           (Hartree/Bohr)        (Ang)         (Hartree)
+
+    1       1.25981732       0.01210202       0.00806802    -452.46384005
+    2       0.62990866       0.00718475       0.00239492    -452.46459892
+    3       0.62990866       0.00682551       0.00227517    -452.46485417
+    4       0.62990866       0.00666674       0.00222225    -452.46508224
+    5       1.57477164       0.00642685       0.00535571    -452.46528999
+    6       1.57477164       0.00585614       0.00488012    -452.46574956
+    7       1.57477164       0.00535356       0.00446130    -452.46611591
+    8       1.57477164       0.00490489       0.00408741    -452.46641269
+    9       3.93692911       0.00440777       0.00918285    -452.46665240
+   10       3.93692911       0.00297566       0.00822784    -452.46709969
+   11       3.93692911       0.00222300       0.03430116    -452.46740582
+   12       3.93692911       0.00162264       0.00806143    -452.46782301
+   13       3.93692911       0.00111462       0.00411985    -452.46788069
+   14       3.93692911       0.00102300       0.02741244    -452.46792119
+   15       3.93692911       0.00127563       0.00224947    -452.46803637
+   16       3.93692911       0.00084761       0.00950667    -452.46805745
+   17       3.93692911       0.00076224       0.00189188    -452.46807681
+   18       3.93692911       0.00044264       0.01895679    -452.46808254
+   19       3.93692911       0.00135002       0.00978929    -452.46807038
+   20       3.93692911       0.00038574       0.00192486    -452.46809416
+   21       3.93692911       0.00031048       0.00109244    -452.46809552
+   22       3.93692911       0.00019572       0.00206540    -452.46809703
+   23       3.93692911       0.00013218       0.00133046    -452.46809821
+   24       3.93692911       0.00005283       0.00000000    -452.46809902
+
+***********************************************************
+***********************************************************
+                   Mulliken populations                    
+***********************************************************
+***********************************************************
+
+  Total spin moment (muB)   0.000000000
+
+                    Up spin      Down spin     Sum           Diff
+      1    V      6.342309695  6.342309695  12.684619391   0.000000000
+      2    V      6.341857032  6.341857032  12.683714064   0.000000000
+      3    V      6.341857282  6.341857282  12.683714565   0.000000000
+      4    V      6.342309730  6.342309730  12.684619460   0.000000000
+      5    O      3.017543961  3.017543961   6.035087922   0.000000000
+      6    O      3.017802586  3.017802586   6.035605172   0.000000000
+      7    O      3.017802595  3.017802595   6.035605190   0.000000000
+      8    O      3.017544126  3.017544126   6.035088252   0.000000000
+      9    O      3.110566108  3.110566108   6.221132215   0.000000000
+     10    O      3.110704781  3.110704781   6.221409562   0.000000000
+     11    O      3.110704762  3.110704762   6.221409525   0.000000000
+     12    O      3.110566100  3.110566100   6.221132199   0.000000000
+     13    O      3.059215661  3.059215661   6.118431322   0.000000000
+     14    O      3.059215580  3.059215580   6.118431161   0.000000000
+
+ Sum of MulP: up   =    56.00000 down          =    56.00000
+              total=   112.00000 ideal(neutral)=   112.00000
+
+
+  Decomposed Mulliken populations
+
+    1    V          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    1.005169591  1.005169591   2.010339183   0.000000000
+   sum over m      1.005169591  1.005169591   2.010339183   0.000000000
+  s           1    0.157532002  0.157532002   0.315064005   0.000000000
+   sum over m      0.157532002  0.157532002   0.315064005   0.000000000
+   sum over m+mul  1.162701594  1.162701594   2.325403187   0.000000000
+  px          0    1.003996843  1.003996843   2.007993687   0.000000000
+  py          0    1.004259338  1.004259338   2.008518676   0.000000000
+  pz          0    1.001928722  1.001928722   2.003857445   0.000000000
+   sum over m      3.010184903  3.010184903   6.020369807   0.000000000
+  px          1    0.122710066  0.122710066   0.245420133   0.000000000
+  py          1    0.143473967  0.143473967   0.286947933   0.000000000
+  pz          1    0.092993440  0.092993440   0.185986881   0.000000000
+   sum over m      0.359177473  0.359177473   0.718354946   0.000000000
+   sum over m+mul  3.369362377  3.369362377   6.738724753   0.000000000
+  d3z^2-r^2   0    0.401908550  0.401908550   0.803817101   0.000000000
+  dx^2-y^2    0    0.351377469  0.351377469   0.702754939   0.000000000
+  dxy         0    0.274223009  0.274223009   0.548446019   0.000000000
+  dxz         0    0.393782549  0.393782549   0.787565097   0.000000000
+  dyz         0    0.388954147  0.388954147   0.777908295   0.000000000
+   sum over m      1.810245725  1.810245725   3.620491450   0.000000000
+   sum over m+mul  1.810245725  1.810245725   3.620491450   0.000000000
+
+    2    V          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    1.005148341  1.005148341   2.010296682   0.000000000
+   sum over m      1.005148341  1.005148341   2.010296682   0.000000000
+  s           1    0.157325773  0.157325773   0.314651547   0.000000000
+   sum over m      0.157325773  0.157325773   0.314651547   0.000000000
+   sum over m+mul  1.162474114  1.162474114   2.324948229   0.000000000
+  px          0    1.003934912  1.003934912   2.007869825   0.000000000
+  py          0    1.004256986  1.004256986   2.008513973   0.000000000
+  pz          0    1.001928061  1.001928061   2.003856121   0.000000000
+   sum over m      3.010119959  3.010119959   6.020239919   0.000000000
+  px          1    0.122344656  0.122344656   0.244689312   0.000000000
+  py          1    0.143478644  0.143478644   0.286957289   0.000000000
+  pz          1    0.092899654  0.092899654   0.185799307   0.000000000
+   sum over m      0.358722954  0.358722954   0.717445908   0.000000000
+   sum over m+mul  3.368842913  3.368842913   6.737685827   0.000000000
+  d3z^2-r^2   0    0.401841341  0.401841341   0.803682683   0.000000000
+  dx^2-y^2    0    0.350943069  0.350943069   0.701886137   0.000000000
+  dxy         0    0.275161324  0.275161324   0.550322647   0.000000000
+  dxz         0    0.393580737  0.393580737   0.787161475   0.000000000
+  dyz         0    0.389013534  0.389013534   0.778027067   0.000000000
+   sum over m      1.810540004  1.810540004   3.621080009   0.000000000
+   sum over m+mul  1.810540004  1.810540004   3.621080009   0.000000000
+
+    3    V          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    1.005148321  1.005148321   2.010296642   0.000000000
+   sum over m      1.005148321  1.005148321   2.010296642   0.000000000
+  s           1    0.157325987  0.157325987   0.314651973   0.000000000
+   sum over m      0.157325987  0.157325987   0.314651973   0.000000000
+   sum over m+mul  1.162474308  1.162474308   2.324948615   0.000000000
+  px          0    1.003934834  1.003934834   2.007869667   0.000000000
+  py          0    1.004257030  1.004257030   2.008514060   0.000000000
+  pz          0    1.001928025  1.001928025   2.003856049   0.000000000
+   sum over m      3.010119888  3.010119888   6.020239776   0.000000000
+  px          1    0.122344765  0.122344765   0.244689530   0.000000000
+  py          1    0.143478708  0.143478708   0.286957417   0.000000000
+  pz          1    0.092899601  0.092899601   0.185799202   0.000000000
+   sum over m      0.358723074  0.358723074   0.717446149   0.000000000
+   sum over m+mul  3.368842962  3.368842962   6.737685925   0.000000000
+  d3z^2-r^2   0    0.401841327  0.401841327   0.803682653   0.000000000
+  dx^2-y^2    0    0.350943064  0.350943064   0.701886129   0.000000000
+  dxy         0    0.275161349  0.275161349   0.550322699   0.000000000
+  dxz         0    0.393580734  0.393580734   0.787161469   0.000000000
+  dyz         0    0.389013537  0.389013537   0.778027075   0.000000000
+   sum over m      1.810540012  1.810540012   3.621080025   0.000000000
+   sum over m+mul  1.810540012  1.810540012   3.621080025   0.000000000
+
+    4    V          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    1.005169548  1.005169548   2.010339097   0.000000000
+   sum over m      1.005169548  1.005169548   2.010339097   0.000000000
+  s           1    0.157531878  0.157531878   0.315063756   0.000000000
+   sum over m      0.157531878  0.157531878   0.315063756   0.000000000
+   sum over m+mul  1.162701426  1.162701426   2.325402853   0.000000000
+  px          0    1.003996783  1.003996783   2.007993566   0.000000000
+  py          0    1.004259413  1.004259413   2.008518827   0.000000000
+  pz          0    1.001928753  1.001928753   2.003857507   0.000000000
+   sum over m      3.010184950  3.010184950   6.020369899   0.000000000
+  px          1    0.122710287  0.122710287   0.245420575   0.000000000
+  py          1    0.143474041  0.143474041   0.286948082   0.000000000
+  pz          1    0.092993307  0.092993307   0.185986614   0.000000000
+   sum over m      0.359177636  0.359177636   0.718355272   0.000000000
+   sum over m+mul  3.369362585  3.369362585   6.738725171   0.000000000
+  d3z^2-r^2   0    0.401908546  0.401908546   0.803817093   0.000000000
+  dx^2-y^2    0    0.351377457  0.351377457   0.702754914   0.000000000
+  dxy         0    0.274223003  0.274223003   0.548446006   0.000000000
+  dxz         0    0.393782545  0.393782545   0.787565090   0.000000000
+  dyz         0    0.388954167  0.388954167   0.777908334   0.000000000
+   sum over m      1.810245718  1.810245718   3.620491436   0.000000000
+   sum over m+mul  1.810245718  1.810245718   3.620491436   0.000000000
+
+    5    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.943064067  0.943064067   1.886128134   0.000000000
+   sum over m      0.943064067  0.943064067   1.886128134   0.000000000
+  s           1    0.000581468  0.000581468   0.001162936   0.000000000
+   sum over m      0.000581468  0.000581468   0.001162936   0.000000000
+   sum over m+mul  0.943645535  0.943645535   1.887291070   0.000000000
+  px          0    0.700965177  0.700965177   1.401930353   0.000000000
+  py          0    0.693866460  0.693866460   1.387732920   0.000000000
+  pz          0    0.712078445  0.712078445   1.424156890   0.000000000
+   sum over m      2.106910082  2.106910082   4.213820164   0.000000000
+  px          1   -0.005062962 -0.005062962  -0.010125924   0.000000000
+  py          1   -0.004792247 -0.004792247  -0.009584493   0.000000000
+  pz          1   -0.003287310 -0.003287310  -0.006574620   0.000000000
+   sum over m     -0.013142519 -0.013142519  -0.026285037   0.000000000
+   sum over m+mul  2.093767563  2.093767563   4.187535127   0.000000000
+  d3z^2-r^2   0   -0.004417513 -0.004417513  -0.008835026   0.000000000
+  dx^2-y^2    0   -0.000857973 -0.000857973  -0.001715946   0.000000000
+  dxy         0   -0.001628574 -0.001628574  -0.003257148   0.000000000
+  dxz         0   -0.006492167 -0.006492167  -0.012984335   0.000000000
+  dyz         0   -0.006472910 -0.006472910  -0.012945819   0.000000000
+   sum over m     -0.019869137 -0.019869137  -0.039738274   0.000000000
+   sum over m+mul -0.019869137 -0.019869137  -0.039738274   0.000000000
+
+    6    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.943060010  0.943060010   1.886120019   0.000000000
+   sum over m      0.943060010  0.943060010   1.886120019   0.000000000
+  s           1    0.000583852  0.000583852   0.001167703   0.000000000
+   sum over m      0.000583852  0.000583852   0.001167703   0.000000000
+   sum over m+mul  0.943643861  0.943643861   1.887287723   0.000000000
+  px          0    0.701207686  0.701207686   1.402415371   0.000000000
+  py          0    0.693893308  0.693893308   1.387786616   0.000000000
+  pz          0    0.712013304  0.712013304   1.424026608   0.000000000
+   sum over m      2.107114298  2.107114298   4.214228596   0.000000000
+  px          1   -0.005049732 -0.005049732  -0.010099464   0.000000000
+  py          1   -0.004794336 -0.004794336  -0.009588671   0.000000000
+  pz          1   -0.003273278 -0.003273278  -0.006546556   0.000000000
+   sum over m     -0.013117346 -0.013117346  -0.026234691   0.000000000
+   sum over m+mul  2.093996952  2.093996952   4.187993905   0.000000000
+  d3z^2-r^2   0   -0.004412635 -0.004412635  -0.008825270   0.000000000
+  dx^2-y^2    0   -0.000856512 -0.000856512  -0.001713024   0.000000000
+  dxy         0   -0.001631403 -0.001631403  -0.003262807   0.000000000
+  dxz         0   -0.006466291 -0.006466291  -0.012932582   0.000000000
+  dyz         0   -0.006471387 -0.006471387  -0.012942773   0.000000000
+   sum over m     -0.019838228 -0.019838228  -0.039676456   0.000000000
+   sum over m+mul -0.019838228 -0.019838228  -0.039676456   0.000000000
+
+    7    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.943060012  0.943060012   1.886120024   0.000000000
+   sum over m      0.943060012  0.943060012   1.886120024   0.000000000
+  s           1    0.000583863  0.000583863   0.001167727   0.000000000
+   sum over m      0.000583863  0.000583863   0.001167727   0.000000000
+   sum over m+mul  0.943643875  0.943643875   1.887287750   0.000000000
+  px          0    0.701207711  0.701207711   1.402415422   0.000000000
+  py          0    0.693893279  0.693893279   1.387786557   0.000000000
+  pz          0    0.712013309  0.712013309   1.424026619   0.000000000
+   sum over m      2.107114299  2.107114299   4.214228598   0.000000000
+  px          1   -0.005049727 -0.005049727  -0.010099454   0.000000000
+  py          1   -0.004794341 -0.004794341  -0.009588683   0.000000000
+  pz          1   -0.003273272 -0.003273272  -0.006546544   0.000000000
+   sum over m     -0.013117340 -0.013117340  -0.026234681   0.000000000
+   sum over m+mul  2.093996959  2.093996959   4.187993917   0.000000000
+  d3z^2-r^2   0   -0.004412641 -0.004412641  -0.008825282   0.000000000
+  dx^2-y^2    0   -0.000856512 -0.000856512  -0.001713023   0.000000000
+  dxy         0   -0.001631403 -0.001631403  -0.003262806   0.000000000
+  dxz         0   -0.006466289 -0.006466289  -0.012932578   0.000000000
+  dyz         0   -0.006471394 -0.006471394  -0.012942787   0.000000000
+   sum over m     -0.019838239 -0.019838239  -0.039676478   0.000000000
+   sum over m+mul -0.019838239 -0.019838239  -0.039676478   0.000000000
+
+    8    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.943064191  0.943064191   1.886128382   0.000000000
+   sum over m      0.943064191  0.943064191   1.886128382   0.000000000
+  s           1    0.000581473  0.000581473   0.001162945   0.000000000
+   sum over m      0.000581473  0.000581473   0.001162945   0.000000000
+   sum over m+mul  0.943645663  0.943645663   1.887291327   0.000000000
+  px          0    0.700965194  0.700965194   1.401930388   0.000000000
+  py          0    0.693866431  0.693866431   1.387732862   0.000000000
+  pz          0    0.712078424  0.712078424   1.424156849   0.000000000
+   sum over m      2.106910049  2.106910049   4.213820098   0.000000000
+  px          1   -0.005062956 -0.005062956  -0.010125912   0.000000000
+  py          1   -0.004792248 -0.004792248  -0.009584496   0.000000000
+  pz          1   -0.003287266 -0.003287266  -0.006574532   0.000000000
+   sum over m     -0.013142470 -0.013142470  -0.026284939   0.000000000
+   sum over m+mul  2.093767579  2.093767579   4.187535159   0.000000000
+  d3z^2-r^2   0   -0.004417501 -0.004417501  -0.008835002   0.000000000
+  dx^2-y^2    0   -0.000857973 -0.000857973  -0.001715945   0.000000000
+  dxy         0   -0.001628574 -0.001628574  -0.003257148   0.000000000
+  dxz         0   -0.006492159 -0.006492159  -0.012984317   0.000000000
+  dyz         0   -0.006472911 -0.006472911  -0.012945822   0.000000000
+   sum over m     -0.019869117 -0.019869117  -0.039738234   0.000000000
+   sum over m+mul -0.019869117 -0.019869117  -0.039738234   0.000000000
+
+    9    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.905446685  0.905446685   1.810893369   0.000000000
+   sum over m      0.905446685  0.905446685   1.810893369   0.000000000
+  s           1   -0.002377897 -0.002377897  -0.004755794   0.000000000
+   sum over m     -0.002377897 -0.002377897  -0.004755794   0.000000000
+   sum over m+mul  0.903068787  0.903068787   1.806137575   0.000000000
+  px          0    0.749115813  0.749115813   1.498231626   0.000000000
+  py          0    0.691342597  0.691342597   1.382685193   0.000000000
+  pz          0    0.812461393  0.812461393   1.624922787   0.000000000
+   sum over m      2.252919803  2.252919803   4.505839606   0.000000000
+  px          1   -0.010135229 -0.010135229  -0.020270459   0.000000000
+  py          1   -0.002220125 -0.002220125  -0.004440249   0.000000000
+  pz          1   -0.008210343 -0.008210343  -0.016420685   0.000000000
+   sum over m     -0.020565697 -0.020565697  -0.041131393   0.000000000
+   sum over m+mul  2.232354106  2.232354106   4.464708213   0.000000000
+  d3z^2-r^2   0   -0.002864083 -0.002864083  -0.005728165   0.000000000
+  dx^2-y^2    0   -0.005748909 -0.005748909  -0.011497818   0.000000000
+  dxy         0   -0.006774313 -0.006774313  -0.013548627   0.000000000
+  dxz         0   -0.003688876 -0.003688876  -0.007377753   0.000000000
+  dyz         0   -0.005780605 -0.005780605  -0.011561210   0.000000000
+   sum over m     -0.024856786 -0.024856786  -0.049713572   0.000000000
+   sum over m+mul -0.024856786 -0.024856786  -0.049713572   0.000000000
+
+   10    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.905605258  0.905605258   1.811210515   0.000000000
+   sum over m      0.905605258  0.905605258   1.811210515   0.000000000
+  s           1   -0.002384411 -0.002384411  -0.004768821   0.000000000
+   sum over m     -0.002384411 -0.002384411  -0.004768821   0.000000000
+   sum over m+mul  0.903220847  0.903220847   1.806441694   0.000000000
+  px          0    0.749162410  0.749162410   1.498324820   0.000000000
+  py          0    0.691010396  0.691010396   1.382020793   0.000000000
+  pz          0    0.812706556  0.812706556   1.625413111   0.000000000
+   sum over m      2.252879362  2.252879362   4.505758724   0.000000000
+  px          1   -0.010201548 -0.010201548  -0.020403097   0.000000000
+  py          1   -0.002194415 -0.002194415  -0.004388829   0.000000000
+  pz          1   -0.008193660 -0.008193660  -0.016387321   0.000000000
+   sum over m     -0.020589623 -0.020589623  -0.041179247   0.000000000
+   sum over m+mul  2.232289739  2.232289739   4.464579477   0.000000000
+  d3z^2-r^2   0   -0.002860480 -0.002860480  -0.005720960   0.000000000
+  dx^2-y^2    0   -0.005734549 -0.005734549  -0.011469098   0.000000000
+  dxy         0   -0.006756060 -0.006756060  -0.013512119   0.000000000
+  dxz         0   -0.003671176 -0.003671176  -0.007342353   0.000000000
+  dyz         0   -0.005783539 -0.005783539  -0.011567078   0.000000000
+   sum over m     -0.024805804 -0.024805804  -0.049611609   0.000000000
+   sum over m+mul -0.024805804 -0.024805804  -0.049611609   0.000000000
+
+   11    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.905605168  0.905605168   1.811210337   0.000000000
+   sum over m      0.905605168  0.905605168   1.811210337   0.000000000
+  s           1   -0.002384411 -0.002384411  -0.004768822   0.000000000
+   sum over m     -0.002384411 -0.002384411  -0.004768822   0.000000000
+   sum over m+mul  0.903220758  0.903220758   1.806441515   0.000000000
+  px          0    0.749162459  0.749162459   1.498324918   0.000000000
+  py          0    0.691010414  0.691010414   1.382020829   0.000000000
+  pz          0    0.812706592  0.812706592   1.625413184   0.000000000
+   sum over m      2.252879466  2.252879466   4.505758931   0.000000000
+  px          1   -0.010201538 -0.010201538  -0.020403076   0.000000000
+  py          1   -0.002194463 -0.002194463  -0.004388925   0.000000000
+  pz          1   -0.008193657 -0.008193657  -0.016387314   0.000000000
+   sum over m     -0.020589658 -0.020589658  -0.041179315   0.000000000
+   sum over m+mul  2.232289808  2.232289808   4.464579616   0.000000000
+  d3z^2-r^2   0   -0.002860484 -0.002860484  -0.005720967   0.000000000
+  dx^2-y^2    0   -0.005734543 -0.005734543  -0.011469086   0.000000000
+  dxy         0   -0.006756058 -0.006756058  -0.013512116   0.000000000
+  dxz         0   -0.003671173 -0.003671173  -0.007342346   0.000000000
+  dyz         0   -0.005783546 -0.005783546  -0.011567092   0.000000000
+   sum over m     -0.024805803 -0.024805803  -0.049611606   0.000000000
+   sum over m+mul -0.024805803 -0.024805803  -0.049611606   0.000000000
+
+   12    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.905446625  0.905446625   1.810893250   0.000000000
+   sum over m      0.905446625  0.905446625   1.810893250   0.000000000
+  s           1   -0.002377900 -0.002377900  -0.004755799   0.000000000
+   sum over m     -0.002377900 -0.002377900  -0.004755799   0.000000000
+   sum over m+mul  0.903068725  0.903068725   1.806137451   0.000000000
+  px          0    0.749115850  0.749115850   1.498231701   0.000000000
+  py          0    0.691342582  0.691342582   1.382685163   0.000000000
+  pz          0    0.812461383  0.812461383   1.624922765   0.000000000
+   sum over m      2.252919814  2.252919814   4.505839629   0.000000000
+  px          1   -0.010135225 -0.010135225  -0.020270451   0.000000000
+  py          1   -0.002220102 -0.002220102  -0.004440204   0.000000000
+  pz          1   -0.008210346 -0.008210346  -0.016420693   0.000000000
+   sum over m     -0.020565674 -0.020565674  -0.041131348   0.000000000
+   sum over m+mul  2.232354141  2.232354141   4.464708281   0.000000000
+  d3z^2-r^2   0   -0.002864077 -0.002864077  -0.005728153   0.000000000
+  dx^2-y^2    0   -0.005748901 -0.005748901  -0.011497802   0.000000000
+  dxy         0   -0.006774311 -0.006774311  -0.013548622   0.000000000
+  dxz         0   -0.003688876 -0.003688876  -0.007377753   0.000000000
+  dyz         0   -0.005780601 -0.005780601  -0.011561202   0.000000000
+   sum over m     -0.024856766 -0.024856766  -0.049713533   0.000000000
+   sum over m+mul -0.024856766 -0.024856766  -0.049713533   0.000000000
+
+   13    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.906113417  0.906113417   1.812226835   0.000000000
+   sum over m      0.906113417  0.906113417   1.812226835   0.000000000
+  s           1   -0.001697839 -0.001697839  -0.003395679   0.000000000
+   sum over m     -0.001697839 -0.001697839  -0.003395679   0.000000000
+   sum over m+mul  0.904415578  0.904415578   1.808831156   0.000000000
+  px          0    0.649235360  0.649235360   1.298470721   0.000000000
+  py          0    0.725442802  0.725442802   1.450885604   0.000000000
+  pz          0    0.812212246  0.812212246   1.624424491   0.000000000
+   sum over m      2.186890408  2.186890408   4.373780816   0.000000000
+  px          1    0.005900306  0.005900306   0.011800612   0.000000000
+  py          1   -0.007270888 -0.007270888  -0.014541776   0.000000000
+  pz          1   -0.007150062 -0.007150062  -0.014300124   0.000000000
+   sum over m     -0.008520644 -0.008520644  -0.017041289   0.000000000
+   sum over m+mul  2.178369764  2.178369764   4.356739527   0.000000000
+  d3z^2-r^2   0   -0.003440216 -0.003440216  -0.006880431   0.000000000
+  dx^2-y^2    0   -0.004863446 -0.004863446  -0.009726892   0.000000000
+  dxy         0   -0.007635280 -0.007635280  -0.015270561   0.000000000
+  dxz         0   -0.006114222 -0.006114222  -0.012228444   0.000000000
+  dyz         0   -0.001516516 -0.001516516  -0.003033033   0.000000000
+   sum over m     -0.023569680 -0.023569680  -0.047139361   0.000000000
+   sum over m+mul -0.023569680 -0.023569680  -0.047139361   0.000000000
+
+   14    O          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.906113370  0.906113370   1.812226739   0.000000000
+   sum over m      0.906113370  0.906113370   1.812226739   0.000000000
+  s           1   -0.001697837 -0.001697837  -0.003395674   0.000000000
+   sum over m     -0.001697837 -0.001697837  -0.003395674   0.000000000
+   sum over m+mul  0.904415533  0.904415533   1.808831065   0.000000000
+  px          0    0.649235279  0.649235279   1.298470558   0.000000000
+  py          0    0.725442824  0.725442824   1.450885649   0.000000000
+  pz          0    0.812212246  0.812212246   1.624424492   0.000000000
+   sum over m      2.186890349  2.186890349   4.373780699   0.000000000
+  px          1    0.005900329  0.005900329   0.011800658   0.000000000
+  py          1   -0.007270886 -0.007270886  -0.014541772   0.000000000
+  pz          1   -0.007150058 -0.007150058  -0.014300116   0.000000000
+   sum over m     -0.008520615 -0.008520615  -0.017041230   0.000000000
+   sum over m+mul  2.178369735  2.178369735   4.356739469   0.000000000
+  d3z^2-r^2   0   -0.003440219 -0.003440219  -0.006880439   0.000000000
+  dx^2-y^2    0   -0.004863454 -0.004863454  -0.009726908   0.000000000
+  dxy         0   -0.007635281 -0.007635281  -0.015270562   0.000000000
+  dxz         0   -0.006114217 -0.006114217  -0.012228433   0.000000000
+  dyz         0   -0.001516516 -0.001516516  -0.003033032   0.000000000
+   sum over m     -0.023569687 -0.023569687  -0.047139373   0.000000000
+   sum over m+mul -0.023569687 -0.023569687  -0.047139373   0.000000000
+
+***********************************************************
+***********************************************************
+                    Dipole moment (Debye)                  
+***********************************************************
+***********************************************************
+
+ Absolute D       31.98459406
+
+                      Dx                Dy                Dz
+ Total             31.98459406        0.00012955       -0.00004238
+ Core            1727.38459964      958.42852155       -0.00005468
+ Electron       -1695.40000558     -958.42839200        0.00001230
+ Back ground       -0.00000000       -0.00000000        0.00000000
+
+***********************************************************
+***********************************************************
+       xyz-coordinates (Ang) and forces (Hartree/Bohr)  
+***********************************************************
+***********************************************************
+
+<coordinates.forces
+  14
+    1     V     1.17077   0.89080  -0.56299  -0.000006918025 -0.000000082289 -0.000040954568
+    2     V    -1.16425   2.67240   0.56085   0.000022814006  0.000000132016  0.000007915273
+    3     V     4.62953   0.89080  -0.56085   0.000022837800 -0.000000013473 -0.000007936794
+    4     V     6.96455   2.67240   0.56299  -0.000006863887 -0.000000036434  0.000041037936
+    5     O     1.17788   0.89080   2.43302   0.000001489450 -0.000000015035  0.000040706327
+    6     O    -1.17218   2.67240  -2.43506  -0.000043878812 -0.000000049404 -0.000044128226
+    7     O     4.62161   0.89080   2.43506  -0.000043878052 -0.000000002838  0.000044090270
+    8     O     6.97166   2.67240  -2.43302   0.000001485351  0.000000004420 -0.000040774041
+    9     O    -0.82071   0.89080  -0.01803  -0.000051804991 -0.000000030629  0.000013319056
+   10     O     0.83162   2.67240   0.01602  -0.000009780737 -0.000000019899 -0.000010976320
+   11     O     6.62540   0.89080  -0.01603  -0.000009762462  0.000000024900  0.000010960166
+   12     O     4.97307   2.67240   0.01803  -0.000051801426  0.000000005646 -0.000013315188
+   13     O     2.90091   0.89080  -0.09613  -0.000052827521 -0.000000011483 -0.000025438527
+   14     O     8.69469   2.67240   0.09612  -0.000052808893 -0.000000019911  0.000025447108
+coordinates.forces>
+
+***********************************************************
+***********************************************************
+       Fractional coordinates of the final structure       
+***********************************************************
+***********************************************************
+
+     1      V     0.10103657156655   0.24999967170693   0.87767716692448
+     2      V     0.89952592693710   0.74999954628714   0.12185763062597
+     3      V     0.39952592729048   0.24999997037959   0.87814234478053
+     4      V     0.60103657003307   0.74999998245362   0.12232276903633
+     5      O     0.10165008541140   0.24999977756272   0.52863239615850
+     6      O     0.89884196029631   0.74999981884356   0.47092342378106
+     7      O     0.39884197263496   0.24999998425897   0.52907655810228
+     8      O     0.60165009972894   0.74999997026494   0.47136755659690
+     9      O     0.92917308321908   0.24999970572714   0.99608166182739
+    10      O     0.07176793459915   0.74999971328301   0.00348179652598
+    11      O     0.57176792499974   0.24999993970930   0.99651816715883
+    12      O     0.42917307756461   0.74999994787597   0.00391830116759
+    13      O     0.25034651232688   0.24999988051344   0.97911446956933
+    14      O     0.75034651310659   0.74999987030824   0.02088544891036
+
+***********************************************************
+***********************************************************
+               Computational Time (second)                 
+***********************************************************
+***********************************************************
+
+   Elapsed.Time.       277.035
+
+                               Min_ID   Min_Time       Max_ID   Max_Time
+   Total Computational Time =    47      277.034          0      277.035
+   readfile                 =     2        2.592         34        2.650
+   truncation               =    21       10.084          9       13.014
+   MD_pac                   =     0        0.048         35        0.056
+   OutData                  =    28        0.000          0        0.001
+   DFT                      =     9      261.302         21      264.233
+
+*** In DFT ***
+
+   Set_OLP_Kin              =    33        1.124          0       11.923
+   Set_Nonlocal             =     0       16.979         33       27.766
+   Set_ProExpn_VNA          =    24       21.279          0       47.394
+   Set_Hamiltonian          =    25       68.125          1       68.149
+   Poisson                  =    54        0.896         39        0.909
+   Diagonalization          =     1       28.846         28       28.872
+   Mixing_DM                =    13        1.554         35        1.569
+   Force                    =    27       25.197          2       25.198
+   Total_Energy             =     2       16.269          0       16.272
+   Set_Aden_Grid            =     0        1.265         24       27.289
+   Set_Orbitals_Grid        =   106        0.000          0        5.219
+   Set_Density_Grid         =    69       31.976          0       34.029
+   RestartFileDFT           =    23        0.122        110        6.148
+   Mulliken_Charge          =    13        0.137         62        0.156
+   FFT(2D)_Density          =   106        1.049         17        1.104
+   Others                   =     9        1.939         20       11.390

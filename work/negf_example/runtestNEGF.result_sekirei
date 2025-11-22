@@ -1,0 +1,27 @@
+   1  negf_example/Lead-Au-Chain-NC.   Elapsed time(s)=  125.45  diff Utot= 0.000000025688  diff Force= 0.000000002298
+                                       diff EigenChannel= 0.000000000000  diff CurrentDensity= 0.000000000000
+   2  negf_example/Lead-Chain.dat      Elapsed time(s)=    3.01  diff Utot= 0.000000000084  diff Force= 0.000000000005
+                                       diff EigenChannel= 0.000000000000  diff CurrentDensity= 0.000000000000
+   3  negf_example/Lead-Graphene.dat   Elapsed time(s)=    3.67  diff Utot= 0.000000000023  diff Force= 0.000000000001
+                                       diff EigenChannel= 0.000000000000  diff CurrentDensity= 0.000000000000
+   4  negf_example/Lead-L-8ZGNR-NC.d   Elapsed time(s)=    9.06  diff Utot= 0.000000000030  diff Force= 0.000000000047
+                                       diff EigenChannel= 0.000000000000  diff CurrentDensity= 0.000000000000
+   5  negf_example/Lead-L-8ZGNR.dat    Elapsed time(s)=    6.14  diff Utot= 0.000000000066  diff Force= 0.000000000002
+                                       diff EigenChannel= 0.000000000000  diff CurrentDensity= 0.000000000000
+   6  negf_example/Lead-R-8ZGNR-NC.d   Elapsed time(s)=    9.25  diff Utot= 0.000000000001  diff Force= 0.000000000013
+                                       diff EigenChannel= 0.000000000000  diff CurrentDensity= 0.000000000000
+   7  negf_example/Lead-R-8ZGNR.dat    Elapsed time(s)=    6.02  diff Utot= 0.000000000048  diff Force= 0.000000000007
+                                       diff EigenChannel= 0.000000000000  diff CurrentDensity= 0.000000000000
+   8  negf_example/NEGF-8ZGNR-0.3.da   Elapsed time(s)=  134.11  diff Utot= 0.000000000003  diff Force= 0.000000000706
+                                       diff EigenChannel= 0.000000000016  diff CurrentDensity= 0.000000000000
+   9  negf_example/NEGF-8ZGNR-NC.dat   Elapsed time(s)=  211.91  diff Utot= 0.000000000062  diff Force= 0.000000000368
+                                       diff EigenChannel= 0.000000000000  diff CurrentDensity= 0.000000000000
+  10  negf_example/NEGF-Au-Chain-NC.   Elapsed time(s)=  208.42  diff Utot= 0.000006124708  diff Force= 0.000000001714
+                                       diff EigenChannel= 0.000007041700  diff CurrentDensity= 0.000000000000
+  11  negf_example/NEGF-Chain.dat      Elapsed time(s)=   28.05  diff Utot= 0.000000000829  diff Force= 0.000000009038
+                                       diff EigenChannel= 0.000000000400  diff CurrentDensity= 0.000000000000
+  12  negf_example/NEGF-Graphene.dat   Elapsed time(s)=    5.81  diff Utot= 0.000000033613  diff Force= 0.000000000459
+                                       diff EigenChannel= 0.000000000000  diff CurrentDensity= 0.000000000000
+
+
+Total elapsed time (s)      750.90

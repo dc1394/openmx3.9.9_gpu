@@ -1,0 +1,66 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      Mol_MnO
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ Mn  Mn8.0-s2p2d2       Mn_PBE19
+ O   O5.0-s2p2d1        O_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        2
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=Ang
+  1  Mn    0.00000   0.00000   0.00000   9.0  6.0
+  2  O     1.70000   0.00000   0.00000   3.0  3.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+#<Atoms.UnitVectors                     # unit=Ang.
+#  18.0   0.0   0.0
+#   0.0  18.0   0.0
+#   0.0   0.0  18.0
+#Atoms.UnitVectors>
+
+#
+# SCF or Electronic System 
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization       On          # On|Off|NC
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff          150.0        # default=150 (Ry)
+scf.maxIter                80          # default=40
+scf.EigenvalueSolver      Cluster      # Recursion|Cluster|Band
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.001       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.60        # default=0.40 
+scf.Mixing.History          20         # default=5
+scf.Mixing.StartPulay       10         # default=6
+scf.criterion             1.0e-10      # default=1.0e-6 (Hartree) 
+
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     nomd       # Nomd|Opt|NVE|NVT_VS|NVT_NH
+                                       # Constraint_Opt|DIIS2|Constraint_DIIS2
+MD.maxIter                   1         # default=1
+MD.TimeStep                1.0         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-14      # default=1.0e-4 (Hartree/bohr)
+MD.Opt.DIIS_Mixing          0.01       # default=0.5

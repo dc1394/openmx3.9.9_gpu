@@ -1,0 +1,75 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      lead-au-chain-nc
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+
+NEGF.output_hks    on
+NEGF.filename.hks  lead-au-chain-nc.hks
+NEGF.Output.for.TranMain    off 
+
+NEGF.tran.energydiv        200       # default=200
+NEGF.tran.energyrange -10 10 1.0e-3  # default=-10.0 10.0 5.0e-3 (eV)
+NEGF.tran.Kgrid            1 1       # default= 1 1
+
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+ Au    Au7.0-s2p2d2      Au_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number        3
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates 
+ 1  Au -2.700  0.000  0.000  8.5 8.5  0.0 0.0 0.0 0.0 0  off 
+ 2  Au  0.000  0.000  0.000  8.5 8.5  0.0 0.0 0.0 0.0 0  off
+ 3  Au  2.700  0.000  0.000  8.5 8.5  0.0 0.0 0.0 0.0 0  off
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang # Ang|AU
+<Atoms.UnitVectors                     
+   8.1   0.0   0.0  
+   0.0  10.0   0.0  
+   0.0   0.0  10.0  
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE        # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization       NC          # On|Off|NC
+scf.SpinOrbit.Coupling     On        # On|Off, default=off  
+scf.ElectronicTemperature  600.0       # default=300 (K)
+scf.energycutoff           250.0       # default=150 (Ry)
+scf.maxIter                100         # default=40
+scf.EigenvalueSolver       Band        # DC|GDC|Cluster|Band
+scf.Kgrid                 100 1 1      # means n1 x n2 x n3
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.010       # default=0.30
+scf.Min.Mixing.Weight      0.001       # default=0.001
+scf.Max.Mixing.Weight      0.020       # default=0.40
+scf.Mixing.History          20         # default=5
+scf.Mixing.StartPulay        7          # default=6
+scf.criterion             1.0e-7        # default=1.0e-6 (Hartree)
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type               Nomd   # Opt|EF|BFGS|RF|DIIS
+MD.Opt.DIIS.History   6      # default=3
+MD.Opt.StartDIIS      7      # default=5
+MD.Opt.EveryDIIS      6      # default=10
+MD.maxIter            1      #
+MD.Opt.criterion    1.0e-4   # default=1.0e-4 (a.u.)

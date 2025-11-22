@@ -1,0 +1,120 @@
+#
+# File Name
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                       negf-au-chain-nc
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  1    # default=1 (0-2)
+
+
+NEGF.filename.hks.l     lead-au-chain-nc.hks
+NEGF.filename.hks.r     lead-au-chain-nc.hks
+
+NEGF.Num.Poles             100       # default=150
+NEGF.scf.Kgrid             1 1       # default=1 1
+
+NEGF.bias.voltage          0.0       # default=0.0 (eV)
+NEGF.bias.neq.im.energy    0.01      # default=0.01 (eV)
+NEGF.bias.neq.energy.step  0.02      # default=0.02 (eV) 
+
+Dos.fileout                 off      # on|off, default=off
+NEGF.Dos.energyrange     -15.0 25.0 5.0e-3  #default=-10.0 10.0 5.0e-3 (eV)
+NEGF.Dos.energy.div        200       # default=200
+NEGF.Dos.Kgrid             1 1       # default=1 1 
+
+#
+# Transmission & Eigen Channel
+#
+
+NEGF.tran.Analysis         on        #  default on
+NEGF.tran.energydiv        200       # default=200
+NEGF.tran.energyrange -10 10 1.0e-3  # default=-10.0 10.0 1.0e-3 (eV)
+NEGF.tran.Kgrid            1 1       # default= 1 1
+NEGF.tran.Channel          on        #  default on
+NEGF.Channel.Nkpoint        1        # default=1
+<NEGF.Channel.kpoint
+0.0  0.0
+NEGF.Channel.kpoint>
+# default 0.0 0.0
+NEGF.Channel.Nenergy        1        # default=1
+<NEGF.Channel.energy
+0.0
+NEGF.Channel.energy>
+# default 0.0
+NEGF.Channel.Num            5        # defualt=5(for collinear), 10(for Non-collinear)
+NEGF.SCF.Iter.Band          20
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+ Au    Au7.0-s2p2d2      Au_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+
+Atoms.Number        9
+<Atoms.SpeciesAndCoordinates 
+ 1  Au 5.400  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 2  Au 8.100  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 3  Au 10.80  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 4  Au 13.50  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 5  Au 16.20  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 6  Au 18.90  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 7  Au 21.60  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 8  Au 24.30  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 9  Au 27.00  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+Atoms.SpeciesAndCoordinates> 
+
+#
+# Lead-Left
+#
+
+LeftLeadAtoms.Number         3
+<LeftLeadAtoms.SpeciesAndCoordinates           # Unit=Ang.
+ 1  Au -2.700  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 2  Au  0.000  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 3  Au  2.700  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+LeftLeadAtoms.SpeciesAndCoordinates>
+
+#
+# Lead-Right
+#
+
+RightLeadAtoms.Number        3 
+<RightLeadAtoms.SpeciesAndCoordinates           # Unit=Ang.
+ 1  Au  29.70  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+ 2  Au  32.40  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off 
+ 3  Au  35.10  0.000  0.000  8.5 8.5    0.0 0.0 0.0 0.0 0  off
+RightLeadAtoms.SpeciesAndCoordinates>
+
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE        # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization       NC          # On|Off|NC
+scf.SpinOrbit.Coupling     On        # On|Off, default=off
+scf.ElectronicTemperature  600.0       # default=300 (K)
+scf.energycutoff           250.0       # default=150 (Ry)
+scf.maxIter                1000        # default=40
+scf.EigenvalueSolver       NEGF        # DC|GDC|Cluster|Band
+scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstegr
+scf.Kgrid                  1 1 1       # means n1 x n2 x n3
+scf.Mixing.Type          rmm-diisk     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight      0.001      # default=0.30
+scf.Min.Mixing.Weight       0.001      # default=0.001
+scf.Max.Mixing.Weight       0.300      # default=0.40
+scf.Mixing.History          40         # default=5
+scf.Mixing.StartPulay       10         # default=6
+scf.Mixing.EveryPulay       1
+scf.criterion             1.0e-5       # default=1.0e-6 (Hartree)
+scf.restart                  off

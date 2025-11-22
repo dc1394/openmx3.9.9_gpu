@@ -1,0 +1,78 @@
+#
+#      File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                      Si2_k1xk1xk1
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (1-3)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       1
+<Definition.of.Atomic.Species
+   Si   Si7.0-s2p2d1   Si_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number  2 
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates           # Unit=Ang.
+     1   Si   0.000000000000  0.000000000000  0.000000000000 2.0 2.0
+     2   Si   1.357500000000  1.357500000000  1.357500000000 2.0 2.0
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang #  Ang|AU
+<Atoms.UnitVectors                     # unit=Ang.
+  0.000000000000  2.715000000000  2.715000000000
+  2.715000000000  0.000000000000  2.715000000000
+  2.715000000000  2.715000000000  0.000000000000
+Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW
+scf.SpinPolarization        Off        # On|Off|NC
+scf.SpinOrbit.Coupling      Off        # On|Off, default=off
+scf.ElectronicTemperature  300.0       # default=300 (K)
+scf.energycutoff           300.0       # default=150 (Ry)
+scf.maxIter                100         # default=40
+scf.EigenvalueSolver       band        # Recursion|Cluster|Band
+scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstegr
+scf.Kgrid                  1 1 1       # means 4x4x4
+scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.200       # default=0.40 
+scf.Mixing.History         15          # default=5
+scf.Mixing.StartPulay       5          # default=6
+scf.criterion             1.0e-9       # default=1.0e-6 (Hartree) 
+
+scf.restart off
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                     Nomd        # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Opt.DIIS.History          7         # default=7
+MD.Opt.StartDIIS             5         # default=5
+MD.maxIter                  100        # default=1
+MD.TimeStep                1.0         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
+
+#
+# CDDF
+#
+
+CDDF.start                         on     # default = off , on|off
+CDDF.FWHM                          0.2    # default =  0.2 eV
+CDDF.maximum_energy               10.0    # default = 10.0 eV
+CDDF.minimum_energy                0.0    # default =  0.0 eV
+CDDF.frequency.grid.total_number  10000   # default = 10000 grids
+CDDF.material_type                 0

@@ -1,0 +1,27 @@
+OpenMX Ver.3.9
+  icc version 18.0.5, compiler option -O3  -xHOST -ip -no-prec-div -qopenmp -Dkcomp -fp-model precise
+
+  enaga (Intel Xeon 6148 20core 2.4GHz)
+  180 processes (MPI) x 2 thread (OpenMP) 
+
+   1  large_example/5_5_13COb2.dat     Elapsed time(s)=   20.25  diff Utot= 0.000000000017  diff Force= 0.000000000006
+   2  large_example/B2C62_Band.dat     Elapsed time(s)=  371.81  diff Utot= 0.000000000007  diff Force= 0.000000046515
+   3  large_example/CG15c-DC-LNO.dat   Elapsed time(s)=   24.88  diff Utot= 0.000000000214  diff Force= 0.000000000868
+   4  large_example/DIA512-1.dat       Elapsed time(s)=   25.90  diff Utot= 0.000000010514  diff Force= 0.000000070631
+   5  large_example/FeBCC.dat          Elapsed time(s)=   66.51  diff Utot= 0.000000000055  diff Force= 0.000000000003
+   6  large_example/GEL.dat            Elapsed time(s)=   30.99  diff Utot= 0.000000000030  diff Force= 0.000000000002
+   7  large_example/GFRAG.dat          Elapsed time(s)=   15.24  diff Utot= 0.000000000252  diff Force= 0.000000000015
+   8  large_example/GGFF.dat           Elapsed time(s)=  672.24  diff Utot= 0.000000000008  diff Force= 0.000000000664
+   9  large_example/MCCN.dat           Elapsed time(s)=   32.22  diff Utot= 0.000000003983  diff Force= 0.000000011183
+  10  large_example/Mn12_148_F.dat     Elapsed time(s)=   38.05  diff Utot= 0.000000000011  diff Force= 0.000000000121
+  11  large_example/N1C999.dat         Elapsed time(s)=  335.45  diff Utot= 0.000000000322  diff Force= 0.000000000425
+  12  large_example/Ni63-O64.dat       Elapsed time(s)=   58.06  diff Utot= 0.000000002570  diff Force= 0.000000000085
+  13  large_example/Pt63.dat           Elapsed time(s)=   43.24  diff Utot= 0.000000003115  diff Force= 0.000000001869
+  14  large_example/SialicAcid.dat     Elapsed time(s)=   14.66  diff Utot= 0.000000000000  diff Force= 0.000000000002
+  15  large_example/ZrB2_2x2.dat       Elapsed time(s)=   97.06  diff Utot= 0.000000000057  diff Force= 0.000000000005
+  16  large_example/nsV4Bz5.dat        Elapsed time(s)=   79.59  diff Utot= 0.000000011393  diff Force= 0.000000006428
+
+
+Total elapsed time (s)     1926.15
+
+

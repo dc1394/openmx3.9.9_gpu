@@ -1,0 +1,23 @@
+OpenMX Ver. 3.9
+  mpifccpx, compiler option -Kfast -Kopenmp -Dnosse -Dkcomp
+
+  FX100 (PRIMEHPC FX100, SPARC64b XIfx, 2.2 GHz) at Nagoya Univ.
+  16 processes (MPI) x 2 thread (OpenMP) 
+
+   1  input_example/Benzene.dat        Elapsed time(s)=   12.29  diff Utot= 0.000000000003  diff Force= 0.000000000005
+   2  input_example/C60.dat            Elapsed time(s)=   29.15  diff Utot= 0.000000000158  diff Force= 0.000000000050
+   3  input_example/CO.dat             Elapsed time(s)=   38.71  diff Utot= 0.000000000125  diff Force= 0.000000003104
+   4  input_example/Cr2.dat            Elapsed time(s)=   25.43  diff Utot= 0.000000001020  diff Force= 0.000000000007
+   5  input_example/Crys-MnO.dat       Elapsed time(s)=   84.38  diff Utot= 0.000000006058  diff Force= 0.000000073199
+   6  input_example/GaAs.dat           Elapsed time(s)=   80.54  diff Utot= 0.000000000011  diff Force= 0.000000015689
+   7  input_example/Glycine.dat        Elapsed time(s)=   14.78  diff Utot= 0.000000000000  diff Force= 0.000000000000
+   8  input_example/Graphite4.dat      Elapsed time(s)=   14.52  diff Utot= 0.000000000016  diff Force= 0.000000000001
+   9  input_example/H2O-EF.dat         Elapsed time(s)=   12.78  diff Utot= 0.000000000001  diff Force= 0.000000000001
+  10  input_example/H2O.dat            Elapsed time(s)=   13.07  diff Utot= 0.000000000001  diff Force= 0.000000000023
+  11  input_example/HMn.dat            Elapsed time(s)=   37.63  diff Utot= 0.000000000153  diff Force= 0.000000000000
+  12  input_example/Methane.dat        Elapsed time(s)=    9.82  diff Utot= 0.000000000007  diff Force= 0.000000000002
+  13  input_example/Mol_MnO.dat        Elapsed time(s)=   26.48  diff Utot= 0.000000000209  diff Force= 0.000000000058
+  14  input_example/Ndia2.dat          Elapsed time(s)=   19.74  diff Utot= 0.000000000000  diff Force= 0.000000000001
+
+
+Total elapsed time (s)      419.32

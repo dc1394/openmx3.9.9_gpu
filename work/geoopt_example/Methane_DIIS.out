@@ -1,0 +1,1829 @@
+***********************************************************
+***********************************************************
+
+  This calculation was performed by OpenMX Ver. 3.9
+  using 112 MPI processes and 1 OpenMP threads.
+
+  Fri Nov 22 16:24:56 2019
+
+***********************************************************
+***********************************************************
+
+#
+# File Name      
+#
+
+System.CurrrentDirectory         ./    # default=./
+System.Name                     Methane_DIIS
+level.of.stdout                   1    # default=1 (1-3)
+level.of.fileout                  0    # default=1 (0-2)
+
+#
+# Definition of Atomic Species
+#
+
+Species.Number       2
+<Definition.of.Atomic.Species
+ H   H6.0-s2          H_PBE19
+ C   C6.0-s2p2        C_PBE19
+Definition.of.Atomic.Species>
+
+#
+# Atoms
+#
+
+Atoms.Number         5
+Atoms.SpeciesAndCoordinates.Unit   Ang # Ang|AU
+<Atoms.SpeciesAndCoordinates
+ 1  C      0.200000    0.000000   -0.300000     2.0  2.0 
+ 2  H     -0.889981   -0.629312    0.000000     0.5  0.5
+ 3  H      0.000000    0.629312   -0.889981     0.5  0.5
+ 4  H      0.000000    0.629312    0.889981     0.5  0.5
+ 5  H      0.889981   -0.629312    0.000000     0.5  0.5
+Atoms.SpeciesAndCoordinates>
+Atoms.UnitVectors.Unit             Ang # Ang|AU
+#<Atoms.UnitVectors                     
+#  10.0   0.0   0.0  
+#   0.0  10.0   0.0  
+#   0.0   0.0  10.0  
+#Atoms.UnitVectors>
+
+#
+# SCF or Electronic System
+#
+
+scf.XcType                 GGA-PBE     # LDA|LSDA-CA|LSDA-PW|GGA-PBE
+scf.SpinPolarization        off        # On|Off|NC
+scf.ElectronicTemperature  200.0        # default=300 (K)
+scf.energycutoff           150.0       # default=150 (Ry)
+scf.maxIter                 100        # default=40
+scf.EigenvalueSolver        cluster    # DC|GDC|Cluster|Band
+scf.Kgrid                  1 1 1       # means n1 x n2 x n3
+scf.Mixing.Type           rmm-diis     # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
+scf.Init.Mixing.Weight     0.010       # default=0.30 
+scf.Min.Mixing.Weight      0.001       # default=0.001 
+scf.Max.Mixing.Weight      0.100       # default=0.40 
+scf.Mixing.History          10         # default=5
+scf.Mixing.StartPulay       10         # default=6
+scf.criterion             1.0e-9       # default=1.0e-6 (Hartree) 
+
+#
+# MD or Geometry Optimization
+#
+
+MD.Type                    DIIS        # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Opt.DIIS.History          3         # default=3
+MD.Opt.StartDIIS             8         # default=5
+MD.Opt.EveryDIIS           10000       # default=10
+MD.maxIter                  200        # default=1xsx
+MD.TimeStep                1.0         # default=0.5 (fs)
+MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
+
+
+***********************************************************
+***********************************************************
+
+  Required cutoff energy (Ryd) for 3D-grids = 150.0000
+      Used cutoff energy (Ryd) for 3D-grids = 150.0010, 150.0010, 150.0010
+  Num. of grids of a-, b-, and c-axes = 70, 63, 70
+
+  Num.Grid1.    70
+  Num.Grid2.    63
+  Num.Grid3.    70
+
+
+  Cell_Volume =   5210.087487992290 (Bohr^3)
+  GridVol     =      0.016877510489 (Bohr^3)
+  Cell vectors (bohr) of the grid cell (gtv)
+    gtv_a =  0.256509111003,  0.000000000000,  0.000000000000
+    gtv_b =  0.000000000000,  0.256509111003,  0.000000000000
+    gtv_c =  0.000000000000,  0.000000000000,  0.256509111003
+    |gtv_a| =  0.256509111003
+    |gtv_b| =  0.256509111003
+    |gtv_c| =  0.256509111003
+
+***********************************************************
+***********************************************************
+
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 1                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.836077117219
+   SCF=   2  NormRD=  0.110914901867  Uele= -3.832526050804
+   SCF=   3  NormRD=  0.110108128442  Uele= -3.797591868189
+   SCF=   4  NormRD=  0.102579302690  Uele= -3.763160389416
+   SCF=   5  NormRD=  0.095066456199  Uele= -3.730079764439
+   SCF=   6  NormRD=  0.105572872450  Uele= -3.420210904723
+   SCF=   7  NormRD=  0.108476264916  Uele= -3.430312085119
+   SCF=   8  NormRD=  0.103666991714  Uele= -3.427293321054
+   SCF=   9  NormRD=  0.083183760338  Uele= -3.414530661529
+   SCF=  10  NormRD=  0.068051217830  Uele= -3.406298747258
+   SCF=  11  NormRD=  0.056632257494  Uele= -3.401172111247
+   SCF=  12  NormRD=  0.015811046836  Uele= -3.418311993740
+   SCF=  13  NormRD=  0.000968688595  Uele= -3.407075102166
+   SCF=  14  NormRD=  0.000544325902  Uele= -3.407135333827
+   SCF=  15  NormRD=  0.000030328423  Uele= -3.407680551345
+   SCF=  16  NormRD=  0.000004154236  Uele= -3.407674821348
+   SCF=  17  NormRD=  0.000001647175  Uele= -3.407674971457
+   SCF=  18  NormRD=  0.000000132821  Uele= -3.407676769723
+   SCF=  19  NormRD=  0.000000013498  Uele= -3.407676727157
+   SCF=  20  NormRD=  0.000000000519  Uele= -3.407676739219
+   SCF=  21  NormRD=  0.000000000113  Uele= -3.407676738911
+
+*******************************************************
+        Total energy (Hartree) at MD = 1        
+*******************************************************
+
+  Uele.         -3.407676738911
+
+  Ukin.          6.560125290861
+  UH0.         -14.538502991463
+  UH1.           0.049171942584
+  Una.          -6.210387569521
+  Unl.          -0.143654832504
+  Uxc0.         -1.666735490542
+  Uxc1.         -1.666735490542
+  Ucore.         9.523493893109
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.093225248019
+
+  UpV.           0.000000000000
+  Enpy.         -8.093225248019
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.117187500000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 2                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.329578765748
+   SCF=   2  NormRD=  0.067853942474  Uele= -3.421844788786
+   SCF=   3  NormRD=  0.051098734777  Uele= -3.404845979405
+   SCF=   4  NormRD=  0.038792114145  Uele= -3.392422273638
+   SCF=   5  NormRD=  0.002069846879  Uele= -3.360160534123
+   SCF=   6  NormRD=  0.000688055877  Uele= -3.356993559733
+   SCF=   7  NormRD=  0.000030469031  Uele= -3.357795846231
+   SCF=   8  NormRD=  0.000005765868  Uele= -3.357780188977
+   SCF=   9  NormRD=  0.000000618831  Uele= -3.357783638022
+   SCF=  10  NormRD=  0.000000148413  Uele= -3.357784186384
+   SCF=  11  NormRD=  0.000000030763  Uele= -3.357784084099
+   SCF=  12  NormRD=  0.000000005015  Uele= -3.357784084774
+
+*******************************************************
+        Total energy (Hartree) at MD = 2        
+*******************************************************
+
+  Uele.         -3.357784084774
+
+  Ukin.          6.437537181177
+  UH0.         -14.495220274444
+  UH1.           0.045421066204
+  Una.          -6.012903557826
+  Unl.          -0.155574249451
+  Uxc0.         -1.654672491797
+  Uxc1.         -1.654672491797
+  Ucore.         9.325189607294
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.164895210640
+
+  UpV.           0.000000000000
+  Enpy.         -8.164895210640
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)      -0.117187500000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 3                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.361208740153
+   SCF=   2  NormRD=  0.012421780632  Uele= -3.345193598911
+   SCF=   3  NormRD=  0.010505870900  Uele= -3.346455840528
+   SCF=   4  NormRD=  0.008907173094  Uele= -3.347408950505
+   SCF=   5  NormRD=  0.002951279015  Uele= -3.347356859786
+   SCF=   6  NormRD=  0.000103943803  Uele= -3.350424256961
+   SCF=   7  NormRD=  0.000012451596  Uele= -3.350518458908
+   SCF=   8  NormRD=  0.000002876320  Uele= -3.350520236727
+   SCF=   9  NormRD=  0.000000521771  Uele= -3.350522834049
+   SCF=  10  NormRD=  0.000000011142  Uele= -3.350523401822
+   SCF=  11  NormRD=  0.000000001643  Uele= -3.350523394166
+   SCF=  12  NormRD=  0.000000000329  Uele= -3.350523395026
+
+*******************************************************
+        Total energy (Hartree) at MD = 3        
+*******************************************************
+
+  Uele.         -3.350523395026
+
+  Ukin.          6.433839404092
+  UH0.         -14.514465187255
+  UH1.           0.044787477521
+  Una.          -6.001689097513
+  Unl.          -0.161305449375
+  Uxc0.         -1.656121118933
+  Uxc1.         -1.656121118933
+  Ucore.         9.323469562302
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.187605528097
+
+  UpV.           0.000000000000
+  Enpy.         -8.187605528097
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 4                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.369452207649
+   SCF=   2  NormRD=  0.014769854824  Uele= -3.336374990040
+   SCF=   3  NormRD=  0.011314818146  Uele= -3.340547066234
+   SCF=   4  NormRD=  0.008735129534  Uele= -3.343676172461
+   SCF=   5  NormRD=  0.001487407653  Uele= -3.352432704682
+   SCF=   6  NormRD=  0.000088685117  Uele= -3.353216237238
+   SCF=   7  NormRD=  0.000012477981  Uele= -3.353279493807
+   SCF=   8  NormRD=  0.000003188366  Uele= -3.353286969093
+   SCF=   9  NormRD=  0.000000403655  Uele= -3.353290260087
+   SCF=  10  NormRD=  0.000000017866  Uele= -3.353290742425
+   SCF=  11  NormRD=  0.000000001313  Uele= -3.353290717640
+   SCF=  12  NormRD=  0.000000000050  Uele= -3.353290716478
+   SCF=  13  NormRD=  0.000000000004  Uele= -3.353290716502
+
+*******************************************************
+        Total energy (Hartree) at MD = 4        
+*******************************************************
+
+  Uele.         -3.353290716502
+
+  Ukin.          6.454453217918
+  UH0.         -14.541708717042
+  UH1.           0.044944950835
+  Una.          -6.029789687730
+  Unl.          -0.164589298904
+  Uxc0.         -1.659953592588
+  Uxc1.         -1.659953592588
+  Ucore.         9.360150420722
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.196446299379
+
+  UpV.           0.000000000000
+  Enpy.         -8.196446299379
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 5                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.359788798870
+   SCF=   2  NormRD=  0.002015680215  Uele= -3.355504330303
+   SCF=   3  NormRD=  0.001544213321  Uele= -3.356076632248
+   SCF=   4  NormRD=  0.001190492237  Uele= -3.356506795361
+   SCF=   5  NormRD=  0.000192355166  Uele= -3.357742529516
+   SCF=   6  NormRD=  0.000010465517  Uele= -3.357860229245
+   SCF=   7  NormRD=  0.000001040736  Uele= -3.357843693495
+   SCF=   8  NormRD=  0.000000117973  Uele= -3.357844811693
+   SCF=   9  NormRD=  0.000000012742  Uele= -3.357844928720
+   SCF=  10  NormRD=  0.000000000714  Uele= -3.357844941199
+   SCF=  11  NormRD=  0.000000000103  Uele= -3.357844939902
+   SCF=  12  NormRD=  0.000000000012  Uele= -3.357844940024
+
+*******************************************************
+        Total energy (Hartree) at MD = 5        
+*******************************************************
+
+  Uele.         -3.357844940024
+
+  Ukin.          6.476172615630
+  UH0.         -14.565193293946
+  UH1.           0.045256609430
+  Una.          -6.060925679042
+  Unl.          -0.166549596490
+  Uxc0.         -1.663518538563
+  Uxc1.         -1.663518538563
+  Ucore.         9.397978282801
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.200298138743
+
+  UpV.           0.000000000000
+  Enpy.         -8.200298138743
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 6                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.366546534480
+   SCF=   2  NormRD=  0.001833010618  Uele= -3.370971424831
+   SCF=   3  NormRD=  0.001384435516  Uele= -3.370411762345
+   SCF=   4  NormRD=  0.001048146093  Uele= -3.369989833668
+   SCF=   5  NormRD=  0.000067598033  Uele= -3.368672066863
+   SCF=   6  NormRD=  0.000006217281  Uele= -3.368660336347
+   SCF=   7  NormRD=  0.000001609349  Uele= -3.368666304712
+   SCF=   8  NormRD=  0.000000210660  Uele= -3.368664623741
+   SCF=   9  NormRD=  0.000000028646  Uele= -3.368664383825
+   SCF=  10  NormRD=  0.000000000355  Uele= -3.368664353565
+   SCF=  11  NormRD=  0.000000000071  Uele= -3.368664353884
+
+*******************************************************
+        Total energy (Hartree) at MD = 6        
+*******************************************************
+
+  Uele.         -3.368664353884
+
+  Ukin.          6.521015667091
+  UH0.         -14.609241082835
+  UH1.           0.046051694346
+  Una.          -6.126706068533
+  Unl.          -0.169209705670
+  Uxc0.         -1.670463887551
+  Uxc1.         -1.670463887551
+  Ucore.         9.475703119408
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.203314151294
+
+  UpV.           0.000000000000
+  Enpy.         -8.203314151294
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 7                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.380448541837
+   SCF=   2  NormRD=  0.008703886784  Uele= -3.362416026963
+   SCF=   3  NormRD=  0.006663338523  Uele= -3.364903712246
+   SCF=   4  NormRD=  0.005129198108  Uele= -3.366777220244
+   SCF=   5  NormRD=  0.000476883683  Uele= -3.372150694968
+   SCF=   6  NormRD=  0.000047597622  Uele= -3.372590841896
+   SCF=   7  NormRD=  0.000007110645  Uele= -3.372555800885
+   SCF=   8  NormRD=  0.000001217200  Uele= -3.372557657530
+   SCF=   9  NormRD=  0.000000020001  Uele= -3.372559201649
+   SCF=  10  NormRD=  0.000000003076  Uele= -3.372559183245
+   SCF=  11  NormRD=  0.000000000798  Uele= -3.372559181303
+   SCF=  12  NormRD=  0.000000000030  Uele= -3.372559182335
+   SCF=  13  NormRD=  0.000000000003  Uele= -3.372559182344
+
+*******************************************************
+        Total energy (Hartree) at MD = 7        
+*******************************************************
+
+  Uele.         -3.372559182344
+
+  Ukin.          6.535002777061
+  UH0.         -14.624161599680
+  UH1.           0.046247655762
+  Una.          -6.147490453771
+  Unl.          -0.169790847731
+  Uxc0.         -1.672662283379
+  Uxc1.         -1.672662283379
+  Ucore.         9.501369074888
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.204147960229
+
+  UpV.           0.000000000000
+  Enpy.         -8.204147960229
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 8                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.379738709229
+   SCF=   2  NormRD=  0.005345978340  Uele= -3.368832376748
+   SCF=   3  NormRD=  0.004160485390  Uele= -3.370299375299
+   SCF=   4  NormRD=  0.003267488936  Uele= -3.371405291834
+   SCF=   5  NormRD=  0.000449810907  Uele= -3.374365660323
+   SCF=   6  NormRD=  0.000007978348  Uele= -3.374850223674
+   SCF=   7  NormRD=  0.000002344944  Uele= -3.374838057204
+   SCF=   8  NormRD=  0.000000370229  Uele= -3.374840534155
+   SCF=   9  NormRD=  0.000000011035  Uele= -3.374840951174
+   SCF=  10  NormRD=  0.000000001835  Uele= -3.374840929569
+   SCF=  11  NormRD=  0.000000000293  Uele= -3.374840931400
+   SCF=  12  NormRD=  0.000000000013  Uele= -3.374840931707
+
+*******************************************************
+        Total energy (Hartree) at MD = 8        
+*******************************************************
+
+  Uele.         -3.374840931707
+
+  Ukin.          6.543599315532
+  UH0.         -14.632748282109
+  UH1.           0.046396840351
+  Una.          -6.160375394381
+  Unl.          -0.170132901636
+  Uxc0.         -1.674010545189
+  Uxc1.         -1.674010545189
+  Ucore.         9.516631972115
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.204649540508
+
+  UpV.           0.000000000000
+  Enpy.         -8.204649540508
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD= 9                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.374597554311
+   SCF=   2  NormRD=  0.000356992877  Uele= -3.375516209422
+   SCF=   3  NormRD=  0.000267046787  Uele= -3.375401716921
+   SCF=   4  NormRD=  0.000199598222  Uele= -3.375315220127
+   SCF=   5  NormRD=  0.000007190470  Uele= -3.375029023226
+   SCF=   6  NormRD=  0.000000404797  Uele= -3.375041302144
+   SCF=   7  NormRD=  0.000000116204  Uele= -3.375041090880
+   SCF=   8  NormRD=  0.000000011597  Uele= -3.375040976871
+   SCF=   9  NormRD=  0.000000000467  Uele= -3.375040964309
+   SCF=  10  NormRD=  0.000000000042  Uele= -3.375040963834
+
+*******************************************************
+        Total energy (Hartree) at MD = 9        
+*******************************************************
+
+  Uele.         -3.375040963834
+
+  Ukin.          6.544340036398
+  UH0.         -14.633484531499
+  UH1.           0.046410056834
+  Una.          -6.161505613866
+  Unl.          -0.170156020908
+  Uxc0.         -1.674130265652
+  Uxc1.         -1.674130265652
+  Ucore.         9.517940514387
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.204716089957
+
+  UpV.           0.000000000000
+  Enpy.         -8.204716089957
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=10                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.386864188246
+   SCF=   2  NormRD=  0.011439719360  Uele= -3.369649005532
+   SCF=   3  NormRD=  0.009518281310  Uele= -3.371863797190
+   SCF=   4  NormRD=  0.008002410088  Uele= -3.373537371412
+   SCF=   5  NormRD=  0.002827848404  Uele= -3.375445786972
+   SCF=   6  NormRD=  0.000062880595  Uele= -3.378844123078
+   SCF=   7  NormRD=  0.000012814141  Uele= -3.378806896181
+   SCF=   8  NormRD=  0.000001417520  Uele= -3.378809069696
+   SCF=   9  NormRD=  0.000000009403  Uele= -3.378810587211
+   SCF=  10  NormRD=  0.000000003519  Uele= -3.378810585370
+   SCF=  11  NormRD=  0.000000000318  Uele= -3.378810589923
+   SCF=  12  NormRD=  0.000000000011  Uele= -3.378810590307
+
+*******************************************************
+        Total energy (Hartree) at MD =10        
+*******************************************************
+
+  Uele.         -3.378810590307
+
+  Ukin.          6.558524066914
+  UH0.         -14.647710256059
+  UH1.           0.046658143107
+  Una.          -6.182829569347
+  Unl.          -0.170690237765
+  Uxc0.         -1.676363091179
+  Uxc1.         -1.676363091179
+  Ucore.         9.543200558074
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205573477434
+
+  UpV.           0.000000000000
+  Enpy.         -8.205573477434
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=11                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.375236778867
+   SCF=   2  NormRD=  0.002814165635  Uele= -3.380882149725
+   SCF=   3  NormRD=  0.002184056718  Uele= -3.380092339274
+   SCF=   4  NormRD=  0.001709349852  Uele= -3.379496536960
+   SCF=   5  NormRD=  0.000219317079  Uele= -3.377863493586
+   SCF=   6  NormRD=  0.000009171531  Uele= -3.377644839562
+   SCF=   7  NormRD=  0.000001721268  Uele= -3.377643449753
+   SCF=   8  NormRD=  0.000000203975  Uele= -3.377642318211
+   SCF=   9  NormRD=  0.000000007238  Uele= -3.377642077367
+   SCF=  10  NormRD=  0.000000000246  Uele= -3.377642088461
+   SCF=  11  NormRD=  0.000000000053  Uele= -3.377642088211
+
+*******************************************************
+        Total energy (Hartree) at MD =11        
+*******************************************************
+
+  Uele.         -3.377642088211
+
+  Ukin.          6.554091864988
+  UH0.         -14.643097426047
+  UH1.           0.046589784196
+  Una.          -6.176408233563
+  Unl.          -0.170453806085
+  Uxc0.         -1.675706644996
+  Uxc1.         -1.675706644996
+  Ucore.         9.535104760383
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205586346120
+
+  UpV.           0.000000000000
+  Enpy.         -8.205586346120
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=12                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.377198001356
+   SCF=   2  NormRD=  0.000392466659  Uele= -3.378133191576
+   SCF=   3  NormRD=  0.000294822262  Uele= -3.378009937600
+   SCF=   4  NormRD=  0.000221428249  Uele= -3.377916847637
+   SCF=   5  NormRD=  0.000003873560  Uele= -3.377617930977
+   SCF=   6  NormRD=  0.000000749814  Uele= -3.377624262786
+   SCF=   7  NormRD=  0.000000317676  Uele= -3.377624239867
+   SCF=   8  NormRD=  0.000000006033  Uele= -3.377623838449
+   SCF=   9  NormRD=  0.000000000340  Uele= -3.377623832758
+   SCF=  10  NormRD=  0.000000000015  Uele= -3.377623832522
+
+*******************************************************
+        Total energy (Hartree) at MD =12        
+*******************************************************
+
+  Uele.         -3.377623832522
+
+  Ukin.          6.554021667304
+  UH0.         -14.643022899438
+  UH1.           0.046588759962
+  Una.          -6.176306926123
+  Unl.          -0.170450155076
+  Uxc0.         -1.675696361876
+  Uxc1.         -1.675696361876
+  Ucore.         9.534974744623
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205587532500
+
+  UpV.           0.000000000000
+  Enpy.         -8.205587532500
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=13                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.376897351926
+   SCF=   2  NormRD=  0.000146878708  Uele= -3.377269548967
+   SCF=   3  NormRD=  0.000110307705  Uele= -3.377222929220
+   SCF=   4  NormRD=  0.000082845971  Uele= -3.377187691322
+   SCF=   5  NormRD=  0.000004038513  Uele= -3.377072627686
+   SCF=   6  NormRD=  0.000000400374  Uele= -3.377075127233
+   SCF=   7  NormRD=  0.000000106374  Uele= -3.377075997024
+   SCF=   8  NormRD=  0.000000001928  Uele= -3.377075862841
+   SCF=   9  NormRD=  0.000000000079  Uele= -3.377075861324
+   SCF=  10  NormRD=  0.000000000015  Uele= -3.377075861272
+
+*******************************************************
+        Total energy (Hartree) at MD =13        
+*******************************************************
+
+  Uele.         -3.377075861272
+
+  Ukin.          6.551940010562
+  UH0.         -14.640856774227
+  UH1.           0.046556655002
+  Una.          -6.173288153302
+  Unl.          -0.170339869655
+  Uxc0.         -1.675387355463
+  Uxc1.         -1.675387355463
+  Ucore.         9.531174715699
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205588126846
+
+  UpV.           0.000000000000
+  Enpy.         -8.205588126846
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=14                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.376967167577
+   SCF=   2  NormRD=  0.000083747045  Uele= -3.376765171224
+   SCF=   3  NormRD=  0.000063422188  Uele= -3.376790832391
+   SCF=   4  NormRD=  0.000048128616  Uele= -3.376810222667
+   SCF=   5  NormRD=  0.000004156033  Uele= -3.376871058885
+   SCF=   6  NormRD=  0.000000219609  Uele= -3.376871992909
+   SCF=   7  NormRD=  0.000000068248  Uele= -3.376871499157
+   SCF=   8  NormRD=  0.000000002351  Uele= -3.376871587632
+   SCF=   9  NormRD=  0.000000000113  Uele= -3.376871589849
+   SCF=  10  NormRD=  0.000000000013  Uele= -3.376871589912
+
+*******************************************************
+        Total energy (Hartree) at MD =14        
+*******************************************************
+
+  Uele.         -3.376871589912
+
+  Ukin.          6.551164931860
+  UH0.         -14.640049934895
+  UH1.           0.046544747788
+  Una.          -6.172164906262
+  Unl.          -0.170298559152
+  Uxc0.         -1.675272369907
+  Uxc1.         -1.675272369907
+  Ucore.         9.529759777842
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205588682633
+
+  UpV.           0.000000000000
+  Enpy.         -8.205588682633
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=15                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.376968807084
+   SCF=   2  NormRD=  0.000246435179  Uele= -3.376356288596
+   SCF=   3  NormRD=  0.000184783077  Uele= -3.376434577463
+   SCF=   4  NormRD=  0.000138485120  Uele= -3.376493727619
+   SCF=   5  NormRD=  0.000003872347  Uele= -3.376686638504
+   SCF=   6  NormRD=  0.000000289716  Uele= -3.376681063798
+   SCF=   7  NormRD=  0.000000162732  Uele= -3.376680551837
+   SCF=   8  NormRD=  0.000000001809  Uele= -3.376680739024
+   SCF=   9  NormRD=  0.000000000086  Uele= -3.376680740832
+   SCF=  10  NormRD=  0.000000000010  Uele= -3.376680740904
+
+*******************************************************
+        Total energy (Hartree) at MD =15        
+*******************************************************
+
+  Uele.         -3.376680740904
+
+  Ukin.          6.550444132047
+  UH0.         -14.639299531371
+  UH1.           0.046533717076
+  Una.          -6.171121072396
+  Unl.          -0.170259877192
+  Uxc0.         -1.675165542412
+  Uxc1.         -1.675165542412
+  Ucore.         9.528443909725
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205589806935
+
+  UpV.           0.000000000000
+  Enpy.         -8.205589806935
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=16                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.376988422534
+   SCF=   2  NormRD=  0.000239872851  Uele= -3.376391151926
+   SCF=   3  NormRD=  0.000179818400  Uele= -3.376467438488
+   SCF=   4  NormRD=  0.000134722486  Uele= -3.376525076848
+   SCF=   5  NormRD=  0.000003563431  Uele= -3.376713295658
+   SCF=   6  NormRD=  0.000000299004  Uele= -3.376707289567
+   SCF=   7  NormRD=  0.000000148176  Uele= -3.376707165359
+   SCF=   8  NormRD=  0.000000001612  Uele= -3.376707334025
+   SCF=   9  NormRD=  0.000000000081  Uele= -3.376707335729
+   SCF=  10  NormRD=  0.000000000005  Uele= -3.376707335804
+
+*******************************************************
+        Total energy (Hartree) at MD =16        
+*******************************************************
+
+  Uele.         -3.376707335804
+
+  Ukin.          6.550546030430
+  UH0.         -14.639405684457
+  UH1.           0.046535288084
+  Una.          -6.171268887040
+  Unl.          -0.170265260761
+  Uxc0.         -1.675180681040
+  Uxc1.         -1.675180681040
+  Ucore.         9.528630001617
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205589874206
+
+  UpV.           0.000000000000
+  Enpy.         -8.205589874206
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=17                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.376670236200
+   SCF=   2  NormRD=  0.000103140473  Uele= -3.376925959484
+   SCF=   3  NormRD=  0.000077373310  Uele= -3.376893246402
+   SCF=   4  NormRD=  0.000058021318  Uele= -3.376868530589
+   SCF=   5  NormRD=  0.000001860627  Uele= -3.376788070253
+   SCF=   6  NormRD=  0.000000149942  Uele= -3.376790110168
+   SCF=   7  NormRD=  0.000000071107  Uele= -3.376790478117
+   SCF=   8  NormRD=  0.000000001671  Uele= -3.376790394747
+   SCF=   9  NormRD=  0.000000000100  Uele= -3.376790393142
+   SCF=  10  NormRD=  0.000000000006  Uele= -3.376790393059
+
+*******************************************************
+        Total energy (Hartree) at MD =17        
+*******************************************************
+
+  Uele.         -3.376790393059
+
+  Ukin.          6.550862524630
+  UH0.         -14.639735237356
+  UH1.           0.046540158460
+  Una.          -6.171727894534
+  Unl.          -0.170282007145
+  Uxc0.         -1.675227681097
+  Uxc1.         -1.675227681097
+  Ucore.         9.529207838545
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205589979593
+
+  UpV.           0.000000000000
+  Enpy.         -8.205589979593
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=18                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.376722979814
+   SCF=   2  NormRD=  0.000079781758  Uele= -3.376921420334
+   SCF=   3  NormRD=  0.000059840455  Uele= -3.376896088449
+   SCF=   4  NormRD=  0.000044864783  Uele= -3.376876948450
+   SCF=   5  NormRD=  0.000001421246  Uele= -3.376814552008
+   SCF=   6  NormRD=  0.000000115570  Uele= -3.376816205705
+   SCF=   7  NormRD=  0.000000053885  Uele= -3.376816476181
+   SCF=   8  NormRD=  0.000000000722  Uele= -3.376816413083
+   SCF=   9  NormRD=  0.000000000025  Uele= -3.376816412436
+
+*******************************************************
+        Total energy (Hartree) at MD =18        
+*******************************************************
+
+  Uele.         -3.376816412436
+
+  Ukin.          6.550961859602
+  UH0.         -14.639838654362
+  UH1.           0.046541690547
+  Una.          -6.171872059485
+  Unl.          -0.170287223109
+  Uxc0.         -1.675242439245
+  Uxc1.         -1.675242439245
+  Ucore.         9.529389180514
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205590084783
+
+  UpV.           0.000000000000
+  Enpy.         -8.205590084783
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=19                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.376722023435
+   SCF=   2  NormRD=  0.000088091406  Uele= -3.376941387174
+   SCF=   3  NormRD=  0.000066051721  Uele= -3.376913382905
+   SCF=   4  NormRD=  0.000049501260  Uele= -3.376892223754
+   SCF=   5  NormRD=  0.000001409622  Uele= -3.376823155905
+   SCF=   6  NormRD=  0.000000108827  Uele= -3.376825195638
+   SCF=   7  NormRD=  0.000000057540  Uele= -3.376825369831
+   SCF=   8  NormRD=  0.000000000916  Uele= -3.376825303867
+   SCF=   9  NormRD=  0.000000000096  Uele= -3.376825302888
+
+*******************************************************
+        Total energy (Hartree) at MD =19        
+*******************************************************
+
+  Uele.         -3.376825302888
+
+  Ukin.          6.550996768007
+  UH0.         -14.639875042456
+  UH1.           0.046542234900
+  Una.          -6.171922823228
+  Unl.          -0.170289023655
+  Uxc0.         -1.675247635383
+  Uxc1.         -1.675247635383
+  Ucore.         9.529452992206
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205590164993
+
+  UpV.           0.000000000000
+  Enpy.         -8.205590164993
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=20                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.376831425081
+   SCF=   2  NormRD=  0.000044870232  Uele= -3.376717701326
+   SCF=   3  NormRD=  0.000033709404  Uele= -3.376731927048
+   SCF=   4  NormRD=  0.000025329701  Uele= -3.376742679559
+   SCF=   5  NormRD=  0.000001159861  Uele= -3.376777733997
+   SCF=   6  NormRD=  0.000000108698  Uele= -3.376776964154
+   SCF=   7  NormRD=  0.000000034811  Uele= -3.376776770606
+   SCF=   8  NormRD=  0.000000004130  Uele= -3.376776806443
+   SCF=   9  NormRD=  0.000000000074  Uele= -3.376776811809
+   SCF=  10  NormRD=  0.000000000005  Uele= -3.376776811844
+
+*******************************************************
+        Total energy (Hartree) at MD =20        
+*******************************************************
+
+  Uele.         -3.376776811844
+
+  Ukin.          6.550813574282
+  UH0.         -14.639684274863
+  UH1.           0.046539426474
+  Una.          -6.171657241140
+  Unl.          -0.170279282059
+  Uxc0.         -1.675220444916
+  Uxc1.         -1.675220444916
+  Ucore.         9.529118513062
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205590174075
+
+  UpV.           0.000000000000
+  Enpy.         -8.205590174075
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+                  SCF history at MD=21                    
+***********************************************************
+***********************************************************
+
+   SCF=   1  NormRD=  1.000000000000  Uele= -3.376823590156
+   SCF=   2  NormRD=  0.000082318109  Uele= -3.376618298012
+   SCF=   3  NormRD=  0.000061715266  Uele= -3.376644477573
+   SCF=   4  NormRD=  0.000046244274  Uele= -3.376664258099
+   SCF=   5  NormRD=  0.000001318286  Uele= -3.376728860397
+   SCF=   6  NormRD=  0.000000097732  Uele= -3.376726929196
+   SCF=   7  NormRD=  0.000000053167  Uele= -3.376726763437
+   SCF=   8  NormRD=  0.000000000632  Uele= -3.376726824430
+   SCF=   9  NormRD=  0.000000000025  Uele= -3.376726825044
+
+*******************************************************
+        Total energy (Hartree) at MD =21        
+*******************************************************
+
+  Uele.         -3.376726825044
+
+  Ukin.          6.550624372770
+  UH0.         -14.639487247613
+  UH1.           0.046536526164
+  Una.          -6.171383037738
+  Unl.          -0.170269208959
+  Uxc0.         -1.675192363055
+  Uxc1.         -1.675192363055
+  Ucore.         9.528773072251
+  Uhub.          0.000000000000
+  Ucs.           0.000000000000
+  Uzs.           0.000000000000
+  Uzo.           0.000000000000
+  Uef.           0.000000000000
+  UvdW.          0.000000000000
+  Uch.           0.000000000000
+  Utot.         -8.205590249236
+
+  UpV.           0.000000000000
+  Enpy.         -8.205590249236
+  Note:
+
+  Utot = Ukin+UH0+UH1+Una+Unl+Uxc0+Uxc1+Ucore+Uhub+Ucs+Uzs+Uzo+Uef+UvdW+Uch
+
+  Uele:   band energy
+  Ukin:   kinetic energy
+  UH0:    electric part of screened Coulomb energy
+  UH1:    difference electron-electron Coulomb energy
+  Una:    neutral atom potential energy
+  Unl:    non-local potential energy
+  Uxc0:   exchange-correlation energy for alpha spin
+  Uxc1:   exchange-correlation energy for beta spin
+  Ucore:  core-core Coulomb energy
+  Uhub:   LDA+U energy
+  Ucs:    constraint energy for spin orientation
+  Uzs:    Zeeman term for spin magnetic moment
+  Uzo:    Zeeman term for orbital magnetic moment
+  Uef:    electric energy by electric field
+  UvdW:   semi-empirical vdW energy
+  Uch:    penalty term to create a core hole
+
+  UpV:    pressure times volume
+  Enpy:   Enthalpy = Utot + UpV
+  (see also PRB 72, 045121(2005) for the energy contributions)
+
+
+
+  Chemical potential (Hartree)       0.000000000000
+
+***********************************************************
+***********************************************************
+            Eigenvalues (Hartree) for SCF KS-eq.           
+***********************************************************
+***********************************************************
+
+   Chemical Potential (Hartree) =   0.00000000000000
+   Number of States             =   8.00000000000000
+   HOMO =  4
+   Eigenvalues
+                Up-spin            Down-spin
+          1  -0.63284882892161  -0.63284882892161
+          2  -0.35197669389699  -0.35197669389699
+          3  -0.35188566592628  -0.35188566592628
+          4  -0.35165222385188  -0.35165222385188
+          5   0.15948309749814   0.15948309749814
+          6   0.19387762346187   0.19387762346187
+          7   0.19413593160533   0.19413593160533
+          8   0.19423365781255   0.19423365781255
+          9   0.40362379401327   0.40362379401327
+         10   0.40365012786078   0.40365012786078
+         11   0.40369706070303   0.40369706070303
+         12   0.87961615642129   0.87961615642129
+         13   1.42048657421579   1.42048657421579
+         14   1.42060876153565   1.42060876153565
+         15   1.42069845041771   1.42069845041771
+         16   2.20036616481227   2.20036616481227
+
+***********************************************************
+***********************************************************
+              History of geometry optimization             
+***********************************************************
+***********************************************************
+
+  MD_iter   SD_scaling     |Maximum force|   Maximum step        Utot
+                           (Hartree/Bohr)        (Ang)         (Hartree)
+
+    1       1.25981733       0.31797903       0.10583545      -8.09322525
+    2       0.62990866       0.17984114       0.05994705      -8.16489521
+    3       0.62990866       0.11295385       0.03765128      -8.18760553
+    4       0.62990866       0.07446332       0.02482111      -8.19644630
+    5       1.57477166       0.04854277       0.04045231      -8.20029814
+    6       1.57477166       0.01575768       0.01313140      -8.20331415
+    7       1.57477166       0.01045699       0.00871416      -8.20414796
+    8       1.57477166       0.00649936       0.00103179      -8.20464954
+    9       1.57477166       0.00622066       0.02505356      -8.20471609
+   10       1.57477166       0.00134546       0.00341751      -8.20557348
+   11       1.57477166       0.00073908       0.00109588      -8.20558635
+   12       1.57477166       0.00055456       0.00070123      -8.20558753
+   13       1.57477166       0.00037067       0.00022023      -8.20558813
+   14       1.57477166       0.00030839       0.00097303      -8.20558868
+   15       1.57477166       0.00016955       0.00011193      -8.20558981
+   16       1.57477166       0.00016999       0.00010595      -8.20558987
+   17       1.57477166       0.00014714       0.00010608      -8.20558998
+   18       1.57477166       0.00012486       0.00021084      -8.20559008
+   19       1.57477166       0.00010688       0.00009913      -8.20559016
+   20       1.57477166       0.00010446       0.00006273      -8.20559017
+   21       1.57477166       0.00009339       0.00000000      -8.20559025
+
+***********************************************************
+***********************************************************
+                   Mulliken populations                    
+***********************************************************
+***********************************************************
+
+  Total spin moment (muB)   0.000000000
+
+                    Up spin      Down spin     Sum           Diff
+      1    C      2.169925606  2.169925606   4.339851213   0.000000000
+      2    H      0.457518414  0.457518414   0.915036828   0.000000000
+      3    H      0.457518941  0.457518941   0.915037883   0.000000000
+      4    H      0.457518476  0.457518476   0.915036952   0.000000000
+      5    H      0.457518562  0.457518562   0.915037124   0.000000000
+
+ Sum of MulP: up   =     4.00000 down          =     4.00000
+              total=     8.00000 ideal(neutral)=     8.00000
+
+
+  Decomposed Mulliken populations
+
+    1    C          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.579636652  0.579636652   1.159273304   0.000000000
+   sum over m      0.579636652  0.579636652   1.159273304   0.000000000
+  s           1   -0.004946471 -0.004946471  -0.009892943   0.000000000
+   sum over m     -0.004946471 -0.004946471  -0.009892943   0.000000000
+   sum over m+mul  0.574690181  0.574690181   1.149380361   0.000000000
+  px          0    0.540530344  0.540530344   1.081060688   0.000000000
+  py          0    0.540501778  0.540501778   1.081003557   0.000000000
+  pz          0    0.540531136  0.540531136   1.081062273   0.000000000
+   sum over m      1.621563259  1.621563259   3.243126517   0.000000000
+  px          1   -0.008774341 -0.008774341  -0.017548682   0.000000000
+  py          1   -0.008779308 -0.008779308  -0.017558615   0.000000000
+  pz          1   -0.008774184 -0.008774184  -0.017548368   0.000000000
+   sum over m     -0.026327833 -0.026327833  -0.052655666   0.000000000
+   sum over m+mul  1.595235426  1.595235426   3.190470852   0.000000000
+
+    2    H          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.452706388  0.452706388   0.905412776   0.000000000
+   sum over m      0.452706388  0.452706388   0.905412776   0.000000000
+  s           1    0.004812026  0.004812026   0.009624052   0.000000000
+   sum over m      0.004812026  0.004812026   0.009624052   0.000000000
+   sum over m+mul  0.457518414  0.457518414   0.915036828   0.000000000
+
+    3    H          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.452708342  0.452708342   0.905416684   0.000000000
+   sum over m      0.452708342  0.452708342   0.905416684   0.000000000
+  s           1    0.004810599  0.004810599   0.009621199   0.000000000
+   sum over m      0.004810599  0.004810599   0.009621199   0.000000000
+   sum over m+mul  0.457518941  0.457518941   0.915037883   0.000000000
+
+    4    H          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.452706307  0.452706307   0.905412614   0.000000000
+   sum over m      0.452706307  0.452706307   0.905412614   0.000000000
+  s           1    0.004812169  0.004812169   0.009624338   0.000000000
+   sum over m      0.004812169  0.004812169   0.009624338   0.000000000
+   sum over m+mul  0.457518476  0.457518476   0.915036952   0.000000000
+
+    5    H          Up spin      Down spin     Sum           Diff
+            multiple
+  s           0    0.452707689  0.452707689   0.905415378   0.000000000
+   sum over m      0.452707689  0.452707689   0.905415378   0.000000000
+  s           1    0.004810873  0.004810873   0.009621746   0.000000000
+   sum over m      0.004810873  0.004810873   0.009621746   0.000000000
+   sum over m+mul  0.457518562  0.457518562   0.915037124   0.000000000
+
+***********************************************************
+***********************************************************
+                    Dipole moment (Debye)                  
+***********************************************************
+***********************************************************
+
+ Absolute D        0.00031459
+
+                      Dx                Dy                Dz
+ Total             -0.00018037        0.00001806        0.00025712
+ Core               1.53550553       -0.00098782       -2.30526491
+ Electron          -1.53568590        0.00100588        2.30552203
+ Back ground       -0.00000000        0.00000000        0.00000000
+
+***********************************************************
+***********************************************************
+       xyz-coordinates (Ang) and forces (Hartree/Bohr)  
+***********************************************************
+***********************************************************
+
+<coordinates.forces
+  5
+    1     C     0.03999  -0.00003  -0.06004   0.000002106006  0.000002306112  0.000001841891
+    2     H    -0.85053  -0.63303  -0.06160  -0.000025079502  0.000023301582  0.000053227558
+    3     H     0.03760   0.63371  -0.95011   0.000084857612 -0.000069074816  0.000003261442
+    4     H     0.03939   0.62847   0.83365  -0.000060091092 -0.000020144753  0.000036661811
+    5     H     0.93326  -0.62924  -0.06174  -0.000000006003  0.000063171981 -0.000093391147
+coordinates.forces>
+
+***********************************************************
+***********************************************************
+       Fractional coordinates of the final structure       
+***********************************************************
+***********************************************************
+
+     1      C     0.00420880416887   0.99999648902590   0.99368142539622
+     2      H     0.91048648600211   0.92597492753448   0.99351715959887
+     3      H     0.00395694146828   0.07410469800845   0.90000657123110
+     4      H     0.00414564868300   0.07349209300828   0.08773717857258
+     5      H     0.09822051870526   0.92641827616203   0.99350220428983
+
+***********************************************************
+***********************************************************
+               Computational Time (second)                 
+***********************************************************
+***********************************************************
+
+   Elapsed.Time.        35.540
+
+                               Min_ID   Min_Time       Max_ID   Max_Time
+   Total Computational Time =    87       35.539          0       35.540
+   readfile                 =    12        3.263          0        3.264
+   truncation               =   101        2.620          1        3.031
+   MD_pac                   =     0        0.009         16        0.011
+   OutData                  =     1        0.000          0        0.000
+   DFT                      =     1       29.226         39       29.636
+
+*** In DFT ***
+
+   Set_OLP_Kin              =    34        0.969          1        1.274
+   Set_Nonlocal             =     1        0.701         34        1.006
+   Set_ProExpn_VNA          =    20        3.798          8        4.941
+   Set_Hamiltonian          =    18        7.107          1        7.121
+   Poisson                  =    55        1.552         76        1.567
+   Diagonalization          =    13        3.770         64        3.784
+   Mixing_DM                =    84        0.107         64        0.114
+   Force                    =    19        1.915        110        1.916
+   Total_Energy             =    80        1.409          0        1.412
+   Set_Aden_Grid            =     8        0.187         12        1.307
+   Set_Orbitals_Grid        =     7        0.000          1        0.867
+   Set_Density_Grid         =    10        2.522         57        3.697
+   RestartFileDFT           =    12        0.081        108        2.220
+   Mulliken_Charge          =     3        0.037         94        0.046
+   FFT(2D)_Density          =     0        0.000          0        0.000
+   Others                   =    80        1.084         10        3.982
