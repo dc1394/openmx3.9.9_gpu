@@ -55,7 +55,8 @@ scf.Mixing.StartPulay       6          # default=6
 scf.criterion             1.0e-10      # default=1.0e-6 (Hartree)
 scf.Electric.Field      0.0 1.0 0.0    # default=0 0 0 (GV/m)
 scf.lapack.dste            dstevx      # dstevx|dstedc|dstegr,default=dstevx
- 
+scf.eigen.lib             cusolver
+
 #
 # MD or Geometry Optimization
 #

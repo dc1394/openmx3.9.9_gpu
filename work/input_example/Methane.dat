@@ -56,6 +56,7 @@ scf.Mixing.History          7          # default=5
 scf.Mixing.StartPulay       5          # default=6
 scf.criterion             1.0e-10      # default=1.0e-6 (Hartree) 
 scf.lapack.dste            dstevx      # dstevx|dstedc|dstegr,default=dstevx
+scf.eigen.lib             cusolver
 
 #
 # MD or Geometry Optimization
