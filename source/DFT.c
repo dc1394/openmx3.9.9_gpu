@@ -570,7 +570,7 @@ double DFT(int MD_iter, int Cnt_Now)
         s_vec[10] = "DC-LNO";
         s_vec[11] = "Cluster-LNO";
 
-        if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER && (Solver == 2 || Solver == 3)) {
+        if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER && (Solver == 2 || Solver == 3 || Solver == 5 || Solver == 11)) {
             printf("<%s>  Solving the eigenvalue problem (GPU-accelerated)...\n", s_vec[Solver - 1]);
             fflush(stdout);
         } else if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout) {

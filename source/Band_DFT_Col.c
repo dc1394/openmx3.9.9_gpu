@@ -796,56 +796,51 @@ diagonalize1:
             if (measure_time)
                 dtime(&Stime);
 
-            if (SCF_iter == 1) {
-                /* diagonalize S */
+            /* diagonalize S */
 
-                EigenBand_lapack_openacc(Ss, ko, n, n);
-            }
+            EigenBand_lapack_openacc(Ss, ko, n, n);
 
             if (measure_time) {
                 dtime(&Etime);
                 time2 += Etime - Stime;
             }
 
-            if (SCF_iter == 1) {
-
-                /* minus eigenvalues to 1.0e-14 */
+            /* minus eigenvalues to 1.0e-14 */
 
 #pragma acc kernels
 #pragma acc loop independent
-                for (int l = 1; l <= n; l++) {
-                    if (ko[l] < 0.0)
-                        ko[l] = 1.0e-10;
-                }
+            for (int l = 1; l <= n; l++) {
+                if (ko[l] < 0.0)
+                    ko[l] = 1.0e-10;
+            }
 
 #pragma acc update self(ko[0 : n + 1])
-                for (int l = 1; l <= n; l++) {
-                    koS[l] = ko[l];
-                }
+            for (int l = 1; l <= n; l++) {
+                koS[l] = ko[l];
+            }
 
-                /* calculate S*1/sqrt(ko) */
+            /* calculate S*1/sqrt(ko) */
 
 #pragma acc kernels
 #pragma acc loop independent
-                for (int l = 1; l <= n; l++)
-                    ko[l] = 1.0 / sqrt(ko[l]);
+            for (int l = 1; l <= n; l++)
+                ko[l] = 1.0 / sqrt(ko[l]);
 
-                {
+            {
 
 #pragma acc kernels
 #pragma acc loop independent collapse(2)
-                    for (int i1 = 1; i1 <= n; i1++) {
-                        for (int j1 = 1; j1 <= n; j1++) {
-                            Ss[(j1 - 1) * n + i1 - 1].r *= ko[j1];
-                            Ss[(j1 - 1) * n + i1 - 1].i *= ko[j1];
-                        }
+                for (int i1 = 1; i1 <= n; i1++) {
+                    for (int j1 = 1; j1 <= n; j1++) {
+                        Ss[(j1 - 1) * n + i1 - 1].r *= ko[j1];
+                        Ss[(j1 - 1) * n + i1 - 1].i *= ko[j1];
                     }
+                }
 
-                } /* #pragma omp parallel */
+            } /* #pragma omp parallel */
 
-                /* S * 1.0/sqrt(ko[l])  */
+            /* S * 1.0/sqrt(ko[l])  */
 #pragma acc update           self(Ss[0 : n * n])
-            }
 
             /****************************************************
              1.0/sqrt(ko[l]) * U^t * H * U * 1.0/sqrt(ko[l])
@@ -928,7 +923,6 @@ diagonalize1:
                 time5 += Etime - Stime;
             }
             } /* kloop0 */
-
         } else {
         for (kloop0 = 0; kloop0 < num_kloop0; kloop0++) {
             if (scf_eigen_lib_flag == CuSOLVER) {
@@ -2175,8 +2169,7 @@ diagonalize1:
     if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag != CuSOLVER) {
         printf("<Band_DFT>  Eigen, time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
-    }
-    else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
+    } else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
         printf("<Band_DFT>  Eigen (GPU-accelerated), time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
     }
@@ -3208,8 +3201,7 @@ diagonalize1:
     if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag != CuSOLVER) {
         printf("<Band_DFT>  DM, time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
-    }
-    else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
+    } else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
         printf("<Band_DFT>  DM (GPU-accelerated), time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
     }

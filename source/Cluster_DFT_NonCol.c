@@ -21,7 +21,7 @@
 #include <string.h>
 #include <time.h>
 
-#define measure_time      0
+#define measure_time 0
 
 static void     Save_DOS_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomplex * EVec1, double * ko);
 static void     Save_LCAO_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomplex * EVec1, double * ko);
@@ -304,6 +304,7 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
         Hamiltonian_Cluster_Hs(ImNL[2], Cs, MP, 0, &mpi_comm_level1, 0, n);
 
         if (myid == 0) {
+
 #pragma acc enter data copyin(Ss[0 : n * n])
 #pragma acc enter data create(ko[0 : n2 + 1])
 
@@ -408,31 +409,91 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
 
 #pragma acc update self(rHs22[0 : n * n])
 
+            /* S^t x iHs11 x S */
+
+#pragma acc enter data copyin(iHs11[0 : n * n])
+
+#pragma acc kernels
+#pragma acc loop independent
+            for (i = 0; i < n * n; i++) {
+                Cs[i] = 0.0;
+            }
+
+            my_cublasDgemm_openacc(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, iHs11, Ss, Cs);
+
+#pragma acc kernels
+#pragma acc loop independent
+            for (i = 0; i < n * n; i++) {
+                iHs11[i] = 0.0;
+            }
+            my_cublasDgemm_openacc(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, iHs11);
+
+#pragma acc enter data copyin(iHs12[0 : n * n])
+
+#pragma acc kernels
+#pragma acc loop independent
+            for (i = 0; i < n * n; i++) {
+                Cs[i] = 0.0;
+            }
+
+            my_cublasDgemm_openacc(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, iHs12, Ss, Cs);
+
+#pragma acc kernels
+#pragma acc loop independent
+            for (i = 0; i < n * n; i++) {
+                iHs12[i] = 0.0;
+            }
+            my_cublasDgemm_openacc(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, iHs12);
+            
+            /* S^t x iHs22 x S */
+
+#pragma acc enter data copyin(iHs22[0 : n * n])
+
+#pragma acc kernels
+#pragma acc loop independent
+            for (i = 0; i < n * n; i++) {
+                Cs[i] = 0.0;
+            }
+
+            my_cublasDgemm_openacc(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, iHs22, Ss, Cs);
+
+#pragma acc kernels
+#pragma acc loop independent
+            for (i = 0; i < n * n; i++) {
+                iHs22[i] = 0.0;
+            }
+            my_cublasDgemm_openacc(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, iHs22);
+
 #pragma acc exit data  delete(Ss[0 : n * n], Cs[0 : n * n])
 #pragma acc enter data create(Hs2[0 : n2 * n2])
 
 #pragma acc kernels
 #pragma acc loop independent
-            for (i = 0; i < n2; i++) {
+            for (j = 0; j < n2; j++) {
 #pragma acc loop independent
-                for (j = 0; j < n2; j++) {
+                for (i = 0; i < n2; i++) {
                     if (i < n && j < n) {
-                        Hs2[n2 * i + j].r = rHs11[n * i + j];
-                        Hs2[n2 * i + j].i = 0.0;
-                    } else if (i >= n && i < n2 && j < n) {
-                        Hs2[n2 * i + j].r = rHs12[n * (i - n) + j];
-                        Hs2[n2 * i + j].i = 0.0;
-                    } else if (i < n && j >= n && j < n2) {
-                        Hs2[n2 * i + j].r = rHs12[n * i + j - n];
-                        Hs2[n2 * i + j].i = 0.0;
+                        Hs2[i + j * n2].r = rHs11[i + j * n];
+                        Hs2[i + j * n2].i = iHs11[i + j * n];
+                    } else if (i < n && j >= n) {
+                        int jj            = j - n;
+                        Hs2[i + j * n2].r = rHs12[i + jj * n];
+                        Hs2[i + j * n2].i = iHs12[i + jj * n];
+                    } else if (i >= n && j < n) {
+                        int ii            = i - n;
+                        Hs2[i + j * n2].r = rHs12[j + ii * n];
+                        Hs2[i + j * n2].i = -iHs12[j + ii * n];
                     } else {
-                        Hs2[n2 * i + j].r = rHs22[n * (i - n) + j - n];
-                        Hs2[n2 * i + j].i = 0.0;
+                        int ii            = i - n;
+                        int jj            = j - n;
+                        Hs2[i + j * n2].r = rHs22[ii + jj * n];
+                        Hs2[i + j * n2].i = iHs22[ii + jj * n];
                     }
                 }
             }
 
-#pragma acc exit data delete(rHs11[0 : n * n], rHs12[0 : n * n], rHs22[0 : n * n])
+#pragma acc exit data delete(rHs11[0 : n * n], rHs12[0 : n * n], rHs22[0 : n * n], iHs11[0 : n * n], iHs12[0 : n * n], \
+                             iHs22[0 : n * n])
 
             EigenBand_lapack_openacc(Hs2, ko, n2, MaxN);
 

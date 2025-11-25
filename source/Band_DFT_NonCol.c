@@ -654,119 +654,118 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
                 dtime(&Stime);
 
             {
-                if (SCF_iter == 1 || all_knum != 1) {
 
-                    /* make Cs */
+                /* make Cs */
 
-                    Construct_Band_Ms(0, CntOLP, H1, S1, Cs, MP, k1, k2, k3, all_knum, n, myid2);
+                Construct_Band_Ms(0, CntOLP, H1, S1, Cs, MP, k1, k2, k3, all_knum, n, myid2);
 
 #pragma acc update device(Cs[0 : n * n])
 
-                    /* diagonalize Cs */
-                    if (kloop0 < num_kloop0) {
+                /* diagonalize Cs */
+                if (kloop0 < num_kloop0) {
 
-                        //                 MPI_Comm_split(MPI_CommWD2[myworld2], my_pcol, my_prow, &mpi_comm_rows);
-                        //                 MPI_Comm_split(MPI_CommWD2[myworld2], my_prow, my_pcol, &mpi_comm_cols);
+                    //                 MPI_Comm_split(MPI_CommWD2[myworld2], my_pcol, my_prow, &mpi_comm_rows);
+                    //                 MPI_Comm_split(MPI_CommWD2[myworld2], my_prow, my_pcol, &mpi_comm_cols);
 
-                        //                 mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
-                        //                 mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
+                    //                 mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
+                    //                 mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
 
-                        //                 if (scf_eigen_lib_flag == 1) {
-                        //                     F77_NAME(solve_evp_complex, SOLVE_EVP_COMPLEX)
-                        //                     (&n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
-                        //                 } else if (scf_eigen_lib_flag == 2) {
+                    //                 if (scf_eigen_lib_flag == 1) {
+                    //                     F77_NAME(solve_evp_complex, SOLVE_EVP_COMPLEX)
+                    //                     (&n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
+                    //                 } else if (scf_eigen_lib_flag == 2) {
 
-                        // #ifndef kcomp
-                        //                     int mpiworld;
-                        //                     mpiworld = MPI_Comm_c2f(MPI_CommWD2[myworld2]);
-                        //                     F77_NAME(elpa_solve_evp_complex_2stage_double_impl, ELPA_SOLVE_EVP_COMPLEX_2STAGE_DOUBLE_IMPL)
-                        //                     (&n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk, &na_cols,
-                        //                         &mpi_comm_rows_int, &mpi_comm_cols_int, &mpiworld);
-                        // #endif
-                        //                 } else if (scf_eigen_lib_flag == 3) {
-                        //                     // April 25th, 2023 H. Kawai added
+                    // #ifndef kcomp
+                    //                     int mpiworld;
+                    //                     mpiworld = MPI_Comm_c2f(MPI_CommWD2[myworld2]);
+                    //                     F77_NAME(elpa_solve_evp_complex_2stage_double_impl, ELPA_SOLVE_EVP_COMPLEX_2STAGE_DOUBLE_IMPL)
+                    //                     (&n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk, &na_cols,
+                    //                         &mpi_comm_rows_int, &mpi_comm_cols_int, &mpiworld);
+                    // #endif
+                    //                 } else if (scf_eigen_lib_flag == 3) {
+                    //                     // April 25th, 2023 H. Kawai added
 
-                        //                     int error;
-                        //                     elpa_t handle;
+                    //                     int error;
+                    //                     elpa_t handle;
 
-                        //                     handle = elpa_allocate(&error);
-                        //                     assert_elpa_ok(error);
+                    //                     handle = elpa_allocate(&error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     /* Set parameters */
-                        //                     elpa_set(handle, "na", n, &error);
-                        //                     assert_elpa_ok(error);
+                    //                     /* Set parameters */
+                    //                     elpa_set(handle, "na", n, &error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     elpa_set(handle, "nev", n, &error);
-                        //                     assert_elpa_ok(error);
+                    //                     elpa_set(handle, "nev", n, &error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     elpa_set(handle, "local_nrows", na_rows, &error);
-                        //                     assert_elpa_ok(error);
+                    //                     elpa_set(handle, "local_nrows", na_rows, &error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     elpa_set(handle, "local_ncols", na_cols, &error);
-                        //                     assert_elpa_ok(error);
+                    //                     elpa_set(handle, "local_ncols", na_cols, &error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     elpa_set(handle, "nblk", nblk, &error);
-                        //                     assert_elpa_ok(error);
+                    //                     elpa_set(handle, "nblk", nblk, &error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     elpa_set(handle, "mpi_comm_parent", MPI_Comm_c2f(MPI_CommWD2[myworld2]), &error);
-                        //                     assert_elpa_ok(error);
+                    //                     elpa_set(handle, "mpi_comm_parent", MPI_Comm_c2f(MPI_CommWD2[myworld2]), &error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     elpa_set(handle, "process_row", mpi_comm_cols_int, &error);
-                        //                     assert_elpa_ok(error);
+                    //                     elpa_set(handle, "process_row", mpi_comm_cols_int, &error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     elpa_set(handle, "process_col", mpi_comm_cols_int, &error);
-                        //                     assert_elpa_ok(error);
+                    //                     elpa_set(handle, "process_col", mpi_comm_cols_int, &error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     /* Setup */
-                        //                     assert_elpa_ok(elpa_setup(handle));
+                    //                     /* Setup */
+                    //                     assert_elpa_ok(elpa_setup(handle));
 
-                        //                     /* Set tunables */
-                        //                     elpa_set(handle, "solver", ELPA_SOLVER_2STAGE, &error);
-                        //                     elpa_set(handle, "complex_kernel", ELPA_2STAGE_COMPLEX_NVIDIA_GPU, &error);
-                        //                     elpa_set(handle, "nvidia-gpu", 1, &error);
+                    //                     /* Set tunables */
+                    //                     elpa_set(handle, "solver", ELPA_SOLVER_2STAGE, &error);
+                    //                     elpa_set(handle, "complex_kernel", ELPA_2STAGE_COMPLEX_NVIDIA_GPU, &error);
+                    //                     elpa_set(handle, "nvidia-gpu", 1, &error);
 
-                        //                     elpa_set(handle, "use_gpu_id", myid0 % getDeviceCount(), &error);
+                    //                     elpa_set(handle, "use_gpu_id", myid0 % getDeviceCount(), &error);
 
-                        //                     elpa_eigenvectors(handle, (double complex*)Cs, &ko[1], (double complex*)Ss, &error);
-                        //                     assert_elpa_ok(error);
+                    //                     elpa_eigenvectors(handle, (double complex*)Cs, &ko[1], (double complex*)Ss, &error);
+                    //                     assert_elpa_ok(error);
 
-                        //                     elpa_deallocate(handle, &error);
-                        //                 }
+                    //                     elpa_deallocate(handle, &error);
+                    //                 }
 
-                        //                 MPI_Comm_free(&mpi_comm_rows);
-                        //                 MPI_Comm_free(&mpi_comm_cols);
+                    //                 MPI_Comm_free(&mpi_comm_rows);
+                    //                 MPI_Comm_free(&mpi_comm_cols);
 
 #pragma acc kernels
 #pragma acc loop independent collapse(2)
-                        for (int i = 0; i < n; i++) {
-                            for (int j = 0; j < n; j++) {
-                                // Stmp[i1][j1].r = Stmp[i1][j1].r * ko[j1];
-                                // Stmp[i1][j1].i = Stmp[i1][j1].i * ko[j1];
+                    for (int i = 0; i < n; i++) {
+                        for (int j = 0; j < n; j++) {
+                            // Stmp[i1][j1].r = Stmp[i1][j1].r * ko[j1];
+                            // Stmp[i1][j1].i = Stmp[i1][j1].i * ko[j1];
 
-                                // BLAS_S[(j1 - 1) * n + i1 - 1] = Stmp[i1][j1];
-                                Ss[j * n + i].r = Cs[j * n + i].r;
-                                Ss[j * n + i].i = Cs[j * n + i].i;
-                            }
+                            // BLAS_S[(j1 - 1) * n + i1 - 1] = Stmp[i1][j1];
+                            Ss[j * n + i].r = Cs[j * n + i].r;
+                            Ss[j * n + i].i = Cs[j * n + i].i;
                         }
+                    }
 
-                        EigenBand_lapack_openacc(Ss, ko, n, n);
+                    EigenBand_lapack_openacc(Ss, ko, n, n);
 
-                        // printf("Ss[1][1] = %.7f Ss[1][2] = %.7f Ss[2][1] = %.7f Ss[2][2] = %.7f\n", Ss[0].r, Ss[n].r, Ss[1].r, Ss[n + 1].r);
-                        // printf("ko[1] = %.7f ko[2] = %.7f\n", ko[1], ko[2]);
+                    // printf("Ss[1][1] = %.7f Ss[1][2] = %.7f Ss[2][1] = %.7f Ss[2][2] = %.7f\n", Ss[0].r, Ss[n].r, Ss[1].r, Ss[n + 1].r);
+                    // printf("ko[1] = %.7f ko[2] = %.7f\n", ko[1], ko[2]);
 
-                        // exit(1);
+                    // exit(1);
 
-                        /* print to the standard output */
+                    /* print to the standard output */
 
-                        if (3 <= level_stdout) {
-                            printf(" myid0=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n", myid0, kloop,
-                                   T_KGrids1[kloop], T_KGrids2[kloop], T_KGrids3[kloop]);
-                            for (i = 1; i <= n; i++) {
-                                printf("  Eigenvalues of OLP  %2d  %15.12f\n", i, ko[i]);
-                            }
+                    if (3 <= level_stdout) {
+                        printf(" myid0=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n", myid0, kloop, T_KGrids1[kloop],
+                               T_KGrids2[kloop], T_KGrids3[kloop]);
+                        for (i = 1; i <= n; i++) {
+                            printf("  Eigenvalues of OLP  %2d  %15.12f\n", i, ko[i]);
                         }
+                    }
 
-                        /*
+                    /*
                           printf(" myid0=%2d kloop %2d  k1 k2 k3 %10.6f %10.6f %10.6f\n",
                           myid0,kloop,T_KGrids1[kloop],T_KGrids2[kloop],T_KGrids3[kloop]);
                           for (i=1; i<=n; i++){
@@ -774,32 +773,31 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
                           }
                         */
 
-                        /* minus eigenvalues to 1.0e-10 */
+                    /* minus eigenvalues to 1.0e-10 */
 #pragma acc kernels
 #pragma acc loop independent
-                        for (l = 1; l <= n; l++) {
-                            if (ko[l] < 1.0e-10)
-                                ko[l] = 1.0e-10;
-                            ko[l] = 1.0 / sqrt(ko[l]);
-                        }
+                    for (l = 1; l <= n; l++) {
+                        if (ko[l] < 1.0e-10)
+                            ko[l] = 1.0e-10;
+                        ko[l] = 1.0 / sqrt(ko[l]);
+                    }
 
-                        /* calculate S*1/sqrt(ko) */
+                    /* calculate S*1/sqrt(ko) */
 #pragma acc kernels
 #pragma acc loop independent collapse(2)
-                        for (i = 0; i < na_rows; i++) {
-                            for (j = 0; j < na_cols; j++) {
-                                jg = np_cols * nblk * ((j) / nblk) + (j) % nblk +
-                                     ((np_cols + my_pcol) % np_cols) * nblk + 1;
-                                Ss[j * na_rows + i].r = Ss[j * na_rows + i].r * ko[jg];
-                                Ss[j * na_rows + i].i = Ss[j * na_rows + i].i * ko[jg];
-                            }
+                    for (i = 0; i < na_rows; i++) {
+                        for (j = 0; j < na_cols; j++) {
+                            jg =
+                                np_cols * nblk * ((j) / nblk) + (j) % nblk + ((np_cols + my_pcol) % np_cols) * nblk + 1;
+                            Ss[j * na_rows + i].r = Ss[j * na_rows + i].r * ko[jg];
+                            Ss[j * na_rows + i].i = Ss[j * na_rows + i].i * ko[jg];
                         }
+                    }
 
-                        /* make Ss2 */
+                    /* make Ss2 */
 
 #pragma acc update self(Ss[0 : n * n])
-                        Overlap_Band_NC_Ss2(Ss, Ss2, MPI_CommWD2[myworld2]);
-                    }
+                    Overlap_Band_NC_Ss2(Ss, Ss2, MPI_CommWD2[myworld2]);
                 }
 
                 if (measure_time) {
@@ -1331,20 +1329,32 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 #pragma acc enter data create(Hs2[0 : n2 * n2])
 #pragma acc kernels
 #pragma acc loop independent collapse(2)
-                        for (i = 0; i < n2; i++) {
-                            for (j = 0; j < n2; j++) {
+                        for (j = 0; j < n2; j++) {
+                            for (i = 0; i < n2; i++) {
+
+                                int idx2 = i + j * n2;
+
                                 if (i < n && j < n) {
-                                    Hs2[n2 * i + j].r = rHs11[n * i + j].r;
-                                    Hs2[n2 * i + j].i = rHs11[n * i + j].i;
-                                } else if (i >= n && i < n2 && j < n) {
-                                    Hs2[n2 * i + j].r = rHs12[n * (i - n) + j].r;
-                                    Hs2[n2 * i + j].i = rHs12[n * (i - n) + j].i;
-                                } else if (i < n && j >= n && j < n2) {
-                                    Hs2[n2 * i + j].r = rHs12[n * i + j - n].r;
-                                    Hs2[n2 * i + j].i = rHs12[n * i + j - n].i;
+                                    int idx11   = i + j * n;
+                                    Hs2[idx2].r = rHs11[idx11].r;
+                                    Hs2[idx2].i = rHs11[idx11].i;
+                                } else if (i < n && j >= n) {
+                                    int jj      = j - n;
+                                    int idx12   = i + jj * n;
+                                    Hs2[idx2].r = rHs12[idx12].r;
+                                    Hs2[idx2].i = rHs12[idx12].i;
+
+                                } else if (i >= n && j < n) {
+                                    int ii      = i - n;
+                                    int idx12   = j + ii * n;
+                                    Hs2[idx2].r = rHs12[idx12].r;
+                                    Hs2[idx2].i = -rHs12[idx12].i;
                                 } else {
-                                    Hs2[n2 * i + j].r = rHs22[n * (i - n) + j - n].r;
-                                    Hs2[n2 * i + j].i = rHs22[n * (i - n) + j - n].i;
+                                    int ii      = i - n;
+                                    int jj      = j - n;
+                                    int idx22   = ii + jj * n;
+                                    Hs2[idx2].r = rHs22[idx22].r;
+                                    Hs2[idx2].i = rHs22[idx22].i;
                                 }
                             }
                         }
@@ -2149,8 +2159,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
     if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag != CuSOLVER) {
         printf("<Band_DFT>  Eigen, time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
-    }
-    else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
+    } else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
         printf("<Band_DFT>  Eigen (GPU-accelerated), time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
     }
@@ -3157,8 +3166,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
     if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag != CuSOLVER) {
         printf("<Band_DFT>  DM, time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
-    }
-    else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
+    } else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
         printf("<Band_DFT>  DM (GPU-accelerated), time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
     }

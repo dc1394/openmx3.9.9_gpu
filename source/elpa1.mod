@@ -1,6 +1,6 @@
 V35 :0x24 elpa1
 9 elpa1.f90 S624 0
-09/08/2025  08:19:39
+11/24/2025  12:37:02
 use iso_fortran_env private
 enduse
 D 70 23 22 1 11 11 0 0 0 0 0
