@@ -2156,11 +2156,8 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
     dtime(&EiloopTime);
 
-    if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag != CuSOLVER) {
+    if (myid0 == Host_ID && 0 < level_stdout) {
         printf("<Band_DFT>  Eigen, time=%lf\n", EiloopTime - SiloopTime);
-        fflush(stdout);
-    } else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
-        printf("<Band_DFT>  Eigen (GPU-accelerated), time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
     }
 
@@ -3165,9 +3162,6 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
     if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag != CuSOLVER) {
         printf("<Band_DFT>  DM, time=%lf\n", EiloopTime - SiloopTime);
-        fflush(stdout);
-    } else if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER) {
-        printf("<Band_DFT>  DM (GPU-accelerated), time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
     }
 
