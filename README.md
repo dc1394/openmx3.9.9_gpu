@@ -65,8 +65,11 @@ Total elapsed time (s)      327.16
 
 You can verify that the calculation is correct.
 
-Best regards,
-Hiroyuki Kawai
+## Benchmarks
+For benchmarks of GPU-accelerated OpenMX, please refer to the following literature.
+https://journals.jps.jp/doi/10.7566/JPSJ.94.124003
+
+However, the current version offers improved performance compared to the version described in this paper.
 
 ## Important notes
 At present, GPU-accelerated OpenMX performs faster than standard OpenMX for calculations involving systems containing hundreds of atoms. For calculations involving systems with fewer than a hundred atoms, standard OpenMX should be used. Please use with caution as it may contain bugs.
