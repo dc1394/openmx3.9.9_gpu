@@ -1777,7 +1777,7 @@ void Eigen_cusolver_d(double ** a, double * ko, int n, int EVmax)
         }
     }
 
-    int const info = cusolver_Syevd(A, ko, n);
+    int const info = cusolver_Syevdx(A, ko, n, EVmax);
 
     /* store eigenvectors */
     for (int i = 0; i < EVmax; i++) {
