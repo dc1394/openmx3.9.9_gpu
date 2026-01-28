@@ -22,9 +22,9 @@ void EigenBand_lapack(dcomplex** A, double* W, int N0, int MaxN, int ev_flag)
     */
 
     if (scf_eigen_lib_flag == CuSOLVER) {
-        info = Eigen_zheevx(A, W, N0, MaxN, ev_flag);
-    } else {
         info = cusolver_zheevx(A, W, N0, MaxN, ev_flag);
+    } else {
+        info = Eigen_zheevx(A, W, N0, MaxN, ev_flag);
     }
     if (info != 0) {
         Eigen_HH(A, W, N0, MaxN, ev_flag);
