@@ -202,38 +202,46 @@ double Set_Hamiltonian(char * mode, int MD_iter, int SCF_iter, int SCF_iter0, in
 
 void Calc_MatrixElements_dVH_Vxc_VNA(int Cnt_kind)
 {
+    int    Mc_AN, Gc_AN, Mh_AN, h_AN, Gh_AN;
+    int    Nh0, Nh1, Nh2, Nh3;
+    int    Nc0, Nc1, Nc2, Nc3;
+    int    MN0, MN1, MN2, MN3;
+    int    Nloop, OneD_Nloop;
+    int *  OneD2spin, *OneD2Mc_AN, *OneD2h_AN;
+    int    numprocs, myid;
     double time0, time1, time2, mflops;
 
     if (measure_time)
         dtime(&time1);
 
-    /* === 0. MPI rank/size 取得 ====================================== */
-    int myid, numprocs;
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
 
-    /* === 1. ペア一次元化 (変更なし) ================================== */
-    int pair_cnt = 0;
-    for (int Mc_AN = 1; Mc_AN <= Matomnum; ++Mc_AN) {
-        int Gc_AN = M2G[Mc_AN];
-        pair_cnt += FNAN[Gc_AN] + 1;
-    }
+    /* one-dimensionalization of loops */
 
-    int * restrict idx_Mc = (int *)aligned_alloc(64, sizeof(int) * pair_cnt);
-    int * restrict idx_h  = (int *)aligned_alloc(64, sizeof(int) * pair_cnt);
-
-    int p = 0;
-    for (int Mc_AN = 1; Mc_AN <= Matomnum; ++Mc_AN) {
-        int Gc_AN = M2G[Mc_AN];
-        for (int h_AN = 0; h_AN <= FNAN[Gc_AN]; ++h_AN) {
-            idx_Mc[p] = Mc_AN;
-            idx_h[p]  = h_AN;
-            ++p;
+    Nloop = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        Gc_AN = M2G[Mc_AN];
+        for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+            Nloop++;
         }
     }
 
-    /* --- スピン成分数決定 --- */
-    const int nspin = (SpinP_switch == 0) ? 1 : (SpinP_switch == 1) ? 2 : 4;
+    OneD2Mc_AN = (int *)malloc(sizeof(int) * Nloop);
+    OneD2h_AN  = (int *)malloc(sizeof(int) * Nloop);
+
+    Nloop = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        Gc_AN = M2G[Mc_AN];
+        for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+
+            OneD2Mc_AN[Nloop] = Mc_AN;
+            OneD2h_AN[Nloop]  = h_AN;
+            Nloop++;
+        }
+    }
+
+    OneD_Nloop = Nloop;
 
     if (measure_time) {
         dtime(&time2);
@@ -246,116 +254,531 @@ void Calc_MatrixElements_dVH_Vxc_VNA(int Cnt_kind)
     if (measure_time)
         dtime(&time1);
 
-    /* === 2. ペア並列ループ ========================================= */
-//#pragma omp parallel
+#pragma omp parallel
     {
-        /* スレッド専用一時バッファ（orbsB の double 版） */
-        double * restrict bufB = NULL;
-        size_t buflen          = 0;
+        int     Nloop, spin, Mc_AN, h_AN, Gh_AN, Mh_AN, Hwan, NOLG;
+        int     Gc_AN, Cwan, NO0, NO1, spin0 = -1, Mc_AN0 = 0;
+        int     i, j, Nc, MN, GNA, Nog, Nh, OMPID, Nthrds;
+        int     M, N, K, lda, ldb, ldc, ii, jj;
+        double  alpha, beta, Vpot;
+        double  sum0, sum1, sum2, sum3, sum4;
+        double *ChiV0, *Chi1, *ChiV0_2, *C;
 
-//#pragma omp for schedule(guided, 4)
-        for (int pair = 0; pair < pair_cnt; ++pair) {
+        /* allocation of arrays */
 
-            /*------------------------------------------------------*
-             * 2-1. ペア情報を展開                                  *
-             *------------------------------------------------------*/
-            const int Mc_AN = idx_Mc[pair];
-            const int h_AN  = idx_h[pair];
-            const int Gc_AN = M2G[Mc_AN];
-            const int Gh_AN = natn[Gc_AN][h_AN];
-            const int Mh_AN = F_G2M[Gh_AN];
-
-            const int Cwan = WhatSpecies[Gc_AN];
-            const int Hwan = WhatSpecies[Gh_AN];
-
-            const int NO0 = (Cnt_kind == 0) ? Spe_Total_NO[Cwan] : Spe_Total_CNO[Cwan];
-            const int NO1 = (Cnt_kind == 0) ? Spe_Total_NO[Hwan] : Spe_Total_CNO[Hwan];
-
-            /*------------------------------------------------------*
-             * 2-2. 出力行列ポインタ取得                            *
-             *------------------------------------------------------*/
-            double ** restrict Hij[4];
+        /* AITUNE */
+        double ** AI_tmpH[4];
+        {
+            /* get size of temporary buffer */
+            int AI_MaxNO = 0;
             if (Cnt_kind == 0) {
-                for (int s = 0; s < nspin; ++s)
-                    Hij[s] = H[s][Mc_AN][h_AN];
+                int spe;
+                for (spe = 0; spe < SpeciesNum; spe++) {
+                    if (AI_MaxNO < Spe_Total_NO[spe]) {
+                        AI_MaxNO = Spe_Total_NO[spe];
+                    }
+                }
             } else {
-                for (int s = 0; s < nspin; ++s)
-                    Hij[s] = CntH[s][Mc_AN][h_AN];
+                int spe;
+                for (spe = 0; spe < SpeciesNum; spe++) {
+                    if (AI_MaxNO < Spe_Total_CNO[spe]) {
+                        AI_MaxNO = Spe_Total_CNO[spe];
+                    }
+                }
             }
 
-            /*------------------------------------------------------*
-             * 2-3. 局所グリッドループ                              *
-             *------------------------------------------------------*/
-            const int NOLG = NumOLG[Mc_AN][h_AN];
+            int spin;
+            for (spin = 0; spin <= SpinP_switch; spin++) {
+                AI_tmpH[spin] = (double **)malloc(sizeof(double *) * AI_MaxNO);
 
-            for (int Nog = 0; Nog < NOLG; ++Nog) {
-                const int Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
-                const int MN = MGridListAtom[Mc_AN][Nc];
-                const int Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
-
-                /* ポテンシャル × 格子体積 (最多 4 スピン) */
-                const double GV0 = GridVol * Vpot_Grid[0][MN];
-                const double GV1 = (nspin > 1) ? GridVol * Vpot_Grid[1][MN] : 0.0;
-                const double GV2 = (nspin > 2) ? GridVol * Vpot_Grid[2][MN] : 0.0;
-                const double GV3 = (nspin > 3) ? GridVol * Vpot_Grid[3][MN] : 0.0;
-
-                /* 軌道グリッド（A, B） */
-                const float * restrict orbsA = Orbs_Grid[Mc_AN][Nc];
-
-                const int local_B              = (G2ID[Gh_AN] == myid);
-                const float * restrict orbsB_f = local_B ? Orbs_Grid[Mh_AN][Nh] : Orbs_Grid_FNAN[Mc_AN][h_AN][Nog];
-
-                /*--------------------------------------------------*
-                 * 2-4. orbsB float→double 変換（ペア毎一度のみ）  *
-                 *--------------------------------------------------*/
-                if (buflen < (size_t)NO1) {
-                    free(bufB);
-                    bufB   = (double *)aligned_alloc(64, sizeof(double) * NO1);
-                    buflen = NO1;
+                int      i;
+                double * p = (double *)malloc(sizeof(double) * AI_MaxNO * AI_MaxNO);
+                for (i = 0; i < AI_MaxNO; i++) {
+                    AI_tmpH[spin][i] = p;
+                    p += AI_MaxNO;
                 }
-                for (int j = 0; j < NO1; ++j)
-                    bufB[j] = (double)orbsB_f[j];
+            }
+        }
+        /* AITUNE */
 
-                /*--------------------------------------------------*
-                 * 2-5. メイン i ループ                             *
-                 *--------------------------------------------------*/
-                for (int i = 0; i < NO0; ++i) {
-                    const double a = (double)orbsA[i];
+        /* starting of one-dimensionalized loop */
 
-                    const double c0 = a * GV0;
-                    const double c1 = a * GV1;
-                    const double c2 = a * GV2;
-                    const double c3 = a * GV3;
+#pragma omp for schedule(static, 1) /* guided */       /* AITUNE */
+        for (Nloop = 0; Nloop < OneD_Nloop; Nloop++) { /* AITUNE */
 
-                    double * restrict row0 = Hij[0][i];
-                    double * restrict row1 = (nspin > 1) ? Hij[1][i] : NULL;
-                    double * restrict row2 = (nspin > 2) ? Hij[2][i] : NULL;
-                    double * restrict row3 = (nspin > 3) ? Hij[3][i] : NULL;
+            int Mc_AN = OneD2Mc_AN[Nloop];
+            int h_AN  = OneD2h_AN[Nloop];
+            int Gc_AN = M2G[Mc_AN];
+            int Gh_AN = natn[Gc_AN][h_AN];
+            int Mh_AN = F_G2M[Gh_AN];
+            int Cwan  = WhatSpecies[Gc_AN];
+            int Hwan  = WhatSpecies[Gh_AN];
+            int GNA   = GridN_Atom[Gc_AN];
+            int NOLG  = NumOLG[Mc_AN][h_AN];
 
-                    /*----------------------------------------------*
-                     * 2-6. j ループ ― OpenMP simd 指示子            *
-                     *----------------------------------------------*/
-#pragma omp simd aligned(row0, row1, row2, row3, bufB : 64)
-                    for (int j = 0; j < NO1; ++j) {
-                        const double b = bufB[j];
-                        row0[j] += c0 * b;
-                        if (nspin >= 2)
-                            row1[j] += c1 * b;
-                        if (nspin >= 3)
-                            row2[j] += c2 * b;
-                        if (nspin == 4)
-                            row3[j] += c3 * b;
+            int NO0, NO1;
+            if (Cnt_kind == 0) {
+                NO0 = Spe_Total_NO[Cwan];
+                NO1 = Spe_Total_NO[Hwan];
+            } else {
+                NO0 = Spe_Total_CNO[Cwan];
+                NO1 = Spe_Total_CNO[Hwan];
+            }
+
+            /* quadrature for Hij  */
+
+            /* AITUNE change order of loop */
+            if (SpinP_switch == 0) {
+                /* AITUNE temporary buffer for "unroll-Jammed" HLO optimization by Intel */
+
+                if (Cnt_kind == 0) {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[0][i][j] = H[0][Mc_AN][h_AN][i][j];
+                        }
                     }
-                } /* i */
-            } /* Nog */
-        } /* pair */
+                } else {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[0][i][j] = CntH[0][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                }
 
-        /* スレッド一時バッファ解放 */
-        free(bufB);
-    } /* omp parallel */
+                int Nog;
+                for (Nog = 0; Nog < NOLG; Nog++) {
 
-    free(idx_Mc);
-    free(idx_h);
+                    int Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+                    int MN = MGridListAtom[Mc_AN][Nc];
+                    int Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
+
+                    double AI_tmp_GVVG = GridVol * Vpot_Grid[0][MN];
+
+                    if (G2ID[Gh_AN] == myid) {
+                        int i;
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG * Orbs_Grid[Mc_AN][Nc][i];
+                            int    j;
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[0][i][j] += AI_tmp_i * Orbs_Grid[Mh_AN][Nh][j];
+                            }
+                        }
+
+                    } else {
+                        int i;
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG * Orbs_Grid[Mc_AN][Nc][i];
+                            int    j;
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[0][i][j] += AI_tmp_i * Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+                            }
+                        }
+                    }
+
+                } /* Nog */
+
+                if (Cnt_kind == 0) {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            H[0][Mc_AN][h_AN][i][j] = AI_tmpH[0][i][j];
+                        }
+                    }
+                } else {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            CntH[0][Mc_AN][h_AN][i][j] = AI_tmpH[0][i][j];
+                        }
+                    }
+                }
+
+            } else if (SpinP_switch == 1) {
+
+                /* AITUNE temporary buffer for "unroll-Jammed" HLO optimization by Intel */
+
+                if (Cnt_kind == 0) {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[0][i][j] = H[0][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[1][i][j] = H[1][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                } else {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[0][i][j] = CntH[0][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[1][i][j] = CntH[1][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                }
+
+                int Nog;
+                for (Nog = 0; Nog < NOLG; Nog++) {
+
+                    int Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+                    int MN = MGridListAtom[Mc_AN][Nc];
+                    int Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
+
+                    double AI_tmp_GVVG  = GridVol * Vpot_Grid[0][MN];
+                    double AI_tmp_GVVG1 = GridVol * Vpot_Grid[1][MN];
+
+                    if (G2ID[Gh_AN] == myid) {
+
+                        int i;
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG * Orbs_Grid[Mc_AN][Nc][i];
+                            int    j;
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[0][i][j] += AI_tmp_i * Orbs_Grid[Mh_AN][Nh][j];
+                            }
+                        }
+
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG1 * Orbs_Grid[Mc_AN][Nc][i];
+
+                            int j;
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[1][i][j] += AI_tmp_i * Orbs_Grid[Mh_AN][Nh][j];
+                            }
+                        }
+
+                    } else {
+                        int i;
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG * Orbs_Grid[Mc_AN][Nc][i];
+                            int    j;
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[0][i][j] += AI_tmp_i * Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+                            }
+                        }
+
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG1 * Orbs_Grid[Mc_AN][Nc][i];
+                            int    j;
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[1][i][j] += AI_tmp_i * Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+                            }
+                        }
+                    }
+
+                } /* Nog */
+
+                /* AITUNE copy from temporary buffer */
+
+                if (Cnt_kind == 0) {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            H[0][Mc_AN][h_AN][i][j] = AI_tmpH[0][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            H[1][Mc_AN][h_AN][i][j] = AI_tmpH[1][i][j];
+                        }
+                    }
+                } else {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            CntH[0][Mc_AN][h_AN][i][j] = AI_tmpH[0][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            CntH[1][Mc_AN][h_AN][i][j] = AI_tmpH[1][i][j];
+                        }
+                    }
+                }
+
+            }
+
+            else { /* SpinP_switch==3 */
+
+                /* AITUNE temporary buffer for "unroll-Jammed" HLO optimization by Intel */
+
+                if (Cnt_kind == 0) {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[0][i][j] = H[0][Mc_AN][h_AN][i][j];
+                            AI_tmpH[1][i][j] = H[1][Mc_AN][h_AN][i][j];
+                            AI_tmpH[2][i][j] = H[2][Mc_AN][h_AN][i][j];
+                            AI_tmpH[3][i][j] = H[3][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                }
+
+                else {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[0][i][j] = CntH[0][Mc_AN][h_AN][i][j];
+                            AI_tmpH[1][i][j] = CntH[1][Mc_AN][h_AN][i][j];
+                            AI_tmpH[2][i][j] = CntH[2][Mc_AN][h_AN][i][j];
+                            AI_tmpH[3][i][j] = CntH[3][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                }
+
+                if (Cnt_kind == 0) {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[0][i][j] = H[0][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[1][i][j] = H[1][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[2][i][j] = H[2][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[3][i][j] = H[3][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                } else {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[0][i][j] = CntH[0][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[1][i][j] = CntH[1][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[2][i][j] = CntH[2][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            AI_tmpH[3][i][j] = CntH[3][Mc_AN][h_AN][i][j];
+                        }
+                    }
+                }
+
+                int Nog;
+
+                for (Nog = 0; Nog < NOLG; Nog++) {
+
+                    int Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
+                    int MN = MGridListAtom[Mc_AN][Nc];
+                    int Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
+
+                    double AI_tmp_GVVG  = GridVol * Vpot_Grid[0][MN];
+                    double AI_tmp_GVVG1 = GridVol * Vpot_Grid[1][MN];
+                    double AI_tmp_GVVG2 = GridVol * Vpot_Grid[2][MN];
+                    double AI_tmp_GVVG3 = GridVol * Vpot_Grid[3][MN];
+
+                    if (G2ID[Gh_AN] == myid) {
+
+                        int i;
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG * Orbs_Grid[Mc_AN][Nc][i];
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[0][i][j] += AI_tmp_i * Orbs_Grid[Mh_AN][Nh][j];
+                            }
+                        }
+
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG1 * Orbs_Grid[Mc_AN][Nc][i];
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[1][i][j] += AI_tmp_i * Orbs_Grid[Mh_AN][Nh][j];
+                            }
+                        }
+
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG2 * Orbs_Grid[Mc_AN][Nc][i];
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[2][i][j] += AI_tmp_i * Orbs_Grid[Mh_AN][Nh][j];
+                            }
+                        }
+
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG3 * Orbs_Grid[Mc_AN][Nc][i];
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[3][i][j] += AI_tmp_i * Orbs_Grid[Mh_AN][Nh][j];
+                            }
+                        }
+
+                    }
+
+                    else {
+
+                        int i;
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG * Orbs_Grid[Mc_AN][Nc][i];
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[0][i][j] += AI_tmp_i * Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+                            }
+                        }
+
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG1 * Orbs_Grid[Mc_AN][Nc][i];
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[1][i][j] += AI_tmp_i * Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+                            }
+                        }
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG2 * Orbs_Grid[Mc_AN][Nc][i];
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[2][i][j] += AI_tmp_i * Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+                            }
+                        }
+                        for (i = 0; i < NO0; i++) {
+
+                            double AI_tmp_i = AI_tmp_GVVG3 * Orbs_Grid[Mc_AN][Nc][i];
+
+                            for (j = 0; j < NO1; j++) {
+                                AI_tmpH[3][i][j] += AI_tmp_i * Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
+                            }
+                        }
+                    }
+
+                } /* Nog */
+
+                /* AITUNE copy from temporary buffer */
+
+                if (Cnt_kind == 0) {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            H[0][Mc_AN][h_AN][i][j] = AI_tmpH[0][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            H[1][Mc_AN][h_AN][i][j] = AI_tmpH[1][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            H[2][Mc_AN][h_AN][i][j] = AI_tmpH[2][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            H[3][Mc_AN][h_AN][i][j] = AI_tmpH[3][i][j];
+                        }
+                    }
+                } else {
+                    int i;
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            CntH[0][Mc_AN][h_AN][i][j] = AI_tmpH[0][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            CntH[1][Mc_AN][h_AN][i][j] = AI_tmpH[1][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            CntH[2][Mc_AN][h_AN][i][j] = AI_tmpH[2][i][j];
+                        }
+                    }
+                    for (i = 0; i < NO0; i++) {
+                        int j;
+                        for (j = 0; j < NO1; j++) {
+                            CntH[3][Mc_AN][h_AN][i][j] = AI_tmpH[3][i][j];
+                        }
+                    }
+                }
+            }
+            /* AITUNE change order of loop */
+
+        } /* Nloop */
+
+        /* freeing of arrays */
+        {
+            int spin;
+            for (spin = 0; spin <= SpinP_switch; spin++) {
+                free(AI_tmpH[spin][0]);
+                free(AI_tmpH[spin]);
+            }
+        }
+
+    } /* pragma omp parallel */
+
+    /* freeing of arrays */
+
+    free(OneD2Mc_AN);
+    free(OneD2h_AN);
 
     if (measure_time) {
         dtime(&time2);
