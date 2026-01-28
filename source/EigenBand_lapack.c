@@ -761,7 +761,7 @@ int cusolver_zheevx_openacc(dcomplex* A, double* W, int N0, int MaxN)
 #pragma acc data present(W[0: N0 + 1])
     {
 #pragma acc kernels
-#pragma acc loop independent
+#pragma acc loop seq
         for (int i = N0; i >= 1; i--) {
             W[i] = W[i - 1];
         }
