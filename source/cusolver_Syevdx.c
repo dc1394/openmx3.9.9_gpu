@@ -53,10 +53,8 @@
 #include <openacc.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
 
-static long long get_gpu_total_memory_in_bytes();
+static int64_t get_gpu_total_memory_in_bytes();
 
 int cusolver_Syevdx(double * A, double * W, int m, int MaxN)
 {
@@ -464,7 +462,7 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
  *   - A positive long long value representing the total memory (in bytes).
  *   - -1 if no memory info could be found or if an error occurs.
  */
-long long get_gpu_total_memory_in_bytes()
+int64_t get_gpu_total_memory_in_bytes()
 {
     int32_t deviceCount;
     wait_cudafunc(cudaGetDeviceCount(&deviceCount));
@@ -478,5 +476,5 @@ long long get_gpu_total_memory_in_bytes()
     size_t totalMem = 0;
     wait_cudafunc(cudaMemGetInfo(&freeMem, &totalMem));
 
-    return (long long)totalMem;
+    return (int64_t)totalMem;
 }

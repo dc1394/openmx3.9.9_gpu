@@ -9,6 +9,8 @@
 #include <cusolverDn.h>
 #include <stdbool.h>
 #include <stdio.h>
+#define _XOPEN_SOURCE
+#include <stdlib.h>
 
 static char Version_OpenMX[30] = "3.9.9 GPU"; /* version of OpenMX */
 
@@ -3062,7 +3064,7 @@ double Divide_Conquer_LNO(char * mode, int MD_iter, int SCF_iter, int SucceedRea
         if (cudaSuccess == call) {                                                                                     \
             break;                                                                                                     \
         }                                                                                                              \
-        double wait_time    = (double)rand() / (double)RAND_MAX * WAITTIME;                                            \
+        double wait_time    = drand48() * WAITTIME;                                            \
         double start_time   = MPI_Wtime();                                                                             \
         double current_time = start_time;                                                                              \
         while ((current_time - start_time) < wait_time) {                                                              \
