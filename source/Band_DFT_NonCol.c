@@ -1406,8 +1406,8 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 #pragma acc loop independent collapse(2)
                     for (i = 0; i < n2; i++) {
                         for (j = 0; j < n2; j++) {
-                            Cs2[n * i + j].r = 0.0;
-                            Cs2[n * i + j].i = 0.0;
+                            Cs2[n2 * i + j].r = 0.0;
+                            Cs2[n2 * i + j].i = 0.0;
                         }
                     }
 
