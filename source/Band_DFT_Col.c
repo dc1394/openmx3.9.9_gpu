@@ -840,7 +840,6 @@ diagonalize1:
             } /* #pragma omp parallel */
 
             /* S * 1.0/sqrt(ko[l])  */
-#pragma acc update           self(Ss[0 : n * n])
 
             /****************************************************
              1.0/sqrt(ko[l]) * U^t * H * U * 1.0/sqrt(ko[l])
@@ -2314,6 +2313,8 @@ diagonalize1:
                       1/sqrt(ko) * U^t * H * U * 1/sqrt(ko)
                 ****************************************************/
 
+#pragma acc kernels
+#pragma acc loop independent
                 for (i = 0; i < na_rows_max * na_cols_max; i++) {
                     Cs[i].r = 0.0;
                     Cs[i].i = 0.0;
