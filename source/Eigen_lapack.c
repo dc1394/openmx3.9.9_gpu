@@ -1759,7 +1759,7 @@ void Eigen_cusolver_x_openacc2(double * a, double * ko, int n0, int EVmax)
 #pragma acc data present(ko[0 : n0 + 1])
     {
 #pragma acc kernels
-#pragma acc loop independent
+#pragma acc loop seq
         for (int i = n0; i >= 1; i--) {
             ko[i] = ko[i - 1];
         }

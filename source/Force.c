@@ -20,131 +20,93 @@
 
 #define measure_time 0
 
-static void dH_U_full(int Mc_AN, int h_AN, int q_AN,
-    double***** OLP, double**** v_eff,
-    double*** Hx, double*** Hy, double*** Hz);
+static void dH_U_full(int Mc_AN, int h_AN, int q_AN, double ***** OLP, double **** v_eff, double *** Hx, double *** Hy,
+                      double *** Hz);
 
-static void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
-    double***** OLP, dcomplex***** NC_v_eff,
-    dcomplex**** Hx, dcomplex**** Hy, dcomplex**** Hz);
+static void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN, double ***** OLP, dcomplex ***** NC_v_eff, dcomplex **** Hx,
+                         dcomplex **** Hy, dcomplex **** Hz);
 
-static void dHNL(int where_flag,
-    int Mc_AN, int h_AN, int q_AN,
-    double****** DS_NL1,
-    dcomplex*** Hx, dcomplex*** Hy, dcomplex*** Hz);
+static void dHNL(int where_flag, int Mc_AN, int h_AN, int q_AN, double ****** DS_NL1, dcomplex *** Hx, dcomplex *** Hy,
+                 dcomplex *** Hz);
 
-static void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
-    Type_DS_VNA***** DS_VNA1,
-    double***** TmpHVNA2, double***** TmpHVNA3,
-    double** Hx, double** Hy, double** Hz);
+static void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN, Type_DS_VNA ***** DS_VNA1, double ***** TmpHVNA2,
+                  double ***** TmpHVNA3, double ** Hx, double ** Hy, double ** Hz);
 
-static void dHNL_SO(
-    double* sumx0r,
-    double* sumy0r,
-    double* sumz0r,
-    double* sumx1r,
-    double* sumy1r,
-    double* sumz1r,
-    double* sumx2r,
-    double* sumy2r,
-    double* sumz2r,
-    double* sumx0i,
-    double* sumy0i,
-    double* sumz0i,
-    double* sumx1i,
-    double* sumy1i,
-    double* sumz1i,
-    double* sumx2i,
-    double* sumy2i,
-    double* sumz2i,
-    double fugou,
-    double PFp,
-    double PFm,
-    double ene_p,
-    double ene_m,
-    int l2, int* l,
-    int Mc_AN, int k, int m,
-    int Mj_AN, int kl, int n,
-    double****** DS_NL1);
+static void dHNL_SO(double * sumx0r, double * sumy0r, double * sumz0r, double * sumx1r, double * sumy1r,
+                    double * sumz1r, double * sumx2r, double * sumy2r, double * sumz2r, double * sumx0i,
+                    double * sumy0i, double * sumz0i, double * sumx1i, double * sumy1i, double * sumz1i,
+                    double * sumx2i, double * sumy2i, double * sumz2i, double fugou, double PFp, double PFm,
+                    double ene_p, double ene_m, int l2, int * l, int Mc_AN, int k, int m, int Mj_AN, int kl, int n,
+                    double ****** DS_NL1);
 
-static void dHCH(int where_flag,
-    int Mc_AN, int h_AN, int q_AN,
-    double***** OLP1,
-    dcomplex*** Hx, dcomplex*** Hy, dcomplex*** Hz);
+static void dHCH(int where_flag, int Mc_AN, int h_AN, int q_AN, double ***** OLP1, dcomplex *** Hx, dcomplex *** Hy,
+                 dcomplex *** Hz);
 
-static void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, double* sumz0r, double* sumz0i,
-    double* sumx1r, double* sumx1i, double* sumy1r, double* sumy1i, double* sumz1r, double* sumz1i,
-    double* sumx2r, double* sumx2i, double* sumy2r, double* sumy2i, double* sumz2r, double* sumz2i,
-    double fugou,
-    int Mc_AN, int k, int m,
-    int Mj_AN, int kl, int n,
-    int kg, int wakg,
-    double penalty_value,
-    double***** OLP1);
+static void dHCH_SO(double * sumx0r, double * sumx0i, double * sumy0r, double * sumy0i, double * sumz0r,
+                    double * sumz0i, double * sumx1r, double * sumx1i, double * sumy1r, double * sumy1i,
+                    double * sumz1r, double * sumz1i, double * sumx2r, double * sumx2i, double * sumy2r,
+                    double * sumy2i, double * sumz2r, double * sumz2i, double fugou, int Mc_AN, int k, int m, int Mj_AN,
+                    int kl, int n, int kg, int wakg, double penalty_value, double ***** OLP1);
 
-static void MPI_OLP(double***** OLP1);
+static void MPI_OLP(double ***** OLP1);
 static void Force3();
 static void Force4();
-static void Force4B(double***** CDM0);
+static void Force4B(double ***** CDM0);
 
-static void Force_HNL(double***** CDM0, double***** iDM0);
-static void Force_CoreHole(double***** CDM0, double***** iDM0);
+static void Force_HNL(double ***** CDM0, double ***** iDM0);
+static void Force_CoreHole(double ***** CDM0, double ***** iDM0);
 
-double Force(double***** H0,
-    double****** DS_NL,
-    double***** OLP,
-    double***** CDM,
-    double***** EDM)
+double Force(double ***** H0, double ****** DS_NL, double ***** OLP, double ***** CDM, double ***** EDM)
 {
-    static int firsttime = 1;
-    int Nc, GNc, GRc, Cwan, s1, s2, BN_AB;
-    int Mc_AN, Gc_AN, MNc, start_q_AN;
-    double x, y, z, dx, dy, dz, tmp0, tmp1, tmp2, tmp3;
-    double xx, r2, tot_den;
-    double sumx, sumy, sumz, r, dege, pref;
-    int i, j, k, l, Hwan, Qwan, so, p0, q, q0;
-    int h_AN, Gh_AN, q_AN, Gq_AN;
-    int ian, jan, kl, spin, spinmax, al, be, p, size_CDM0, size_iDM0;
-    int tno0, tno1, tno2, Mh_AN, Mq_AN, n, num, size1, size2;
-    int wanA, wanB, Gc_BN;
-    int XC_P_switch;
-    double time0;
-    double dum, dge;
-    double dEx, dEy, dEz;
-    double Cxyz[4];
-    double *Fx, *Fy, *Fz;
-    dcomplex*** Hx;
-    dcomplex*** Hy;
-    dcomplex*** Hz;
-    double*** HUx;
-    double*** HUy;
-    double*** HUz;
-    dcomplex**** NC_HUx;
-    dcomplex**** NC_HUy;
-    dcomplex**** NC_HUz;
-    double** HVNAx;
-    double** HVNAy;
-    double** HVNAz;
-    double***** CDM0;
-    double***** iDM0;
-    double* tmp_array;
-    double* tmp_array2;
-    double Re00x, Re00y, Re00z;
-    double Re11x, Re11y, Re11z;
-    double Re01x, Re01y, Re01z;
-    double Im00x, Im00y, Im00z;
-    double Im11x, Im11y, Im11z;
-    double Im01x, Im01y, Im01z;
-    int *Snd_CDM0_Size, *Rcv_CDM0_Size;
-    int *Snd_iDM0_Size, *Rcv_iDM0_Size;
-    double TStime, TEtime;
-    int numprocs, myid, tag = 999, ID, IDS, IDR;
-    double Stime_atom, Etime_atom;
+    static int    firsttime = 1;
+    int           Nc, GNc, GRc, Cwan, s1, s2, BN_AB;
+    int           Mc_AN, Gc_AN, MNc, start_q_AN;
+    double        x, y, z, dx, dy, dz, tmp0, tmp1, tmp2, tmp3;
+    double        xx, r2, tot_den;
+    double        sumx, sumy, sumz, r, dege, pref;
+    int           i, j, k, l, Hwan, Qwan, so, p0, q, q0;
+    int           h_AN, Gh_AN, q_AN, Gq_AN;
+    int           ian, jan, kl, spin, spinmax, al, be, p, size_CDM0, size_iDM0;
+    int           tno0, tno1, tno2, Mh_AN, Mq_AN, n, num, size1, size2;
+    int           wanA, wanB, Gc_BN;
+    int           XC_P_switch;
+    double        time0;
+    double        dum, dge;
+    double        dEx, dEy, dEz;
+    double        Cxyz[4];
+    double *      Fx, *Fy, *Fz;
+    dcomplex ***  Hx;
+    dcomplex ***  Hy;
+    dcomplex ***  Hz;
+    double ***    HUx;
+    double ***    HUy;
+    double ***    HUz;
+    dcomplex **** NC_HUx;
+    dcomplex **** NC_HUy;
+    dcomplex **** NC_HUz;
+    double **     HVNAx;
+    double **     HVNAy;
+    double **     HVNAz;
+    double *****  CDM0;
+    double *****  iDM0;
+    double *      tmp_array;
+    double *      tmp_array2;
+    double        Re00x, Re00y, Re00z;
+    double        Re11x, Re11y, Re11z;
+    double        Re01x, Re01y, Re01z;
+    double        Im00x, Im00y, Im00z;
+    double        Im11x, Im11y, Im11z;
+    double        Im01x, Im01y, Im01z;
+    int *         Snd_CDM0_Size, *Rcv_CDM0_Size;
+    int *         Snd_iDM0_Size, *Rcv_iDM0_Size;
+    double        TStime, TEtime;
+    int           numprocs, myid, tag = 999, ID, IDS, IDR;
+    double        Stime_atom, Etime_atom;
     /* for OpenMP */
-    int OMPID, Nthrds, Nprocs;
+    int    OMPID, Nthrds, Nprocs;
     double stime, etime;
 
-    MPI_Status stat;
+    MPI_Status  stat;
     MPI_Request request;
 
     /* MPI */
@@ -158,108 +120,108 @@ double Force(double***** H0,
      allocation of arrays:
     ****************************************************/
 
-    Fx = (double*)malloc(sizeof(double) * (Matomnum + 1));
-    Fy = (double*)malloc(sizeof(double) * (Matomnum + 1));
-    Fz = (double*)malloc(sizeof(double) * (Matomnum + 1));
+    Fx = (double *)malloc(sizeof(double) * (Matomnum + 1));
+    Fy = (double *)malloc(sizeof(double) * (Matomnum + 1));
+    Fz = (double *)malloc(sizeof(double) * (Matomnum + 1));
 
-    HVNAx = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+    HVNAx = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
     for (j = 0; j < List_YOUSO[7]; j++) {
-        HVNAx[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+        HVNAx[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
     }
 
-    HVNAy = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+    HVNAy = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
     for (j = 0; j < List_YOUSO[7]; j++) {
-        HVNAy[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+        HVNAy[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
     }
 
-    HVNAz = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+    HVNAz = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
     for (j = 0; j < List_YOUSO[7]; j++) {
-        HVNAz[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+        HVNAz[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
     }
 
     /* CDM0 */
     size_CDM0 = 0;
-    CDM0 = (double*****)malloc(sizeof(double****) * (SpinP_switch + 1));
+    CDM0      = (double *****)malloc(sizeof(double ****) * (SpinP_switch + 1));
     for (k = 0; k <= SpinP_switch; k++) {
-        CDM0[k] = (double****)malloc(sizeof(double***) * (Matomnum + MatomnumF + 1));
+        CDM0[k] = (double ****)malloc(sizeof(double ***) * (Matomnum + MatomnumF + 1));
         FNAN[0] = 0;
         for (Mc_AN = 0; Mc_AN <= (Matomnum + MatomnumF); Mc_AN++) {
 
             if (Mc_AN == 0) {
                 Gc_AN = 0;
-                tno0 = 1;
+                tno0  = 1;
             } else {
                 Gc_AN = F_M2G[Mc_AN];
-                Cwan = WhatSpecies[Gc_AN];
-                tno0 = Spe_Total_CNO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno0  = Spe_Total_CNO[Cwan];
             }
 
-            CDM0[k][Mc_AN] = (double***)malloc(sizeof(double**) * (FNAN[Gc_AN] + 1));
+            CDM0[k][Mc_AN] = (double ***)malloc(sizeof(double **) * (FNAN[Gc_AN] + 1));
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                 if (Mc_AN == 0) {
                     tno1 = 1;
                 } else {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno1 = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno1  = Spe_Total_CNO[Hwan];
                 }
 
-                CDM0[k][Mc_AN][h_AN] = (double**)malloc(sizeof(double*) * tno0);
+                CDM0[k][Mc_AN][h_AN] = (double **)malloc(sizeof(double *) * tno0);
                 for (i = 0; i < tno0; i++) {
-                    CDM0[k][Mc_AN][h_AN][i] = (double*)malloc(sizeof(double) * tno1);
+                    CDM0[k][Mc_AN][h_AN][i] = (double *)malloc(sizeof(double) * tno1);
                     size_CDM0 += tno1;
                 }
             }
         }
     }
 
-    Snd_CDM0_Size = (int*)malloc(sizeof(int) * numprocs);
-    Rcv_CDM0_Size = (int*)malloc(sizeof(int) * numprocs);
+    Snd_CDM0_Size = (int *)malloc(sizeof(int) * numprocs);
+    Rcv_CDM0_Size = (int *)malloc(sizeof(int) * numprocs);
 
     /* iDM0 */
 
-    if (SO_switch == 1 || (Hub_U_switch == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-        || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+    if (SO_switch == 1 || (Hub_U_switch == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch ||
+        Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
 
         size_iDM0 = 0;
-        iDM0 = (double*****)malloc(sizeof(double****) * 2);
+        iDM0      = (double *****)malloc(sizeof(double ****) * 2);
         for (k = 0; k < 2; k++) {
-            iDM0[k] = (double****)malloc(sizeof(double***) * (Matomnum + MatomnumF + 1));
+            iDM0[k] = (double ****)malloc(sizeof(double ***) * (Matomnum + MatomnumF + 1));
             FNAN[0] = 0;
             for (Mc_AN = 0; Mc_AN <= (Matomnum + MatomnumF); Mc_AN++) {
 
                 if (Mc_AN == 0) {
                     Gc_AN = 0;
-                    tno0 = 1;
+                    tno0  = 1;
                 } else {
                     Gc_AN = F_M2G[Mc_AN];
-                    Cwan = WhatSpecies[Gc_AN];
-                    tno0 = Spe_Total_CNO[Cwan];
+                    Cwan  = WhatSpecies[Gc_AN];
+                    tno0  = Spe_Total_CNO[Cwan];
                 }
 
-                iDM0[k][Mc_AN] = (double***)malloc(sizeof(double**) * (FNAN[Gc_AN] + 1));
+                iDM0[k][Mc_AN] = (double ***)malloc(sizeof(double **) * (FNAN[Gc_AN] + 1));
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                     if (Mc_AN == 0) {
                         tno1 = 1;
                     } else {
                         Gh_AN = natn[Gc_AN][h_AN];
-                        Hwan = WhatSpecies[Gh_AN];
-                        tno1 = Spe_Total_CNO[Hwan];
+                        Hwan  = WhatSpecies[Gh_AN];
+                        tno1  = Spe_Total_CNO[Hwan];
                     }
 
-                    iDM0[k][Mc_AN][h_AN] = (double**)malloc(sizeof(double*) * tno0);
+                    iDM0[k][Mc_AN][h_AN] = (double **)malloc(sizeof(double *) * tno0);
                     for (i = 0; i < tno0; i++) {
-                        iDM0[k][Mc_AN][h_AN][i] = (double*)malloc(sizeof(double) * tno1);
+                        iDM0[k][Mc_AN][h_AN][i] = (double *)malloc(sizeof(double) * tno1);
                         size_iDM0 += tno1;
                     }
                 }
             }
         }
 
-        Snd_iDM0_Size = (int*)malloc(sizeof(int) * numprocs);
-        Rcv_iDM0_Size = (int*)malloc(sizeof(int) * numprocs);
+        Snd_iDM0_Size = (int *)malloc(sizeof(int) * numprocs);
+        Rcv_iDM0_Size = (int *)malloc(sizeof(int) * numprocs);
     }
 
     /****************************************************
@@ -271,8 +233,8 @@ double Force(double***** H0,
         PrintMemory("Force: Hy", sizeof(dcomplex) * List_YOUSO[7] * List_YOUSO[7], NULL);
         PrintMemory("Force: Hz", sizeof(dcomplex) * List_YOUSO[7] * List_YOUSO[7], NULL);
         PrintMemory("Force: CDM0", sizeof(double) * size_CDM0, NULL);
-        if (SO_switch == 1 || (Hub_U_switch == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-            || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+        if (SO_switch == 1 || (Hub_U_switch == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch ||
+            Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
             PrintMemory("Force: iDM0", sizeof(double) * size_iDM0, NULL);
         }
         firsttime = 0;
@@ -285,14 +247,14 @@ double Force(double***** H0,
     for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
         Gc_AN = M2G[Mc_AN];
-        Cwan = WhatSpecies[Gc_AN];
-        tno1 = Spe_Total_CNO[Cwan];
+        Cwan  = WhatSpecies[Gc_AN];
+        tno1  = Spe_Total_CNO[Cwan];
 
         for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
             Gh_AN = natn[Gc_AN][h_AN];
-            Hwan = WhatSpecies[Gh_AN];
-            tno2 = Spe_Total_CNO[Hwan];
+            Hwan  = WhatSpecies[Gh_AN];
+            tno2  = Spe_Total_CNO[Hwan];
 
             for (spin = 0; spin <= SpinP_switch; spin++) {
                 for (i = 0; i < tno1; i++) {
@@ -308,20 +270,20 @@ double Force(double***** H0,
       iDM to iDM0
     ****************************************************/
 
-    if (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-        || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+    if (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch ||
+        Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
 
         for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
             Gc_AN = M2G[Mc_AN];
-            Cwan = WhatSpecies[Gc_AN];
-            tno1 = Spe_Total_CNO[Cwan];
+            Cwan  = WhatSpecies[Gc_AN];
+            tno1  = Spe_Total_CNO[Cwan];
 
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                 Gh_AN = natn[Gc_AN][h_AN];
-                Hwan = WhatSpecies[Gh_AN];
-                tno2 = Spe_Total_CNO[Hwan];
+                Hwan  = WhatSpecies[Gh_AN];
+                tno2  = Spe_Total_CNO[Hwan];
 
                 for (i = 0; i < tno1; i++) {
                     for (j = 0; j < tno2; j++) {
@@ -359,12 +321,12 @@ double Force(double***** H0,
                     for (n = 0; n < F_Snd_Num[IDS]; n++) {
                         Mc_AN = Snd_MAN[IDS][n];
                         Gc_AN = Snd_GAN[IDS][n];
-                        Cwan = WhatSpecies[Gc_AN];
-                        tno1 = Spe_Total_CNO[Cwan];
+                        Cwan  = WhatSpecies[Gc_AN];
+                        tno1  = Spe_Total_CNO[Cwan];
                         for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                             Gh_AN = natn[Gc_AN][h_AN];
-                            Hwan = WhatSpecies[Gh_AN];
-                            tno2 = Spe_Total_CNO[Hwan];
+                            Hwan  = WhatSpecies[Gh_AN];
+                            tno2  = Spe_Total_CNO[Hwan];
                             for (i = 0; i < tno1; i++) {
                                 for (j = 0; j < tno2; j++) {
                                     size1++;
@@ -420,7 +382,7 @@ double Force(double***** H0,
 
                 /* allocation of array */
 
-                tmp_array = (double*)malloc(sizeof(double) * size1);
+                tmp_array = (double *)malloc(sizeof(double) * size1);
 
                 /* multidimentional array to vector array */
 
@@ -429,12 +391,12 @@ double Force(double***** H0,
                     for (n = 0; n < F_Snd_Num[IDS]; n++) {
                         Mc_AN = Snd_MAN[IDS][n];
                         Gc_AN = Snd_GAN[IDS][n];
-                        Cwan = WhatSpecies[Gc_AN];
-                        tno1 = Spe_Total_CNO[Cwan];
+                        Cwan  = WhatSpecies[Gc_AN];
+                        tno1  = Spe_Total_CNO[Cwan];
                         for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                             Gh_AN = natn[Gc_AN][h_AN];
-                            Hwan = WhatSpecies[Gh_AN];
-                            tno2 = Spe_Total_CNO[Hwan];
+                            Hwan  = WhatSpecies[Gh_AN];
+                            tno2  = Spe_Total_CNO[Hwan];
                             for (i = 0; i < tno1; i++) {
                                 for (j = 0; j < tno2; j++) {
                                     tmp_array[num] = CDM[spin][Mc_AN][h_AN][i][j];
@@ -457,7 +419,7 @@ double Force(double***** H0,
                 size2 = Rcv_CDM0_Size[IDR];
 
                 /* allocation of array */
-                tmp_array2 = (double*)malloc(sizeof(double) * size2);
+                tmp_array2 = (double *)malloc(sizeof(double) * size2);
 
                 MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
 
@@ -467,13 +429,13 @@ double Force(double***** H0,
                     for (n = 0; n < F_Rcv_Num[IDR]; n++) {
                         Mc_AN++;
                         Gc_AN = Rcv_GAN[IDR][n];
-                        Cwan = WhatSpecies[Gc_AN];
-                        tno1 = Spe_Total_CNO[Cwan];
+                        Cwan  = WhatSpecies[Gc_AN];
+                        tno1  = Spe_Total_CNO[Cwan];
 
                         for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                             Gh_AN = natn[Gc_AN][h_AN];
-                            Hwan = WhatSpecies[Gh_AN];
-                            tno2 = Spe_Total_CNO[Hwan];
+                            Hwan  = WhatSpecies[Gh_AN];
+                            tno2  = Spe_Total_CNO[Hwan];
                             for (i = 0; i < tno1; i++) {
                                 for (j = 0; j < tno2; j++) {
                                     CDM0[spin][Mc_AN][h_AN][i][j] = tmp_array2[num];
@@ -501,8 +463,8 @@ double Force(double***** H0,
      iDM0
     ****************************************************/
 
-    if (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-        || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+    if (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch ||
+        Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
 
         /***********************************
                     set data size
@@ -524,12 +486,12 @@ double Force(double***** H0,
                         for (n = 0; n < F_Snd_Num[IDS]; n++) {
                             Mc_AN = Snd_MAN[IDS][n];
                             Gc_AN = Snd_GAN[IDS][n];
-                            Cwan = WhatSpecies[Gc_AN];
-                            tno1 = Spe_Total_CNO[Cwan];
+                            Cwan  = WhatSpecies[Gc_AN];
+                            tno1  = Spe_Total_CNO[Cwan];
                             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                                 Gh_AN = natn[Gc_AN][h_AN];
-                                Hwan = WhatSpecies[Gh_AN];
-                                tno2 = Spe_Total_CNO[Hwan];
+                                Hwan  = WhatSpecies[Gh_AN];
+                                tno2  = Spe_Total_CNO[Hwan];
                                 for (i = 0; i < tno1; i++) {
                                     for (j = 0; j < tno2; j++) {
                                         size1++;
@@ -586,7 +548,7 @@ double Force(double***** H0,
 
                     /* allocation of array */
 
-                    tmp_array = (double*)malloc(sizeof(double) * size1);
+                    tmp_array = (double *)malloc(sizeof(double) * size1);
 
                     /* multidimentional array to vector array */
 
@@ -595,12 +557,12 @@ double Force(double***** H0,
                         for (n = 0; n < F_Snd_Num[IDS]; n++) {
                             Mc_AN = Snd_MAN[IDS][n];
                             Gc_AN = Snd_GAN[IDS][n];
-                            Cwan = WhatSpecies[Gc_AN];
-                            tno1 = Spe_Total_CNO[Cwan];
+                            Cwan  = WhatSpecies[Gc_AN];
+                            tno1  = Spe_Total_CNO[Cwan];
                             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                                 Gh_AN = natn[Gc_AN][h_AN];
-                                Hwan = WhatSpecies[Gh_AN];
-                                tno2 = Spe_Total_CNO[Hwan];
+                                Hwan  = WhatSpecies[Gh_AN];
+                                tno2  = Spe_Total_CNO[Hwan];
                                 for (i = 0; i < tno1; i++) {
                                     for (j = 0; j < tno2; j++) {
                                         tmp_array[num] = iDM[0][so][Mc_AN][h_AN][i][j];
@@ -623,7 +585,7 @@ double Force(double***** H0,
                     size2 = Rcv_iDM0_Size[IDR];
 
                     /* allocation of array */
-                    tmp_array2 = (double*)malloc(sizeof(double) * size2);
+                    tmp_array2 = (double *)malloc(sizeof(double) * size2);
 
                     MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
 
@@ -633,13 +595,13 @@ double Force(double***** H0,
                         for (n = 0; n < F_Rcv_Num[IDR]; n++) {
                             Mc_AN++;
                             Gc_AN = Rcv_GAN[IDR][n];
-                            Cwan = WhatSpecies[Gc_AN];
-                            tno1 = Spe_Total_CNO[Cwan];
+                            Cwan  = WhatSpecies[Gc_AN];
+                            tno1  = Spe_Total_CNO[Cwan];
 
                             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                                 Gh_AN = natn[Gc_AN][h_AN];
-                                Hwan = WhatSpecies[Gh_AN];
-                                tno2 = Spe_Total_CNO[Hwan];
+                                Hwan  = WhatSpecies[Gh_AN];
+                                tno2  = Spe_Total_CNO[Hwan];
                                 for (i = 0; i < tno1; i++) {
                                     for (j = 0; j < tno2; j++) {
                                         iDM0[so][Mc_AN][h_AN][i][j] = tmp_array2[num];
@@ -699,12 +661,18 @@ double Force(double***** H0,
     Data_Grid_Copy_B2C_2(Vxc_Grid_B, Vxc_Grid);
     Data_Grid_Copy_B2C_2(Density_Grid_B, Density_Grid);
 
-#pragma omp parallel shared(myid, Spe_OpenCore_flag, Spe_Atomic_PCC, Spe_VPS_RV, Spe_VPS_XV, Spe_Num_Mesh_VPS, Spe_PAO_RV, Spe_Atomic_Den, Spe_PAO_XV, Spe_Num_Mesh_PAO, time_per_atom, level_stdout, GridVol, Vxc_Grid, RefVxc_Grid, SpinP_switch, F_Vxc_flag, PCC_switch, dVHart_Grid, F_dVHart_flag, Gxyz, atv, MGridListAtom, CellListAtom, GridListAtom, GridN_Atom, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, Gc_AN, Cwan, sumx, sumy, sumz, Nc, GNc, GRc, MNc, Cxyz, x, y, z, dx, dy, dz, r, r2, tmp0, tmp1, tmp2, xx)
+#pragma omp parallel shared(myid, Spe_OpenCore_flag, Spe_Atomic_PCC, Spe_VPS_RV, Spe_VPS_XV, Spe_Num_Mesh_VPS,         \
+                                Spe_PAO_RV, Spe_Atomic_Den, Spe_PAO_XV, Spe_Num_Mesh_PAO, time_per_atom, level_stdout, \
+                                GridVol, Vxc_Grid, RefVxc_Grid, SpinP_switch, F_Vxc_flag, PCC_switch, dVHart_Grid,     \
+                                F_dVHart_flag, Gxyz, atv, MGridListAtom, CellListAtom, GridListAtom, GridN_Atom,       \
+                                WhatSpecies, M2G, Matomnum)                                                            \
+    private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, Gc_AN, Cwan, sumx, sumy, sumz, Nc, GNc, GRc, MNc,    \
+                Cxyz, x, y, z, dx, dy, dz, r, r2, tmp0, tmp1, tmp2, xx)
     {
 
         /* get info. on OpenMP */
 
-        OMPID = omp_get_thread_num();
+        OMPID  = omp_get_thread_num();
         Nthrds = omp_get_num_threads();
         Nprocs = omp_get_num_procs();
 
@@ -713,7 +681,7 @@ double Force(double***** H0,
             dtime(&Stime_atom);
 
             Gc_AN = M2G[Mc_AN];
-            Cwan = WhatSpecies[Gc_AN];
+            Cwan  = WhatSpecies[Gc_AN];
 
             sumx = 0.0;
             sumy = 0.0;
@@ -734,7 +702,7 @@ double Force(double***** H0,
                 dy = Gxyz[Gc_AN][2] - y;
                 dz = Gxyz[Gc_AN][3] - z;
                 r2 = dx * dx + dy * dy + dz * dz;
-                r = sqrt(r2);
+                r  = sqrt(r2);
                 xx = 0.5 * log(r2);
 
                 /* for empty atoms */
@@ -743,8 +711,8 @@ double Force(double***** H0,
 
                 if (1.0e-14 < r) {
 
-                    tmp0 = Dr_KumoF(Spe_Num_Mesh_PAO[Cwan], xx, r,
-                        Spe_PAO_XV[Cwan], Spe_PAO_RV[Cwan], Spe_Atomic_Den[Cwan]);
+                    tmp0 = Dr_KumoF(Spe_Num_Mesh_PAO[Cwan], xx, r, Spe_PAO_XV[Cwan], Spe_PAO_RV[Cwan],
+                                    Spe_Atomic_Den[Cwan]);
 
                     tmp1 = dVHart_Grid[MNc] * tmp0 / r * F_dVHart_flag;
                     sumx += tmp1 * dx;
@@ -761,7 +729,9 @@ double Force(double***** H0,
                     /* partial core correction */
                     if (PCC_switch == 1) {
 
-                        tmp0 = 0.5 * F_Vxc_flag * Dr_KumoF(Spe_Num_Mesh_VPS[Cwan], xx, r, Spe_VPS_XV[Cwan], Spe_VPS_RV[Cwan], Spe_Atomic_PCC[Cwan]);
+                        tmp0 = 0.5 * F_Vxc_flag *
+                               Dr_KumoF(Spe_Num_Mesh_VPS[Cwan], xx, r, Spe_VPS_XV[Cwan], Spe_VPS_RV[Cwan],
+                                        Spe_Atomic_PCC[Cwan]);
 
                         if (SpinP_switch == 0) {
                             tmp2 = 2.0 * Vxc_Grid[0][MNc];
@@ -796,8 +766,8 @@ double Force(double***** H0,
             Gxyz[Gc_AN][19] = -sumz * GridVol;
 
             if (2 <= level_stdout) {
-                printf("<Force>  force(1) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                    myid, Mc_AN, Gc_AN, -sumx * GridVol, -sumy * GridVol, -sumz * GridVol);
+                printf("<Force>  force(1) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                       -sumx * GridVol, -sumy * GridVol, -sumz * GridVol);
                 fflush(stdout);
             }
 
@@ -828,14 +798,14 @@ double Force(double***** H0,
 
         /* modified by AdvanceSoft */
         xb = Grid_Origin[ESM_direction] + tv[1][ESM_direction];
-        a = ESM_wall_height / pow(1.89, 3.0);
+        a  = ESM_wall_height / pow(1.89, 3.0);
 
         for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
             Gc_AN = M2G[Mc_AN];
-            x = Gxyz[Gc_AN][ESM_direction];
-            x0 = xb - ESM_wall_position;
-            dx = x - x0;
+            x     = Gxyz[Gc_AN][ESM_direction];
+            x0    = xb - ESM_wall_position;
+            dx    = x - x0;
 
             if (0.0 < dx) {
                 fx = 3.0 * a * dx * dx;
@@ -903,97 +873,101 @@ double Force(double***** H0,
         fflush(stdout);
     }
 
-#pragma omp parallel shared(time_per_atom, Gxyz, myid, level_stdout, iDM0, CDM0, CntH0, H0, F_Kin_flag, NC_v_eff, v_eff, OLP, Hub_U_occupation, Cnt_switch, F_NL_flag, List_YOUSO, RMI1, Zeeman_NCO_switch, Zeeman_NCS_switch, Constraint_NCS_switch, F_U_flag, Hub_U_switch, SO_switch, SpinP_switch, Spe_Total_CNO, F_G2M, natn, FNAN, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, Gc_AN, Cwan, dEx, dEy, dEz, h_AN, Gh_AN, Mh_AN, Hwan, ian, start_q_AN, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, so, i, j, k, Hx, Hy, Hz, HUx, HUy, HUz, NC_HUx, NC_HUy, NC_HUz, s1, s2, pref, spinmax, spin)
+#pragma omp parallel shared(time_per_atom, Gxyz, myid, level_stdout, iDM0, CDM0, CntH0, H0, F_Kin_flag, NC_v_eff,      \
+                                v_eff, OLP, Hub_U_occupation, Cnt_switch, F_NL_flag, List_YOUSO, RMI1,                 \
+                                Zeeman_NCO_switch, Zeeman_NCS_switch, Constraint_NCS_switch, F_U_flag, Hub_U_switch,   \
+                                SO_switch, SpinP_switch, Spe_Total_CNO, F_G2M, natn, FNAN, WhatSpecies, M2G, Matomnum) \
+    private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, Gc_AN, Cwan, dEx, dEy, dEz, h_AN, Gh_AN, Mh_AN,      \
+                Hwan, ian, start_q_AN, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, so, i, j, k, Hx, Hy, Hz, HUx, HUy, HUz,      \
+                NC_HUx, NC_HUy, NC_HUz, s1, s2, pref, spinmax, spin)
     {
 
         /* allocation of arrays */
 
-        Hx = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hx = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hx[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hx[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hx[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hx[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hy = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hy = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hy[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hy[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hy[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hy[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hz = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hz = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hz[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hz[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hz[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hz[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)
-            && (Hub_U_occupation == 1 || Hub_U_occupation == 2)
-            && SpinP_switch != 3) {
+        if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) &&
+            (Hub_U_occupation == 1 || Hub_U_occupation == 2) && SpinP_switch != 3) {
 
-            HUx = (double***)malloc(sizeof(double**) * 3);
+            HUx = (double ***)malloc(sizeof(double **) * 3);
             for (i = 0; i < 3; i++) {
-                HUx[i] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+                HUx[i] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
                 for (j = 0; j < List_YOUSO[7]; j++) {
-                    HUx[i][j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                    HUx[i][j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
                 }
             }
 
-            HUy = (double***)malloc(sizeof(double**) * 3);
+            HUy = (double ***)malloc(sizeof(double **) * 3);
             for (i = 0; i < 3; i++) {
-                HUy[i] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+                HUy[i] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
                 for (j = 0; j < List_YOUSO[7]; j++) {
-                    HUy[i][j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                    HUy[i][j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
                 }
             }
 
-            HUz = (double***)malloc(sizeof(double**) * 3);
+            HUz = (double ***)malloc(sizeof(double **) * 3);
             for (i = 0; i < 3; i++) {
-                HUz[i] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+                HUz[i] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
                 for (j = 0; j < List_YOUSO[7]; j++) {
-                    HUz[i][j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                    HUz[i][j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
                 }
             }
         }
 
-        if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)
-            && (Hub_U_occupation == 1 || Hub_U_occupation == 2)
-            && SpinP_switch == 3) {
+        if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) &&
+            (Hub_U_occupation == 1 || Hub_U_occupation == 2) && SpinP_switch == 3) {
 
-            NC_HUx = (dcomplex****)malloc(sizeof(dcomplex***) * 2);
+            NC_HUx = (dcomplex ****)malloc(sizeof(dcomplex ***) * 2);
             for (i = 0; i < 2; i++) {
-                NC_HUx[i] = (dcomplex***)malloc(sizeof(dcomplex**) * 2);
+                NC_HUx[i] = (dcomplex ***)malloc(sizeof(dcomplex **) * 2);
                 for (j = 0; j < 2; j++) {
-                    NC_HUx[i][j] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+                    NC_HUx[i][j] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
                     for (k = 0; k < List_YOUSO[7]; k++) {
-                        NC_HUx[i][j][k] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                        NC_HUx[i][j][k] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
                     }
                 }
             }
 
-            NC_HUy = (dcomplex****)malloc(sizeof(dcomplex***) * 2);
+            NC_HUy = (dcomplex ****)malloc(sizeof(dcomplex ***) * 2);
             for (i = 0; i < 2; i++) {
-                NC_HUy[i] = (dcomplex***)malloc(sizeof(dcomplex**) * 2);
+                NC_HUy[i] = (dcomplex ***)malloc(sizeof(dcomplex **) * 2);
                 for (j = 0; j < 2; j++) {
-                    NC_HUy[i][j] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+                    NC_HUy[i][j] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
                     for (k = 0; k < List_YOUSO[7]; k++) {
-                        NC_HUy[i][j][k] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                        NC_HUy[i][j][k] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
                     }
                 }
             }
 
-            NC_HUz = (dcomplex****)malloc(sizeof(dcomplex***) * 2);
+            NC_HUz = (dcomplex ****)malloc(sizeof(dcomplex ***) * 2);
             for (i = 0; i < 2; i++) {
-                NC_HUz[i] = (dcomplex***)malloc(sizeof(dcomplex**) * 2);
+                NC_HUz[i] = (dcomplex ***)malloc(sizeof(dcomplex **) * 2);
                 for (j = 0; j < 2; j++) {
-                    NC_HUz[i][j] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+                    NC_HUz[i][j] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
                     for (k = 0; k < List_YOUSO[7]; k++) {
-                        NC_HUz[i][j][k] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                        NC_HUz[i][j][k] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
                     }
                 }
             }
@@ -1001,7 +975,7 @@ double Force(double***** H0,
 
         /* get info. on OpenMP */
 
-        OMPID = omp_get_thread_num();
+        OMPID  = omp_get_thread_num();
         Nthrds = omp_get_num_threads();
         Nprocs = omp_get_num_procs();
 
@@ -1010,7 +984,7 @@ double Force(double***** H0,
             dtime(&Stime_atom);
 
             Gc_AN = M2G[Mc_AN];
-            Cwan = WhatSpecies[Gc_AN];
+            Cwan  = WhatSpecies[Gc_AN];
 
             dEx = 0.0;
             dEy = 0.0;
@@ -1020,10 +994,12 @@ double Force(double***** H0,
 
                 Gh_AN = natn[Gc_AN][h_AN];
                 Mh_AN = F_G2M[Gh_AN];
-                Hwan = WhatSpecies[Gh_AN];
-                ian = Spe_Total_CNO[Hwan];
+                Hwan  = WhatSpecies[Gh_AN];
+                ian   = Spe_Total_CNO[Hwan];
 
-                if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1))
+                if (SpinP_switch == 3 &&
+                    (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch ||
+                     Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1))
                     start_q_AN = 0;
                 else
                     start_q_AN = h_AN;
@@ -1032,9 +1008,9 @@ double Force(double***** H0,
 
                     Gq_AN = natn[Gc_AN][q_AN];
                     Mq_AN = F_G2M[Gq_AN];
-                    Qwan = WhatSpecies[Gq_AN];
-                    jan = Spe_Total_CNO[Qwan];
-                    kl = RMI1[Mc_AN][h_AN][q_AN];
+                    Qwan  = WhatSpecies[Gq_AN];
+                    jan   = Spe_Total_CNO[Qwan];
+                    kl    = RMI1[Mc_AN][h_AN][q_AN];
 
                     if (0 <= kl) {
 
@@ -1053,8 +1029,8 @@ double Force(double***** H0,
                          counting the occupation number
                         ****************************************************/
 
-                        if ((Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch
-                            || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+                        if ((Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch ||
+                            Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
 
                             /* full treatment and collinear case */
 
@@ -1250,7 +1226,9 @@ double Force(double***** H0,
 
                         /* collinear spin polarized or non-colliear without SO and LDA+U */
 
-                        else if (SpinP_switch == 1 || (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
+                        else if (SpinP_switch == 1 ||
+                                 (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 &&
+                                  Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
 
                             if (q_AN == h_AN)
                                 pref = 1.0;
@@ -1260,9 +1238,12 @@ double Force(double***** H0,
                             for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {
                                 for (j = 0; j < Spe_Total_CNO[Qwan]; j++) {
 
-                                    dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r);
-                                    dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r);
-                                    dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r);
+                                    dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r);
+                                    dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r);
+                                    dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r);
                                 }
                             }
                         }
@@ -1278,31 +1259,33 @@ double Force(double***** H0,
 
                         /* spin non-collinear with spin-orbit coupling or with LDA+U */
 
-                        else if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
+                        else if (SpinP_switch == 3 &&
+                                 (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) ||
+                                  1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
 
                             for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {
                                 for (j = 0; j < Spe_Total_CNO[Qwan]; j++) {
 
-                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx[2][i][j].i;
+                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx[2][i][j].i;
 
-                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy[2][i][j].i;
+                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy[2][i][j].i;
 
-                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz[2][i][j].i;
+                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz[2][i][j].i;
                                 }
                             }
                         }
@@ -1316,8 +1299,8 @@ double Force(double***** H0,
             ****************************************************/
 
             if (2 <= level_stdout) {
-                printf("<Force>  force(2) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                    myid, Mc_AN, Gc_AN, dEx, dEy, dEz);
+                printf("<Force>  force(2) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                       dEx, dEy, dEz);
                 fflush(stdout);
             }
 
@@ -1356,9 +1339,8 @@ double Force(double***** H0,
         }
         free(Hz);
 
-        if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)
-            && (Hub_U_occupation == 1 || Hub_U_occupation == 2)
-            && SpinP_switch != 3) {
+        if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) &&
+            (Hub_U_occupation == 1 || Hub_U_occupation == 2) && SpinP_switch != 3) {
 
             for (i = 0; i < 3; i++) {
                 for (j = 0; j < List_YOUSO[7]; j++) {
@@ -1385,9 +1367,8 @@ double Force(double***** H0,
             free(HUz);
         }
 
-        if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)
-            && (Hub_U_occupation == 1 || Hub_U_occupation == 2)
-            && SpinP_switch == 3) {
+        if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) &&
+            (Hub_U_occupation == 1 || Hub_U_occupation == 2) && SpinP_switch == 3) {
 
             for (i = 0; i < 2; i++) {
                 for (j = 0; j < 2; j++) {
@@ -1498,13 +1479,16 @@ double Force(double***** H0,
         Fy[Mc_AN] = 0.0;
         Fz[Mc_AN] = 0.0;
     }
-    // comment out June 2nd, 2023 H. Kawai
-    // #pragma omp parallel shared(Dis,time_per_atom,Fx,Fy,Fz,CntOLP,OLP,Cnt_switch,EDM,SpinP_switch,Spe_Total_CNO,natn,FNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,dum,dx,dy,dz)
+
+#pragma omp parallel shared(Dis, time_per_atom, Fx, Fy, Fz, CntOLP, OLP, Cnt_switch, EDM, SpinP_switch, Spe_Total_CNO, \
+                                natn, FNAN, WhatSpecies, M2G, Matomnum)                                                \
+    private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, Gc_AN, Cwan, h_AN, Gh_AN, Hwan, i, j, dum, dx, dy,   \
+                dz)
     {
 
         /* get info. on OpenMP */
 
-        OMPID = omp_get_thread_num();
+        OMPID  = omp_get_thread_num();
         Nthrds = omp_get_num_threads();
         Nprocs = omp_get_num_procs();
 
@@ -1513,12 +1497,12 @@ double Force(double***** H0,
             dtime(&Stime_atom);
 
             Gc_AN = M2G[Mc_AN];
-            Cwan = WhatSpecies[Gc_AN];
+            Cwan  = WhatSpecies[Gc_AN];
 
             for (h_AN = 1; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                 Gh_AN = natn[Gc_AN][h_AN];
-                Hwan = WhatSpecies[Gh_AN];
+                Hwan  = WhatSpecies[Gh_AN];
 
                 for (i = 0; i < Spe_Total_CNO[Cwan]; i++) {
                     for (j = 0; j < Spe_Total_CNO[Hwan]; j++) {
@@ -1572,8 +1556,8 @@ double Force(double***** H0,
         Gxyz[Gc_AN][19] += Fz[Mc_AN];
 
         if (2 <= level_stdout) {
-            printf("<Force>  force(5) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                myid, Mc_AN, Gc_AN, Fx[Mc_AN], Fy[Mc_AN], Fz[Mc_AN]);
+            printf("<Force>  force(5) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                   Fx[Mc_AN], Fy[Mc_AN], Fz[Mc_AN]);
             fflush(stdout);
         }
     }
@@ -1584,37 +1568,36 @@ double Force(double***** H0,
      term is added.
     ****************************************************************/
 
-    if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)
-        && (Hub_U_occupation == 1 || Hub_U_occupation == 2)
-        && SpinP_switch != 3) {
+    if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) &&
+        (Hub_U_occupation == 1 || Hub_U_occupation == 2) && SpinP_switch != 3) {
 
-        HUx = (double***)malloc(sizeof(double**) * 3);
+        HUx = (double ***)malloc(sizeof(double **) * 3);
         for (i = 0; i < 3; i++) {
-            HUx[i] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+            HUx[i] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                HUx[i][j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                HUx[i][j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
             }
         }
 
-        HUy = (double***)malloc(sizeof(double**) * 3);
+        HUy = (double ***)malloc(sizeof(double **) * 3);
         for (i = 0; i < 3; i++) {
-            HUy[i] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+            HUy[i] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                HUy[i][j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                HUy[i][j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
             }
         }
 
-        HUz = (double***)malloc(sizeof(double**) * 3);
+        HUz = (double ***)malloc(sizeof(double **) * 3);
         for (i = 0; i < 3; i++) {
-            HUz[i] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+            HUz[i] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                HUz[i][j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                HUz[i][j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
             }
         }
     }
 
-    if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)
-        && F_U_flag == 1 && Hub_U_occupation == 2) {
+    if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) &&
+        F_U_flag == 1 && Hub_U_occupation == 2) {
 
         if (myid == Host_ID)
             printf("  Force calculation for LDA_U with dual\n");
@@ -1636,10 +1619,10 @@ double Force(double***** H0,
 
             if (SpinP_switch == 0) {
                 spinmax = 0;
-                dege = 2.0;
+                dege    = 2.0;
             } else {
                 spinmax = 1;
-                dege = 1.0;
+                dege    = 1.0;
             }
 
             for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
@@ -1647,7 +1630,7 @@ double Force(double***** H0,
                 dtime(&Stime_atom);
 
                 Gc_AN = M2G[Mc_AN];
-                Cwan = WhatSpecies[Gc_AN];
+                Cwan  = WhatSpecies[Gc_AN];
 
                 for (spin = 0; spin <= spinmax; spin++) {
 
@@ -1655,7 +1638,7 @@ double Force(double***** H0,
 
                         Gh_AN = natn[Gc_AN][h_AN];
                         Mh_AN = F_G2M[Gh_AN];
-                        Hwan = WhatSpecies[Gh_AN];
+                        Hwan  = WhatSpecies[Gh_AN];
 
                         /* non-orbital optimization */
 
@@ -1734,7 +1717,7 @@ double Force(double***** H0,
                                     for (p = 0; p < Spe_Specified_Num[Cwan][al]; p++) {
                                         p0 = Spe_Trans_Orbital[Cwan][al][p];
                                         for (q = 0; q < Spe_Specified_Num[Hwan][be]; q++) {
-                                            q0 = Spe_Trans_Orbital[Hwan][be][q];
+                                            q0   = Spe_Trans_Orbital[Hwan][be][q];
                                             tmp0 = CntCoes[Mc_AN][al][p] * CntCoes[Mh_AN][be][q];
                                             tmp1 += tmp0 * HUx[0][p0][q0];
                                             tmp2 += tmp0 * HUy[0][p0][q0];
@@ -1774,13 +1757,13 @@ double Force(double***** H0,
                 dtime(&Stime_atom);
 
                 Gc_AN = M2G[Mc_AN];
-                Cwan = WhatSpecies[Gc_AN];
+                Cwan  = WhatSpecies[Gc_AN];
 
                 for (h_AN = 1; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                     Gh_AN = natn[Gc_AN][h_AN];
                     Mh_AN = F_G2M[Gh_AN];
-                    Hwan = WhatSpecies[Gh_AN];
+                    Hwan  = WhatSpecies[Gh_AN];
 
                     kl = RMI1[Mc_AN][h_AN][0];
 
@@ -1861,26 +1844,17 @@ double Force(double***** H0,
                                 Im01z += NC_v_eff[0][1][Mh_AN][k][j].i * OLP[3][Mc_AN][h_AN][i][k];
                             }
 
-                            dx = Re00x * CDM0[0][Mc_AN][h_AN][i][j]
-                                + Re11x * CDM0[1][Mc_AN][h_AN][i][j]
-                                + 2.0 * Re01x * CDM0[2][Mc_AN][h_AN][i][j]
-                                - Im00x * iDM0[0][Mc_AN][h_AN][i][j]
-                                - Im11x * iDM0[1][Mc_AN][h_AN][i][j]
-                                - 2.0 * Im01x * CDM0[3][Mc_AN][h_AN][i][j];
+                            dx = Re00x * CDM0[0][Mc_AN][h_AN][i][j] + Re11x * CDM0[1][Mc_AN][h_AN][i][j] +
+                                 2.0 * Re01x * CDM0[2][Mc_AN][h_AN][i][j] - Im00x * iDM0[0][Mc_AN][h_AN][i][j] -
+                                 Im11x * iDM0[1][Mc_AN][h_AN][i][j] - 2.0 * Im01x * CDM0[3][Mc_AN][h_AN][i][j];
 
-                            dy = Re00y * CDM0[0][Mc_AN][h_AN][i][j]
-                                + Re11y * CDM0[1][Mc_AN][h_AN][i][j]
-                                + 2.0 * Re01y * CDM0[2][Mc_AN][h_AN][i][j]
-                                - Im00y * iDM0[0][Mc_AN][h_AN][i][j]
-                                - Im11y * iDM0[1][Mc_AN][h_AN][i][j]
-                                - 2.0 * Im01y * CDM0[3][Mc_AN][h_AN][i][j];
+                            dy = Re00y * CDM0[0][Mc_AN][h_AN][i][j] + Re11y * CDM0[1][Mc_AN][h_AN][i][j] +
+                                 2.0 * Re01y * CDM0[2][Mc_AN][h_AN][i][j] - Im00y * iDM0[0][Mc_AN][h_AN][i][j] -
+                                 Im11y * iDM0[1][Mc_AN][h_AN][i][j] - 2.0 * Im01y * CDM0[3][Mc_AN][h_AN][i][j];
 
-                            dz = Re00z * CDM0[0][Mc_AN][h_AN][i][j]
-                                + Re11z * CDM0[1][Mc_AN][h_AN][i][j]
-                                + 2.0 * Re01z * CDM0[2][Mc_AN][h_AN][i][j]
-                                - Im00z * iDM0[0][Mc_AN][h_AN][i][j]
-                                - Im11z * iDM0[1][Mc_AN][h_AN][i][j]
-                                - 2.0 * Im01z * CDM0[3][Mc_AN][h_AN][i][j];
+                            dz = Re00z * CDM0[0][Mc_AN][h_AN][i][j] + Re11z * CDM0[1][Mc_AN][h_AN][i][j] +
+                                 2.0 * Re01z * CDM0[2][Mc_AN][h_AN][i][j] - Im00z * iDM0[0][Mc_AN][h_AN][i][j] -
+                                 Im11z * iDM0[1][Mc_AN][h_AN][i][j] - 2.0 * Im01z * CDM0[3][Mc_AN][h_AN][i][j];
 
                             Fx[Mc_AN] += 0.5 * dx;
                             Fy[Mc_AN] += 0.5 * dy;
@@ -1960,26 +1934,17 @@ double Force(double***** H0,
                                 Im01z += NC_v_eff[0][1][Mc_AN][k][i].i * OLP[3][Mc_AN][h_AN][k][j];
                             }
 
-                            dx = Re00x * CDM0[0][Mh_AN][kl][j][i]
-                                + Re11x * CDM0[1][Mh_AN][kl][j][i]
-                                + 2.0 * Re01x * CDM0[2][Mh_AN][kl][j][i]
-                                - Im00x * iDM0[0][Mh_AN][kl][j][i]
-                                - Im11x * iDM0[1][Mh_AN][kl][j][i]
-                                - 2.0 * Im01x * CDM0[3][Mh_AN][kl][j][i];
+                            dx = Re00x * CDM0[0][Mh_AN][kl][j][i] + Re11x * CDM0[1][Mh_AN][kl][j][i] +
+                                 2.0 * Re01x * CDM0[2][Mh_AN][kl][j][i] - Im00x * iDM0[0][Mh_AN][kl][j][i] -
+                                 Im11x * iDM0[1][Mh_AN][kl][j][i] - 2.0 * Im01x * CDM0[3][Mh_AN][kl][j][i];
 
-                            dy = Re00y * CDM0[0][Mh_AN][kl][j][i]
-                                + Re11y * CDM0[1][Mh_AN][kl][j][i]
-                                + 2.0 * Re01y * CDM0[2][Mh_AN][kl][j][i]
-                                - Im00y * iDM0[0][Mh_AN][kl][j][i]
-                                - Im11y * iDM0[1][Mh_AN][kl][j][i]
-                                - 2.0 * Im01y * CDM0[3][Mh_AN][kl][j][i];
+                            dy = Re00y * CDM0[0][Mh_AN][kl][j][i] + Re11y * CDM0[1][Mh_AN][kl][j][i] +
+                                 2.0 * Re01y * CDM0[2][Mh_AN][kl][j][i] - Im00y * iDM0[0][Mh_AN][kl][j][i] -
+                                 Im11y * iDM0[1][Mh_AN][kl][j][i] - 2.0 * Im01y * CDM0[3][Mh_AN][kl][j][i];
 
-                            dz = Re00z * CDM0[0][Mh_AN][kl][j][i]
-                                + Re11z * CDM0[1][Mh_AN][kl][j][i]
-                                + 2.0 * Re01z * CDM0[2][Mh_AN][kl][j][i]
-                                - Im00z * iDM0[0][Mh_AN][kl][j][i]
-                                - Im11z * iDM0[1][Mh_AN][kl][j][i]
-                                - 2.0 * Im01z * CDM0[3][Mh_AN][kl][j][i];
+                            dz = Re00z * CDM0[0][Mh_AN][kl][j][i] + Re11z * CDM0[1][Mh_AN][kl][j][i] +
+                                 2.0 * Re01z * CDM0[2][Mh_AN][kl][j][i] - Im00z * iDM0[0][Mh_AN][kl][j][i] -
+                                 Im11z * iDM0[1][Mh_AN][kl][j][i] - 2.0 * Im01z * CDM0[3][Mh_AN][kl][j][i];
 
                             Fx[Mc_AN] += 0.5 * dx;
                             Fy[Mc_AN] += 0.5 * dy;
@@ -2006,8 +1971,8 @@ double Force(double***** H0,
             Gxyz[Gc_AN][19] += Fz[Mc_AN];
 
             if (2 <= level_stdout) {
-                printf("<Force>  force(LDA_U_dual) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                    myid, Mc_AN, Gc_AN, Fx[Mc_AN], Fy[Mc_AN], Fz[Mc_AN]);
+                printf("<Force>  force(LDA_U_dual) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid,
+                       Mc_AN, Gc_AN, Fx[Mc_AN], Fy[Mc_AN], Fz[Mc_AN]);
                 fflush(stdout);
             }
         }
@@ -2034,9 +1999,8 @@ double Force(double***** H0,
      freeing of arrays:
     ****************************************************/
 
-    if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)
-        && (Hub_U_occupation == 1 || Hub_U_occupation == 2)
-        && SpinP_switch != 3) {
+    if ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) &&
+        (Hub_U_occupation == 1 || Hub_U_occupation == 2) && SpinP_switch != 3) {
 
         for (i = 0; i < 3; i++) {
             for (j = 0; j < List_YOUSO[7]; j++) {
@@ -2089,11 +2053,11 @@ double Force(double***** H0,
 
             if (Mc_AN == 0) {
                 Gc_AN = 0;
-                tno0 = 1;
+                tno0  = 1;
             } else {
                 Gc_AN = F_M2G[Mc_AN];
-                Cwan = WhatSpecies[Gc_AN];
-                tno0 = Spe_Total_CNO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno0  = Spe_Total_CNO[Cwan];
             }
 
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
@@ -2102,8 +2066,8 @@ double Force(double***** H0,
                     tno1 = 1;
                 } else {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno1 = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno1  = Spe_Total_CNO[Hwan];
                 }
 
                 for (i = 0; i < tno0; i++) {
@@ -2121,8 +2085,8 @@ double Force(double***** H0,
     free(Rcv_CDM0_Size);
 
     /* iDM0 */
-    if (SO_switch == 1 || (Hub_U_switch == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-        || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+    if (SO_switch == 1 || (Hub_U_switch == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch ||
+        Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
 
         for (k = 0; k < 2; k++) {
 
@@ -2131,11 +2095,11 @@ double Force(double***** H0,
 
                 if (Mc_AN == 0) {
                     Gc_AN = 0;
-                    tno0 = 1;
+                    tno0  = 1;
                 } else {
                     Gc_AN = F_M2G[Mc_AN];
-                    Cwan = WhatSpecies[Gc_AN];
-                    tno0 = Spe_Total_CNO[Cwan];
+                    Cwan  = WhatSpecies[Gc_AN];
+                    tno0  = Spe_Total_CNO[Cwan];
                 }
 
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
@@ -2144,8 +2108,8 @@ double Force(double***** H0,
                         tno1 = 1;
                     } else {
                         Gh_AN = natn[Gc_AN][h_AN];
-                        Hwan = WhatSpecies[Gh_AN];
-                        tno1 = Spe_Total_CNO[Hwan];
+                        Hwan  = WhatSpecies[Gh_AN];
+                        tno1  = Spe_Total_CNO[Hwan];
                     }
 
                     for (i = 0; i < tno0; i++) {
@@ -2195,9 +2159,9 @@ void Force3()
     **********************************************************/
     /* shared memory for force */
 
-    double** Vpot_grid = (double**)malloc(sizeof(double*) * (SpinP_switch + 1));
+    double ** Vpot_grid = (double **)malloc(sizeof(double *) * (SpinP_switch + 1));
     {
-        double* p2 = (double*)malloc(sizeof(double) * (SpinP_switch + 1) * Max_GridN_Atom);
+        double * p2 = (double *)malloc(sizeof(double) * (SpinP_switch + 1) * Max_GridN_Atom);
 
         int spin;
         for (spin = 0; spin < (SpinP_switch + 1); spin++) {
@@ -2206,11 +2170,11 @@ void Force3()
         }
     }
 
-    double*** dChi0 = (double***)malloc(sizeof(double**) * Max_GridN_Atom);
+    double *** dChi0 = (double ***)malloc(sizeof(double **) * Max_GridN_Atom);
     {
-        double** p2 = (double**)malloc(sizeof(double*) * Max_GridN_Atom * List_YOUSO[7]);
-        double* p = (double*)malloc(sizeof(double) * Max_GridN_Atom * List_YOUSO[7] * 3);
-        int Nc;
+        double ** p2 = (double **)malloc(sizeof(double *) * Max_GridN_Atom * List_YOUSO[7]);
+        double *  p  = (double *)malloc(sizeof(double) * Max_GridN_Atom * List_YOUSO[7] * 3);
+        int       Nc;
         for (Nc = 0; Nc < Max_GridN_Atom; Nc++) {
             dChi0[Nc] = p2;
             p2 += List_YOUSO[7];
@@ -2231,14 +2195,14 @@ void Force3()
 
         /* allocation of arrays */
 
-        double** dorbs0 = (double**)malloc(sizeof(double*) * 4);
+        double ** dorbs0 = (double **)malloc(sizeof(double *) * 4);
         {
             int i;
             for (i = 0; i < 4; i++) {
-                dorbs0[i] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                dorbs0[i] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
             }
         }
-        double* orbs1 = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+        double * orbs1 = (double *)malloc(sizeof(double) * List_YOUSO[7]);
 
         struct WORK_DORBITAL work_dObs;
         Get_dOrbitals_init(&work_dObs);
@@ -2252,8 +2216,8 @@ void Force3()
         for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
             int Gc_AN = M2G[Mc_AN];
-            int Cwan = WhatSpecies[Gc_AN];
-            int NO0 = Spe_Total_CNO[Cwan];
+            int Cwan  = WhatSpecies[Gc_AN];
+            int NO0   = Spe_Total_CNO[Cwan];
 
             /***********************************
                          calc dOrb0
@@ -2271,9 +2235,9 @@ void Force3()
 
                 double Cxyz[4];
                 Get_Grid_XYZ(GNc, Cxyz);
-                double x = Cxyz[1] + atv[GRc][1];
-                double y = Cxyz[2] + atv[GRc][2];
-                double z = Cxyz[3] + atv[GRc][3];
+                double x  = Cxyz[1] + atv[GRc][1];
+                double y  = Cxyz[2] + atv[GRc][2];
+                double z  = Cxyz[3] + atv[GRc][3];
                 double dx = x - Gxyz[Gc_AN][1];
                 double dy = y - Gxyz[Gc_AN][2];
                 double dz = z - Gxyz[Gc_AN][3];
@@ -2284,28 +2248,28 @@ void Force3()
 
                     /* start: direct inlining of Get_dOrbitals_work */
 
-                    int wan = Cwan;
-                    double x = dx, y = dy, z = dz;
-                    int i, i1, i2, i3, i4, j, l, l1;
-                    int po, L0, Mul0, M0;
-                    int mp_min, mp_max, m;
-                    double dum, dum1, dum2, dum3, dum4;
-                    double siQ, coQ, siP, coP, a, b, c;
-                    double dx, rm, tmp0, tmp1, id, d;
-                    double drx, dry, drz, R, Q, P, Rmin;
-                    double S_coordinate[3];
-                    double** RF = work_dObs.RF;
-                    double** dRF = work_dObs.dRF;
-                    double** AF = work_dObs.AF;
-                    double** dAFQ = work_dObs.dAFQ;
-                    double** dAFP = work_dObs.dAFP;
-                    double h1, h2, h3, f1, f2, f3, f4, dfx, dfx2;
-                    double g1, g2, x1, x2, y1, y2, y12, y22, f, df, df2;
-                    double dRx, dRy, dRz, dQx, dQy, dQz, dPx, dPy, dPz;
-                    double dChiR, dChiQ, dChiP, h, sum0, sum1;
-                    double SH[Supported_MaxL * 2 + 1][2];
-                    double dSHt[Supported_MaxL * 2 + 1][2];
-                    double dSHp[Supported_MaxL * 2 + 1][2];
+                    int       wan = Cwan;
+                    double    x = dx, y = dy, z = dz;
+                    int       i, i1, i2, i3, i4, j, l, l1;
+                    int       po, L0, Mul0, M0;
+                    int       mp_min, mp_max, m;
+                    double    dum, dum1, dum2, dum3, dum4;
+                    double    siQ, coQ, siP, coP, a, b, c;
+                    double    dx, rm, tmp0, tmp1, id, d;
+                    double    drx, dry, drz, R, Q, P, Rmin;
+                    double    S_coordinate[3];
+                    double ** RF   = work_dObs.RF;
+                    double ** dRF  = work_dObs.dRF;
+                    double ** AF   = work_dObs.AF;
+                    double ** dAFQ = work_dObs.dAFQ;
+                    double ** dAFP = work_dObs.dAFP;
+                    double    h1, h2, h3, f1, f2, f3, f4, dfx, dfx2;
+                    double    g1, g2, x1, x2, y1, y2, y12, y22, f, df, df2;
+                    double    dRx, dRy, dRz, dQx, dQy, dQz, dPx, dPy, dPz;
+                    double    dChiR, dChiQ, dChiP, h, sum0, sum1;
+                    double    SH[Supported_MaxL * 2 + 1][2];
+                    double    dSHt[Supported_MaxL * 2 + 1][2];
+                    double    dSHp[Supported_MaxL * 2 + 1][2];
 
                     /* start calc. */
 
@@ -2326,7 +2290,7 @@ void Force3()
                         P = S_coordinate[2];
                     }
 
-                    po = 0;
+                    po     = 0;
                     mp_min = 0;
                     mp_max = Spe_Num_Mesh_PAO[wan] - 1;
 
@@ -2334,7 +2298,7 @@ void Force3()
 
                         for (L0 = 0; L0 <= Spe_MaxL_Basis[wan]; L0++) {
                             for (Mul0 = 0; Mul0 < Spe_Num_Basis[wan][L0]; Mul0++) {
-                                RF[L0][Mul0] = 0.0;
+                                RF[L0][Mul0]  = 0.0;
                                 dRF[L0][Mul0] = 0.0;
                             }
                         }
@@ -2344,24 +2308,24 @@ void Force3()
 
                     else if (R < Spe_PAO_RV[wan][0]) {
 
-                        m = 4;
+                        m  = 4;
                         rm = Spe_PAO_RV[wan][m];
 
                         h1 = Spe_PAO_RV[wan][m - 1] - Spe_PAO_RV[wan][m - 2];
                         h2 = Spe_PAO_RV[wan][m] - Spe_PAO_RV[wan][m - 1];
                         h3 = Spe_PAO_RV[wan][m + 1] - Spe_PAO_RV[wan][m];
 
-                        x1 = rm - Spe_PAO_RV[wan][m - 1];
-                        x2 = rm - Spe_PAO_RV[wan][m];
-                        y1 = x1 / h2;
-                        y2 = x2 / h2;
+                        x1  = rm - Spe_PAO_RV[wan][m - 1];
+                        x2  = rm - Spe_PAO_RV[wan][m];
+                        y1  = x1 / h2;
+                        y2  = x2 / h2;
                         y12 = y1 * y1;
                         y22 = y2 * y2;
 
-                        dum = h1 + h2;
+                        dum  = h1 + h2;
                         dum1 = h1 / h2 / dum;
                         dum2 = h2 / h1 / dum;
-                        dum = h2 + h3;
+                        dum  = h2 + h3;
                         dum3 = h2 / h3 / dum;
                         dum4 = h3 / h2 / dum;
 
@@ -2382,16 +2346,16 @@ void Force3()
                                 }
 
                                 dum = f3 - f2;
-                                g1 = dum * dum1 + (f2 - f1) * dum2;
-                                g2 = (f4 - f3) * dum3 + dum * dum4;
+                                g1  = dum * dum1 + (f2 - f1) * dum2;
+                                g2  = (f4 - f3) * dum3 + dum * dum4;
 
-                                f = y22 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2)
-                                    + y12 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1);
+                                f = y22 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2) +
+                                    y12 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1);
 
-                                df = 2.0 * y2 / h2 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2)
-                                    + y22 * (2.0 * f2 + h2 * g1) / h2
-                                    + 2.0 * y1 / h2 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1)
-                                    - y12 * (2.0 * f3 - h2 * g2) / h2;
+                                df = 2.0 * y2 / h2 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2) +
+                                     y22 * (2.0 * f2 + h2 * g1) / h2 +
+                                     2.0 * y1 / h2 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1) -
+                                     y12 * (2.0 * f3 - h2 * g2) / h2;
 
                                 if (L0 == 0) {
                                     a = 0.0;
@@ -2414,7 +2378,7 @@ void Force3()
                                     d = 0.0;
                                 }
 
-                                RF[L0][Mul0] = a * R * R * R + b * R * R + c * R + d;
+                                RF[L0][Mul0]  = a * R * R * R + b * R * R + c * R + d;
                                 dRF[L0][Mul0] = 3.0 * a * R * R + 2.0 * b * R + c;
                             }
                         }
@@ -2436,17 +2400,17 @@ void Force3()
                         h2 = Spe_PAO_RV[wan][m] - Spe_PAO_RV[wan][m - 1];
                         h3 = Spe_PAO_RV[wan][m + 1] - Spe_PAO_RV[wan][m];
 
-                        x1 = R - Spe_PAO_RV[wan][m - 1];
-                        x2 = R - Spe_PAO_RV[wan][m];
-                        y1 = x1 / h2;
-                        y2 = x2 / h2;
+                        x1  = R - Spe_PAO_RV[wan][m - 1];
+                        x2  = R - Spe_PAO_RV[wan][m];
+                        y1  = x1 / h2;
+                        y2  = x2 / h2;
                         y12 = y1 * y1;
                         y22 = y2 * y2;
 
-                        dum = h1 + h2;
+                        dum  = h1 + h2;
                         dum1 = h1 / h2 / dum;
                         dum2 = h2 / h1 / dum;
-                        dum = h2 + h3;
+                        dum  = h2 + h3;
                         dum3 = h2 / h3 / dum;
                         dum4 = h3 / h2 / dum;
 
@@ -2467,18 +2431,18 @@ void Force3()
                                 }
 
                                 dum = f3 - f2;
-                                g1 = dum * dum1 + (f2 - f1) * dum2;
-                                g2 = (f4 - f3) * dum3 + dum * dum4;
+                                g1  = dum * dum1 + (f2 - f1) * dum2;
+                                g2  = (f4 - f3) * dum3 + dum * dum4;
 
-                                f = y22 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2)
-                                    + y12 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1);
+                                f = y22 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2) +
+                                    y12 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1);
 
-                                df = 2.0 * y2 / h2 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2)
-                                    + y2 * y2 * (2.0 * f2 + h2 * g1) / h2
-                                    + 2.0 * y1 / h2 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1)
-                                    - y1 * y1 * (2.0 * f3 - h2 * g2) / h2;
+                                df = 2.0 * y2 / h2 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2) +
+                                     y2 * y2 * (2.0 * f2 + h2 * g1) / h2 +
+                                     2.0 * y1 / h2 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1) -
+                                     y1 * y1 * (2.0 * f3 - h2 * g2) / h2;
 
-                                RF[L0][Mul0] = f;
+                                RF[L0][Mul0]  = f;
                                 dRF[L0][Mul0] = df;
                             }
                         }
@@ -2522,7 +2486,7 @@ void Force3()
 
                         for (L0 = 0; L0 <= Spe_MaxL_Basis[wan]; L0++) {
                             if (L0 == 0) {
-                                AF[0][0] = 0.282094791773878;
+                                AF[0][0]   = 0.282094791773878;
                                 dAFQ[0][0] = 0.0;
                                 dAFP[0][0] = 0.0;
                             } else if (L0 == 1) {
@@ -2541,8 +2505,8 @@ void Force3()
                                 dAFP[1][2] = 0.0;
                             } else if (L0 == 2) {
 
-                                dum1 = siQ * siQ;
-                                dum2 = 1.09254843059208 * siQ * coQ;
+                                dum1     = siQ * siQ;
+                                dum2     = 1.09254843059208 * siQ * coQ;
                                 AF[2][0] = 0.94617469575756 * coQ * coQ - 0.31539156525252;
                                 AF[2][1] = 0.54627421529604 * dum1 * (1.0 - 2.0 * siP * siP);
                                 AF[2][2] = 1.09254843059208 * dum1 * siP * coP;
@@ -2576,7 +2540,8 @@ void Force3()
                                 dAFQ[3][0] = 0.373176332590116 * siQ * (-15.0 * coQ * coQ + 3.0);
                                 dAFQ[3][1] = 0.457045799464466 * coP * coQ * (15.0 * coQ * coQ - 11.0);
                                 dAFQ[3][2] = 0.457045799464466 * siP * coQ * (15.0 * coQ * coQ - 11.0);
-                                dAFQ[3][3] = 1.44530572132028 * (coP * coP - siP * siP) * siQ * (2.0 * coQ * coQ - siQ * siQ);
+                                dAFQ[3][3] =
+                                    1.44530572132028 * (coP * coP - siP * siP) * siQ * (2.0 * coQ * coQ - siQ * siQ);
                                 dAFQ[3][4] = 2.89061144264055 * coP * siP * siQ * (2.0 * coQ * coQ - siQ * siQ);
                                 dAFQ[3][5] = 1.770130769779932 * coP * coQ * siQ * siQ * (-3.0 + 4.0 * coP * coP);
                                 dAFQ[3][6] = 1.770130769779932 * coQ * siP * siQ * siQ * (3.0 - 4.0 * siP * siP);
@@ -2675,29 +2640,24 @@ void Force3()
 
                                 if (ProExpn_VNA == 0) {
 
-                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc]
-                                        + F_Vxc_flag * Vxc_Grid[spin][MNc]
-                                        + F_VNA_flag * VNA_Grid[MNc]
-                                        + F_VEF_flag * VEF_Grid[MNc];
+                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[spin][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc] + F_VEF_flag * VEF_Grid[MNc];
 
                                 } else {
 
-                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc]
-                                        + F_Vxc_flag * Vxc_Grid[spin][MNc]
-                                        + F_VEF_flag * VEF_Grid[MNc];
+                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[spin][MNc] +
+                                          F_VEF_flag * VEF_Grid[MNc];
                                 }
 
                             } else {
                                 if (ProExpn_VNA == 0) {
 
-                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc]
-                                        + F_Vxc_flag * Vxc_Grid[spin][MNc]
-                                        + F_VNA_flag * VNA_Grid[MNc];
+                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[spin][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc];
 
                                 } else {
 
-                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc]
-                                        + F_Vxc_flag * Vxc_Grid[spin][MNc];
+                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[spin][MNc];
                                 }
                             }
                         } else {
@@ -2726,27 +2686,21 @@ void Force3()
 
                             if (ProExpn_VNA == 0) {
 
-                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[0][MNc]
-                                    + F_VNA_flag * VNA_Grid[MNc]
-                                    + F_VEF_flag * VEF_Grid[MNc];
+                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[0][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc] + F_VEF_flag * VEF_Grid[MNc];
 
-                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[1][MNc]
-                                    + F_VNA_flag * VNA_Grid[MNc]
-                                    + F_VEF_flag * VEF_Grid[MNc];
+                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[1][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc] + F_VEF_flag * VEF_Grid[MNc];
 
                                 ReVpt21 = F_Vxc_flag * Vxc_Grid[2][MNc];
                                 ImVpt21 = -F_Vxc_flag * Vxc_Grid[3][MNc];
                             } else {
 
-                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[0][MNc]
-                                    + F_VEF_flag * VEF_Grid[MNc];
+                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[0][MNc] +
+                                          F_VEF_flag * VEF_Grid[MNc];
 
-                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[1][MNc]
-                                    + F_VEF_flag * VEF_Grid[MNc];
+                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[1][MNc] +
+                                          F_VEF_flag * VEF_Grid[MNc];
 
                                 ReVpt21 = F_Vxc_flag * Vxc_Grid[2][MNc];
                                 ImVpt21 = -F_Vxc_flag * Vxc_Grid[3][MNc];
@@ -2756,13 +2710,11 @@ void Force3()
 
                             if (ProExpn_VNA == 0) {
 
-                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[0][MNc]
-                                    + F_VNA_flag * VNA_Grid[MNc];
+                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[0][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc];
 
-                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[1][MNc]
-                                    + F_VNA_flag * VNA_Grid[MNc];
+                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[1][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc];
 
                                 ReVpt21 = F_Vxc_flag * Vxc_Grid[2][MNc];
                                 ImVpt21 = -F_Vxc_flag * Vxc_Grid[3][MNc];
@@ -2804,9 +2756,9 @@ void Force3()
 
                 int Gh_AN = natn[Gc_AN][h_AN];
                 int Mh_AN = F_G2M[Gh_AN];
-                int Rnh = ncn[Gc_AN][h_AN];
-                int Hwan = WhatSpecies[Gh_AN];
-                int NO1 = Spe_Total_CNO[Hwan];
+                int Rnh   = ncn[Gc_AN][h_AN];
+                int Hwan  = WhatSpecies[Gh_AN];
+                int NO1   = Spe_Total_CNO[Hwan];
 
                 int Nog;
 
@@ -2815,7 +2767,7 @@ void Force3()
                     int Nc = GListTAtoms1[Mc_AN][h_AN][Nog];
                     int Nh = GListTAtoms2[Mc_AN][h_AN][Nog];
 
-                    double** const ai_dorbs0 = dChi0[Nc];
+                    double ** const ai_dorbs0 = dChi0[Nc];
 
                     /* set orbs1 */
 
@@ -2841,7 +2793,7 @@ void Force3()
                         int i;
                         for (i = 0; i < NO0; i++) {
                             double tmp0 = 0.0;
-                            int j;
+                            int    j;
                             for (j = 0; j < NO1; j++) {
                                 tmp0 += orbs1[j] * DM[0][spin][Mc_AN][h_AN][i][j];
                             }
@@ -2879,8 +2831,8 @@ void Force3()
 
 #pragma omp master
             if (2 <= level_stdout) {
-                printf("<Force>  force(3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                    myid, Mc_AN, Gc_AN, sumx * GridVol, sumy * GridVol, sumz * GridVol);
+                printf("<Force>  force(3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                       sumx * GridVol, sumy * GridVol, sumz * GridVol);
                 fflush(stdout);
 
                 /*
@@ -2932,17 +2884,17 @@ void Force3()
                  dn/dx * (dVH + Vxc)
     ****************************************************/
 
-    int Mc_AN, Gc_AN, Cwan, Hwan, NO0, NO1;
-    int i, j, k, Nc, Nh, GNc, GRc, MNc, GNh, GRh;
-    int h_AN, Gh_AN, Mh_AN, Rnh, spin, Nog;
-    double*** dDen_Grid;
-    double sum, tmp0, r, dx, dy, dz;
-    double sumx, sumy, sumz;
-    double x, y, z, x1, y1, z1, Vpt;
-    double Cxyz[4];
-    double **dorbs0, *orbs1, ***dChi0;
-    double ReVpt11, ReVpt22, ReVpt21, ImVpt21;
-    int numprocs, myid, tag = 999, ID, IDS, IDR;
+    int        Mc_AN, Gc_AN, Cwan, Hwan, NO0, NO1;
+    int        i, j, k, Nc, Nh, GNc, GRc, MNc, GNh, GRh;
+    int        h_AN, Gh_AN, Mh_AN, Rnh, spin, Nog;
+    double *** dDen_Grid;
+    double     sum, tmp0, r, dx, dy, dz;
+    double     sumx, sumy, sumz;
+    double     x, y, z, x1, y1, z1, Vpt;
+    double     Cxyz[4];
+    double **  dorbs0, *orbs1, ***dChi0;
+    double     ReVpt11, ReVpt22, ReVpt21, ImVpt21;
+    int        numprocs, myid, tag = 999, ID, IDS, IDR;
     /* for OpenMP */
     int OMPID, Nthrds, Nprocs;
 
@@ -2954,45 +2906,52 @@ void Force3()
                 main loop for calculation of force #3
     **********************************************************/
 
-#pragma omp parallel shared(Orbs_Grid_FNAN, G2ID, myid, level_stdout, GridVol, F_VEF_flag, VEF_Grid, F_VNA_flag, VNA_Grid, F_Vxc_flag, Vxc_Grid, dVHart_Grid, F_dVHart_flag, ProExpn_VNA, E_Field_switch, DM, Orbs_Grid, GListTAtoms2, GListTAtoms1, NumOLG, ncn, F_G2M, natn, FNAN, Max_GridN_Atom, SpinP_switch, List_YOUSO, Cnt_switch, Gxyz, atv, MGridListAtom, CellListAtom, GridListAtom, GridN_Atom, Spe_Total_CNO, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, Gc_AN, Cwan, NO0, Nc, GNc, GRc, MNc, Cxyz, x, y, z, dx, dy, dz, dorbs0, orbs1, dDen_Grid, dChi0, i, k, h_AN, Gh_AN, Mh_AN, Rnh, Hwan, NO1, spin, Nog, Nh, j, sum, tmp0, sumx, sumy, sumz, Vpt, ReVpt11, ReVpt22, ReVpt21, ImVpt21)
+#pragma omp parallel shared(Orbs_Grid_FNAN, G2ID, myid, level_stdout, GridVol, F_VEF_flag, VEF_Grid, F_VNA_flag,       \
+                                VNA_Grid, F_Vxc_flag, Vxc_Grid, dVHart_Grid, F_dVHart_flag, ProExpn_VNA,               \
+                                E_Field_switch, DM, Orbs_Grid, GListTAtoms2, GListTAtoms1, NumOLG, ncn, F_G2M, natn,   \
+                                FNAN, Max_GridN_Atom, SpinP_switch, List_YOUSO, Cnt_switch, Gxyz, atv, MGridListAtom,  \
+                                CellListAtom, GridListAtom, GridN_Atom, Spe_Total_CNO, WhatSpecies, M2G, Matomnum)     \
+    private(OMPID, Nthrds, Nprocs, Mc_AN, Gc_AN, Cwan, NO0, Nc, GNc, GRc, MNc, Cxyz, x, y, z, dx, dy, dz, dorbs0,      \
+                orbs1, dDen_Grid, dChi0, i, k, h_AN, Gh_AN, Mh_AN, Rnh, Hwan, NO1, spin, Nog, Nh, j, sum, tmp0, sumx,  \
+                sumy, sumz, Vpt, ReVpt11, ReVpt22, ReVpt21, ImVpt21)
     {
 
         /* allocation of arrays */
 
-        dorbs0 = (double**)malloc(sizeof(double*) * 4);
+        dorbs0 = (double **)malloc(sizeof(double *) * 4);
         for (i = 0; i < 4; i++) {
-            dorbs0[i] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+            dorbs0[i] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
         }
 
-        orbs1 = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+        orbs1 = (double *)malloc(sizeof(double) * List_YOUSO[7]);
 
-        dDen_Grid = (double***)malloc(sizeof(double**) * (SpinP_switch + 1));
+        dDen_Grid = (double ***)malloc(sizeof(double **) * (SpinP_switch + 1));
         for (i = 0; i < (SpinP_switch + 1); i++) {
-            dDen_Grid[i] = (double**)malloc(sizeof(double*) * 3);
+            dDen_Grid[i] = (double **)malloc(sizeof(double *) * 3);
             for (k = 0; k < 3; k++) {
-                dDen_Grid[i][k] = (double*)malloc(sizeof(double) * Max_GridN_Atom);
+                dDen_Grid[i][k] = (double *)malloc(sizeof(double) * Max_GridN_Atom);
             }
         }
 
-        dChi0 = (double***)malloc(sizeof(double**) * 3);
+        dChi0 = (double ***)malloc(sizeof(double **) * 3);
         for (k = 0; k < 3; k++) {
-            dChi0[k] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+            dChi0[k] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
             for (i = 0; i < List_YOUSO[7]; i++) {
-                dChi0[k][i] = (double*)malloc(sizeof(double) * Max_GridN_Atom);
+                dChi0[k][i] = (double *)malloc(sizeof(double) * Max_GridN_Atom);
             }
         }
 
         /* get info. on OpenMP */
 
-        OMPID = omp_get_thread_num();
+        OMPID  = omp_get_thread_num();
         Nthrds = omp_get_num_threads();
         Nprocs = omp_get_num_procs();
 
         for (Mc_AN = (OMPID * Matomnum / Nthrds + 1); Mc_AN < ((OMPID + 1) * Matomnum / Nthrds + 1); Mc_AN++) {
 
             Gc_AN = M2G[Mc_AN];
-            Cwan = WhatSpecies[Gc_AN];
-            NO0 = Spe_Total_CNO[Cwan];
+            Cwan  = WhatSpecies[Gc_AN];
+            NO0   = Spe_Total_CNO[Cwan];
 
             /***********************************
                      calc dOrb0
@@ -3005,9 +2964,9 @@ void Force3()
                 MNc = MGridListAtom[Mc_AN][Nc];
 
                 Get_Grid_XYZ(GNc, Cxyz);
-                x = Cxyz[1] + atv[GRc][1];
-                y = Cxyz[2] + atv[GRc][2];
-                z = Cxyz[3] + atv[GRc][3];
+                x  = Cxyz[1] + atv[GRc][1];
+                y  = Cxyz[2] + atv[GRc][2];
+                z  = Cxyz[3] + atv[GRc][3];
                 dx = x - Gxyz[Gc_AN][1];
                 dy = y - Gxyz[Gc_AN][2];
                 dz = z - Gxyz[Gc_AN][3];
@@ -3041,9 +3000,9 @@ void Force3()
 
                 Gh_AN = natn[Gc_AN][h_AN];
                 Mh_AN = F_G2M[Gh_AN];
-                Rnh = ncn[Gc_AN][h_AN];
-                Hwan = WhatSpecies[Gh_AN];
-                NO1 = Spe_Total_CNO[Hwan];
+                Rnh   = ncn[Gc_AN][h_AN];
+                Hwan  = WhatSpecies[Gh_AN];
+                NO1   = Spe_Total_CNO[Hwan];
 
                 for (spin = 0; spin <= SpinP_switch; spin++) {
                     for (Nog = 0; Nog < NumOLG[Mc_AN][h_AN]; Nog++) {
@@ -3109,29 +3068,24 @@ void Force3()
 
                                 if (ProExpn_VNA == 0) {
 
-                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc]
-                                        + F_Vxc_flag * Vxc_Grid[spin][MNc]
-                                        + F_VNA_flag * VNA_Grid[MNc]
-                                        + F_VEF_flag * VEF_Grid[MNc];
+                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[spin][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc] + F_VEF_flag * VEF_Grid[MNc];
 
                                 } else {
 
-                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc]
-                                        + F_Vxc_flag * Vxc_Grid[spin][MNc]
-                                        + F_VEF_flag * VEF_Grid[MNc];
+                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[spin][MNc] +
+                                          F_VEF_flag * VEF_Grid[MNc];
                                 }
 
                             } else {
                                 if (ProExpn_VNA == 0) {
 
-                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc]
-                                        + F_Vxc_flag * Vxc_Grid[spin][MNc]
-                                        + F_VNA_flag * VNA_Grid[MNc];
+                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[spin][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc];
 
                                 } else {
 
-                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc]
-                                        + F_Vxc_flag * Vxc_Grid[spin][MNc];
+                                    Vpt = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[spin][MNc];
                                 }
                             }
                         } else
@@ -3171,27 +3125,21 @@ void Force3()
 
                             if (ProExpn_VNA == 0) {
 
-                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[0][MNc]
-                                    + F_VNA_flag * VNA_Grid[MNc]
-                                    + F_VEF_flag * VEF_Grid[MNc];
+                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[0][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc] + F_VEF_flag * VEF_Grid[MNc];
 
-                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[1][MNc]
-                                    + F_VNA_flag * VNA_Grid[MNc]
-                                    + F_VEF_flag * VEF_Grid[MNc];
+                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[1][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc] + F_VEF_flag * VEF_Grid[MNc];
 
                                 ReVpt21 = F_Vxc_flag * Vxc_Grid[2][MNc];
                                 ImVpt21 = -F_Vxc_flag * Vxc_Grid[3][MNc];
                             } else {
 
-                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[0][MNc]
-                                    + F_VEF_flag * VEF_Grid[MNc];
+                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[0][MNc] +
+                                          F_VEF_flag * VEF_Grid[MNc];
 
-                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[1][MNc]
-                                    + F_VEF_flag * VEF_Grid[MNc];
+                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[1][MNc] +
+                                          F_VEF_flag * VEF_Grid[MNc];
 
                                 ReVpt21 = F_Vxc_flag * Vxc_Grid[2][MNc];
                                 ImVpt21 = -F_Vxc_flag * Vxc_Grid[3][MNc];
@@ -3201,13 +3149,11 @@ void Force3()
 
                             if (ProExpn_VNA == 0) {
 
-                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[0][MNc]
-                                    + F_VNA_flag * VNA_Grid[MNc];
+                                ReVpt11 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[0][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc];
 
-                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc]
-                                    + F_Vxc_flag * Vxc_Grid[1][MNc]
-                                    + F_VNA_flag * VNA_Grid[MNc];
+                                ReVpt22 = F_dVHart_flag * dVHart_Grid[MNc] + F_Vxc_flag * Vxc_Grid[1][MNc] +
+                                          F_VNA_flag * VNA_Grid[MNc];
 
                                 ReVpt21 = F_Vxc_flag * Vxc_Grid[2][MNc];
                                 ImVpt21 = -F_Vxc_flag * Vxc_Grid[3][MNc];
@@ -3253,8 +3199,8 @@ void Force3()
             Gxyz[Gc_AN][19] += sumz * GridVol;
 
             if (2 <= level_stdout) {
-                printf("<Force>  force(3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                    myid, Mc_AN, Gc_AN, sumx * GridVol, sumy * GridVol, sumz * GridVol);
+                printf("<Force>  force(3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                       sumx * GridVol, sumy * GridVol, sumz * GridVol);
                 fflush(stdout);
             }
 
@@ -3297,9 +3243,9 @@ void Force4()
                         n * dVNA/dx
     ****************************************************/
 
-    int Mc_AN, Gc_AN, Cwan, Hwan, NO0, NO1;
-    int i, j, k, Nc, Nh, GNc, GRc, MNc;
-    int h_AN, Gh_AN, Mh_AN, Rnh, spin, Nog;
+    int    Mc_AN, Gc_AN, Cwan, Hwan, NO0, NO1;
+    int    i, j, k, Nc, Nh, GNc, GRc, MNc;
+    int    h_AN, Gh_AN, Mh_AN, Rnh, spin, Nog;
     double sum, tmp0, r, dx, dy, dz;
     double dvx, dvy, dvz;
     double sumx, sumy, sumz;
@@ -3313,8 +3259,8 @@ void Force4()
     for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
         Gc_AN = M2G[Mc_AN];
-        Cwan = WhatSpecies[Gc_AN];
-        NO0 = Spe_Total_CNO[Cwan];
+        Cwan  = WhatSpecies[Gc_AN];
+        NO0   = Spe_Total_CNO[Cwan];
 
         /***********************************
                      summation
@@ -3331,13 +3277,13 @@ void Force4()
             MNc = MGridListAtom[Mc_AN][Nc];
 
             Get_Grid_XYZ(GNc, Cxyz);
-            x = Cxyz[1] + atv[GRc][1];
-            y = Cxyz[2] + atv[GRc][2];
-            z = Cxyz[3] + atv[GRc][3];
+            x  = Cxyz[1] + atv[GRc][1];
+            y  = Cxyz[2] + atv[GRc][2];
+            z  = Cxyz[3] + atv[GRc][3];
             dx = Gxyz[Gc_AN][1] - x;
             dy = Gxyz[Gc_AN][2] - y;
             dz = Gxyz[Gc_AN][3] - z;
-            r = sqrt(dx * dx + dy * dy + dz * dz);
+            r  = sqrt(dx * dx + dy * dy + dz * dz);
 
             /* for empty atoms or finite elemens basis */
             if (r < 1.0e-10)
@@ -3345,9 +3291,9 @@ void Force4()
 
             if (1.0e-14 < r) {
                 tmp0 = Dr_VNAF(Cwan, r);
-                dvx = tmp0 * dx / r;
-                dvy = tmp0 * dy / r;
-                dvz = tmp0 * dz / r;
+                dvx  = tmp0 * dx / r;
+                dvy  = tmp0 * dy / r;
+                dvz  = tmp0 * dz / r;
             } else {
                 dvx = 0.0;
                 dvy = 0.0;
@@ -3373,45 +3319,45 @@ void Force4()
     }
 }
 
-void Force_HNL(double***** CDM0, double***** iDM0)
+void Force_HNL(double ***** CDM0, double ***** iDM0)
 {
     /****************************************************
                     Force arising from HNL
     ****************************************************/
 
-    int Mc_AN, Gc_AN, Cwan, i, j, h_AN, q_AN, Mq_AN, start_q_AN;
-    int jan, kl, km, kl1, Qwan, Gq_AN, Gh_AN, Mh_AN, Hwan, ian;
-    int l1, l2, l3, l, LL, Mul1, tno0, ncp, so;
-    int tno1, tno2, size1, size2, n, kk, num, po, po1, po2;
-    int numprocs, myid, tag = 999, ID, IDS, IDR;
+    int   Mc_AN, Gc_AN, Cwan, i, j, h_AN, q_AN, Mq_AN, start_q_AN;
+    int   jan, kl, km, kl1, Qwan, Gq_AN, Gh_AN, Mh_AN, Hwan, ian;
+    int   l1, l2, l3, l, LL, Mul1, tno0, ncp, so;
+    int   tno1, tno2, size1, size2, n, kk, num, po, po1, po2;
+    int   numprocs, myid, tag = 999, ID, IDS, IDR;
     int **S_array, **R_array;
-    int S_comm_flag, R_comm_flag;
-    int SA_num, q, Sc_AN, GSc_AN, smul;
-    int Sc_wan, Sh_AN, GSh_AN, Sh_wan;
-    int Sh_AN2, fan, jg, j0, jg0, Mj_AN0;
-    int Original_Mc_AN;
+    int   S_comm_flag, R_comm_flag;
+    int   SA_num, q, Sc_AN, GSc_AN, smul;
+    int   Sc_wan, Sh_AN, GSh_AN, Sh_wan;
+    int   Sh_AN2, fan, jg, j0, jg0, Mj_AN0;
+    int   Original_Mc_AN;
 
-    double rcutA, rcutB, rcut;
-    double dEx, dEy, dEz, ene, pref;
-    double Stime_atom, Etime_atom;
+    double      rcutA, rcutB, rcut;
+    double      dEx, dEy, dEz, ene, pref;
+    double      Stime_atom, Etime_atom;
     dcomplex ***Hx, ***Hy, ***Hz;
     dcomplex ***Hx0, ***Hy0, ***Hz0;
     dcomplex ***Hx1, ***Hy1, ***Hz1;
-    int *Snd_DS_NL_Size, *Rcv_DS_NL_Size;
-    int* Indicator;
-    double* tmp_array;
-    double* tmp_array2;
+    int *       Snd_DS_NL_Size, *Rcv_DS_NL_Size;
+    int *       Indicator;
+    double *    tmp_array;
+    double *    tmp_array2;
 
     /* for OpenMP */
-    int OMPID, Nthrds, Nthrds0, Nprocs, Nloop, ODNloop;
-    int *OneD2h_AN, *OneD2q_AN;
-    double* dEx_threads;
-    double* dEy_threads;
-    double* dEz_threads;
-    double stime, etime;
-    double stime1, etime1;
+    int      OMPID, Nthrds, Nthrds0, Nprocs, Nloop, ODNloop;
+    int *    OneD2h_AN, *OneD2q_AN;
+    double * dEx_threads;
+    double * dEy_threads;
+    double * dEz_threads;
+    double   stime, etime;
+    double   stime1, etime1;
 
-    MPI_Status stat;
+    MPI_Status  stat;
     MPI_Request request;
 
     /* MPI */
@@ -3425,25 +3371,25 @@ void Force_HNL(double***** CDM0, double***** iDM0)
          allocation of arrays
     *****************************/
 
-    Indicator = (int*)malloc(sizeof(int) * numprocs);
+    Indicator = (int *)malloc(sizeof(int) * numprocs);
 
-    S_array = (int**)malloc(sizeof(int*) * numprocs);
+    S_array = (int **)malloc(sizeof(int *) * numprocs);
     for (ID = 0; ID < numprocs; ID++) {
-        S_array[ID] = (int*)malloc(sizeof(int) * 3);
+        S_array[ID] = (int *)malloc(sizeof(int) * 3);
     }
 
-    R_array = (int**)malloc(sizeof(int*) * numprocs);
+    R_array = (int **)malloc(sizeof(int *) * numprocs);
     for (ID = 0; ID < numprocs; ID++) {
-        R_array[ID] = (int*)malloc(sizeof(int) * 3);
+        R_array[ID] = (int *)malloc(sizeof(int) * 3);
     }
 
-    Snd_DS_NL_Size = (int*)malloc(sizeof(int) * numprocs);
-    Rcv_DS_NL_Size = (int*)malloc(sizeof(int) * numprocs);
+    Snd_DS_NL_Size = (int *)malloc(sizeof(int) * numprocs);
+    Rcv_DS_NL_Size = (int *)malloc(sizeof(int) * numprocs);
 
     /* initialize the temporal array storing the force contribution */
 
     for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
-        Gc_AN = F_M2G[Mc_AN];
+        Gc_AN           = F_M2G[Mc_AN];
         Gxyz[Gc_AN][41] = 0.0;
         Gxyz[Gc_AN][42] = 0.0;
         Gxyz[Gc_AN][43] = 0.0;
@@ -3481,51 +3427,51 @@ void Force_HNL(double***** CDM0, double***** iDM0)
     MPI_Barrier(mpi_comm_level1);
     dtime(&stime);
 
-    Hx0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hx0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hx0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hx0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hx0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hx0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hy0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hy0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hy0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hy0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hy0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hy0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hz0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hz0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hz0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hz0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hz0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hz0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hx1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hx1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hx1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hx1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hx1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hx1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hy1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hy1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hy1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hy1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hy1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hy1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hz1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hz1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hz1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hz1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hz1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hz1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
@@ -3550,17 +3496,17 @@ void Force_HNL(double***** CDM0, double***** iDM0)
             if (0 < (F_Snd_Num[IDS] - F_Snd_Num_WK[IDS])) {
 
                 size1 = 0;
-                n = F_Snd_Num_WK[IDS];
+                n     = F_Snd_Num_WK[IDS];
 
                 Mc_AN = Snd_MAN[IDS][n];
                 Gc_AN = Snd_GAN[IDS][n];
-                Cwan = WhatSpecies[Gc_AN];
-                tno1 = Spe_Total_NO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno1  = Spe_Total_NO[Cwan];
 
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno2 = Spe_Total_VPS_Pro[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno2  = Spe_Total_VPS_Pro[Hwan];
                     size1 += (VPS_j_dependency[Hwan] + 1) * tno1 * tno2;
                 }
 
@@ -3603,22 +3549,22 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                 /* allocation of the array */
 
-                tmp_array = (double*)malloc(sizeof(double) * size1);
+                tmp_array = (double *)malloc(sizeof(double) * size1);
 
                 /* multidimentional array to the vector array */
 
                 num = 0;
-                n = F_Snd_Num_WK[IDS];
+                n   = F_Snd_Num_WK[IDS];
 
                 Mc_AN = Snd_MAN[IDS][n];
                 Gc_AN = Snd_GAN[IDS][n];
-                Cwan = WhatSpecies[Gc_AN];
-                tno1 = Spe_Total_NO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno1  = Spe_Total_NO[Cwan];
 
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno2 = Spe_Total_VPS_Pro[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno2  = Spe_Total_VPS_Pro[Hwan];
 
                     for (so = 0; so <= VPS_j_dependency[Hwan]; so++) {
                         for (i = 0; i < tno1; i++) {
@@ -3639,23 +3585,23 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
             if (0 < (F_Rcv_Num[IDR] - F_Rcv_Num_WK[IDR])) {
 
-                size2 = Rcv_DS_NL_Size[IDR];
-                tmp_array2 = (double*)malloc(sizeof(double) * size2);
+                size2      = Rcv_DS_NL_Size[IDR];
+                tmp_array2 = (double *)malloc(sizeof(double) * size2);
                 MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
 
                 /* store */
 
-                num = 0;
-                n = F_Rcv_Num_WK[IDR];
+                num            = 0;
+                n              = F_Rcv_Num_WK[IDR];
                 Original_Mc_AN = F_TopMAN[IDR] + n;
 
                 Gc_AN = Rcv_GAN[IDR][n];
-                Cwan = WhatSpecies[Gc_AN];
-                tno1 = Spe_Total_NO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno1  = Spe_Total_NO[Cwan];
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno2 = Spe_Total_VPS_Pro[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno2  = Spe_Total_VPS_Pro[Hwan];
 
                     for (so = 0; so <= VPS_j_dependency[Hwan]; so++) {
                         for (i = 0; i < tno1; i++) {
@@ -3683,26 +3629,26 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                     dEz = 0.0;
 
                     Gc_AN = M2G[Mc_AN];
-                    Cwan = WhatSpecies[Gc_AN];
-                    fan = FNAN[Gc_AN];
+                    Cwan  = WhatSpecies[Gc_AN];
+                    fan   = FNAN[Gc_AN];
 
-                    h_AN = 0;
+                    h_AN  = 0;
                     Gh_AN = natn[Gc_AN][h_AN];
                     Mh_AN = F_G2M[Gh_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    ian = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    ian   = Spe_Total_CNO[Hwan];
 
-                    n = F_Rcv_Num_WK[IDR];
+                    n  = F_Rcv_Num_WK[IDR];
                     jg = Rcv_GAN[IDR][n];
 
                     for (j0 = 0; j0 <= fan; j0++) {
 
-                        jg0 = natn[Gc_AN][j0];
+                        jg0    = natn[Gc_AN][j0];
                         Mj_AN0 = F_G2M[jg0];
 
                         po2 = 0;
                         if (Original_Mc_AN == Mj_AN0) {
-                            po2 = 1;
+                            po2  = 1;
                             q_AN = j0;
                         }
 
@@ -3710,9 +3656,9 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                             Gq_AN = natn[Gc_AN][q_AN];
                             Mq_AN = F_G2M[Gq_AN];
-                            Qwan = WhatSpecies[Gq_AN];
-                            jan = Spe_Total_CNO[Qwan];
-                            kl = RMI1[Mc_AN][h_AN][q_AN];
+                            Qwan  = WhatSpecies[Gq_AN];
+                            jan   = Spe_Total_CNO[Qwan];
+                            kl    = RMI1[Mc_AN][h_AN][q_AN];
 
                             dHNL(0, Mc_AN, h_AN, q_AN, DS_NL, Hx0, Hy0, Hz0);
 
@@ -3738,7 +3684,9 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                             /* collinear spin polarized or non-colliear without SO and LDA+U */
 
-                            else if (SpinP_switch == 1 || (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
+                            else if (SpinP_switch == 1 ||
+                                     (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 &&
+                                      Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
 
                                 if (q_AN == h_AN)
                                     pref = 1.0;
@@ -3748,71 +3696,76 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                                 for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {
                                     for (j = 0; j < Spe_Total_CNO[Qwan]; j++) {
 
-                                        dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r);
-                                        dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r);
-                                        dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r);
+                                        dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r +
+                                                       CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r);
+                                        dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r +
+                                                       CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r);
+                                        dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r +
+                                                       CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r);
                                     }
                                 }
                             }
 
                             /* spin non-collinear with spin-orbit coupling or with LDA+U */
 
-                            else if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
+                            else if (SpinP_switch == 3 &&
+                                     (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) ||
+                                      1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
 
                                 if (q_AN == h_AN) {
 
                                     for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {
                                         for (j = 0; j < Spe_Total_CNO[Qwan]; j++) {
 
-                                            dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
+                                            dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
 
-                                            dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
+                                            dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
 
-                                            dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
+                                            dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
                                         }
                                     }
                                 }
 
                                 else {
 
-                                    for (i = 0; i < Spe_Total_CNO[Hwan]; i++) { /* Hwan */
+                                    for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {     /* Hwan */
                                         for (j = 0; j < Spe_Total_CNO[Qwan]; j++) { /* Qwan  */
 
-                                            dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
+                                            dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
 
-                                            dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
+                                            dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
 
-                                            dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
+                                            dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
 
                                         } /* j */
                                     } /* i */
@@ -3820,29 +3773,29 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                                     dHNL(0, Mc_AN, q_AN, h_AN, DS_NL, Hx1, Hy1, Hz1);
                                     kl1 = RMI1[Mc_AN][q_AN][h_AN];
 
-                                    for (i = 0; i < Spe_Total_CNO[Qwan]; i++) { /* Qwan */
+                                    for (i = 0; i < Spe_Total_CNO[Qwan]; i++) {     /* Qwan */
                                         for (j = 0; j < Spe_Total_CNO[Hwan]; j++) { /* Hwan */
 
-                                            dEx += CDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].r
-                                                - iDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].i
-                                                + CDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].r
-                                                - iDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].i
-                                                + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hx1[2][i][j].r
-                                                - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hx1[2][i][j].i;
+                                            dEx += CDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].r -
+                                                   iDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].i +
+                                                   CDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].r -
+                                                   iDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].i +
+                                                   2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hx1[2][i][j].r -
+                                                   2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hx1[2][i][j].i;
 
-                                            dEy += CDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].r
-                                                - iDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].i
-                                                + CDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].r
-                                                - iDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].i
-                                                + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hy1[2][i][j].r
-                                                - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hy1[2][i][j].i;
+                                            dEy += CDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].r -
+                                                   iDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].i +
+                                                   CDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].r -
+                                                   iDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].i +
+                                                   2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hy1[2][i][j].r -
+                                                   2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hy1[2][i][j].i;
 
-                                            dEz += CDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].r
-                                                - iDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].i
-                                                + CDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].r
-                                                - iDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].i
-                                                + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hz1[2][i][j].r
-                                                - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hz1[2][i][j].i;
+                                            dEz += CDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].r -
+                                                   iDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].i +
+                                                   CDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].r -
+                                                   iDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].i +
+                                                   2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hz1[2][i][j].r -
+                                                   2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hz1[2][i][j].i;
 
                                         } /* j */
                                     } /* i */
@@ -3962,8 +3915,8 @@ void Force_HNL(double***** CDM0, double***** iDM0)
         Gc_AN = M2G[Mc_AN];
 
         if (2 <= level_stdout) {
-            printf("<Force>  force(HNL1) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                myid, Mc_AN, Gc_AN, Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
+            printf("<Force>  force(HNL1) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                   Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
             fflush(stdout);
         }
     }
@@ -3980,62 +3933,66 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
     dtime(&stime);
 
-#pragma omp parallel shared(time_per_atom, Gxyz, CDM0, SpinP_switch, SO_switch, Hub_U_switch, F_U_flag, Constraint_NCS_switch, Zeeman_NCS_switch, Zeeman_NCO_switch, DS_NL, RMI1, FNAN, Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO, F_NL_flag) private(Hx0, Hy0, Hz0, Hx1, Hy1, Hz1, OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, kl1, i, j, kk, pref)
+#pragma omp parallel shared(time_per_atom, Gxyz, CDM0, SpinP_switch, SO_switch, Hub_U_switch, F_U_flag,                \
+                                Constraint_NCS_switch, Zeeman_NCS_switch, Zeeman_NCO_switch, DS_NL, RMI1, FNAN,        \
+                                Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO, F_NL_flag)         \
+    private(Hx0, Hy0, Hz0, Hx1, Hy1, Hz1, OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN,  \
+                h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, kl1, i, j, kk, pref)
     {
 
         /* allocation of array */
 
-        Hx0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hx0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hx0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hx0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hx0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hx0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hy0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hy0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hy0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hy0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hy0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hy0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hz0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hz0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hz0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hz0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hz0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hz0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hx1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hx1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hx1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hx1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hx1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hx1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hy1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hy1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hy1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hy1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hy1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hy1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hz1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hz1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hz1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hz1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hz1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hz1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
         /* get info. on OpenMP */
 
-        OMPID = omp_get_thread_num();
+        OMPID  = omp_get_thread_num();
         Nthrds = omp_get_num_threads();
         Nprocs = omp_get_num_procs();
 
@@ -4048,11 +4005,11 @@ void Force_HNL(double***** CDM0, double***** iDM0)
             dEz = 0.0;
 
             Gc_AN = M2G[Mc_AN];
-            h_AN = 0;
+            h_AN  = 0;
             Gh_AN = natn[Gc_AN][h_AN];
             Mh_AN = F_G2M[Gh_AN];
-            Hwan = WhatSpecies[Gh_AN];
-            ian = Spe_Total_CNO[Hwan];
+            Hwan  = WhatSpecies[Gh_AN];
+            ian   = Spe_Total_CNO[Hwan];
 
             for (q_AN = 0; q_AN <= FNAN[Gc_AN]; q_AN++) {
 
@@ -4062,8 +4019,8 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                 if (Mq_AN <= Matomnum) {
 
                     Qwan = WhatSpecies[Gq_AN];
-                    jan = Spe_Total_CNO[Qwan];
-                    kl = RMI1[Mc_AN][h_AN][q_AN];
+                    jan  = Spe_Total_CNO[Qwan];
+                    kl   = RMI1[Mc_AN][h_AN][q_AN];
 
                     dHNL(0, Mc_AN, h_AN, q_AN, DS_NL, Hx0, Hy0, Hz0);
 
@@ -4086,7 +4043,9 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                     /* collinear spin polarized or non-colliear without SO and LDA+U */
 
-                    else if (SpinP_switch == 1 || (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
+                    else if (SpinP_switch == 1 ||
+                             (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 &&
+                              Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
 
                         if (q_AN == h_AN)
                             pref = 1.0;
@@ -4096,71 +4055,76 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                         for (i = 0; i < ian; i++) {
                             for (j = 0; j < jan; j++) {
 
-                                dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r);
-                                dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r);
-                                dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r);
+                                dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r +
+                                               CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r);
+                                dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r +
+                                               CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r);
+                                dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r +
+                                               CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r);
                             }
                         }
                     }
 
                     /* spin non-collinear with spin-orbit coupling or with LDA+U */
 
-                    else if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
+                    else if (SpinP_switch == 3 &&
+                             (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch ||
+                              Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
 
                         if (q_AN == h_AN) {
 
                             for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {
                                 for (j = 0; j < Spe_Total_CNO[Qwan]; j++) {
 
-                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
+                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
 
-                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
+                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
 
-                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
+                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
                                 }
                             }
                         }
 
                         else {
 
-                            for (i = 0; i < Spe_Total_CNO[Hwan]; i++) { /* Hwan */
+                            for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {     /* Hwan */
                                 for (j = 0; j < Spe_Total_CNO[Qwan]; j++) { /* Qwan  */
 
-                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
+                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
 
-                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
+                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
 
-                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
+                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
 
                                 } /* j */
                             } /* i */
@@ -4168,29 +4132,29 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                             dHNL(0, Mc_AN, q_AN, h_AN, DS_NL, Hx1, Hy1, Hz1);
 
                             kl1 = RMI1[Mc_AN][q_AN][h_AN];
-                            for (i = 0; i < Spe_Total_CNO[Qwan]; i++) { /* Qwan */
+                            for (i = 0; i < Spe_Total_CNO[Qwan]; i++) {     /* Qwan */
                                 for (j = 0; j < Spe_Total_CNO[Hwan]; j++) { /* Hwan */
 
-                                    dEx += CDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].r
-                                        - iDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].i
-                                        + CDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].r
-                                        - iDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].i
-                                        + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hx1[2][i][j].r
-                                        - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hx1[2][i][j].i;
+                                    dEx += CDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].r -
+                                           iDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].i +
+                                           CDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].r -
+                                           iDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].i +
+                                           2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hx1[2][i][j].r -
+                                           2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hx1[2][i][j].i;
 
-                                    dEy += CDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].r
-                                        - iDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].i
-                                        + CDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].r
-                                        - iDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].i
-                                        + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hy1[2][i][j].r
-                                        - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hy1[2][i][j].i;
+                                    dEy += CDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].r -
+                                           iDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].i +
+                                           CDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].r -
+                                           iDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].i +
+                                           2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hy1[2][i][j].r -
+                                           2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hy1[2][i][j].i;
 
-                                    dEz += CDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].r
-                                        - iDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].i
-                                        + CDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].r
-                                        - iDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].i
-                                        + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hz1[2][i][j].r
-                                        - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hz1[2][i][j].i;
+                                    dEz += CDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].r -
+                                           iDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].i +
+                                           CDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].r -
+                                           iDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].i +
+                                           2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hz1[2][i][j].r -
+                                           2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hz1[2][i][j].i;
 
                                 } /* j */
                             } /* i */
@@ -4275,8 +4239,8 @@ void Force_HNL(double***** CDM0, double***** iDM0)
         Gc_AN = M2G[Mc_AN];
 
         if (2 <= level_stdout) {
-            printf("<Force>  force(HNL2) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                myid, Mc_AN, Gc_AN, Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
+            printf("<Force>  force(HNL2) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                   Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
             fflush(stdout);
         }
     }
@@ -4310,7 +4274,7 @@ void Force_HNL(double***** CDM0, double***** iDM0)
             IDS = (myid + ID) % numprocs;
             IDR = (myid - ID + numprocs) % numprocs;
 
-            i = Indicator[IDS];
+            i  = Indicator[IDS];
             po = 0;
 
             Gh_AN = Pro_Snd_GAtom[IDS][i];
@@ -4334,16 +4298,16 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                 size1 = 0;
                 for (q = Indicator[IDS]; q <= (Indicator[IDS] + SA_num - 1); q++) {
 
-                    Sc_AN = Pro_Snd_MAtom[IDS][q];
+                    Sc_AN  = Pro_Snd_MAtom[IDS][q];
                     GSc_AN = F_M2G[Sc_AN];
                     Sc_wan = WhatSpecies[GSc_AN];
-                    tno1 = Spe_Total_CNO[Sc_wan];
+                    tno1   = Spe_Total_CNO[Sc_wan];
 
-                    Sh_AN = Pro_Snd_LAtom[IDS][q];
+                    Sh_AN  = Pro_Snd_LAtom[IDS][q];
                     GSh_AN = natn[GSc_AN][Sh_AN];
                     Sh_wan = WhatSpecies[GSh_AN];
-                    tno2 = Spe_Total_VPS_Pro[Sh_wan];
-                    smul = (VPS_j_dependency[Sh_wan] + 1);
+                    tno2   = Spe_Total_VPS_Pro[Sh_wan];
+                    smul   = (VPS_j_dependency[Sh_wan] + 1);
 
                     size1 += smul * 4 * tno1 * tno2;
                     size1 += 3;
@@ -4353,7 +4317,7 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
             else {
                 SA_num = 0;
-                size1 = 0;
+                size1  = 0;
             }
 
             S_array[IDS][0] = Gh_AN;
@@ -4393,7 +4357,7 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                 /* allocate tmp_array */
 
-                tmp_array = (double*)malloc(sizeof(double) * size1);
+                tmp_array = (double *)malloc(sizeof(double) * size1);
 
                 /* multidimentional array to vector array */
 
@@ -4401,15 +4365,15 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                 for (q = Indicator[IDS]; q <= (Indicator[IDS] + SA_num - 1); q++) {
 
-                    Sc_AN = Pro_Snd_MAtom[IDS][q];
+                    Sc_AN  = Pro_Snd_MAtom[IDS][q];
                     GSc_AN = F_M2G[Sc_AN];
                     Sc_wan = WhatSpecies[GSc_AN];
-                    tno1 = Spe_Total_CNO[Sc_wan];
+                    tno1   = Spe_Total_CNO[Sc_wan];
 
-                    Sh_AN = Pro_Snd_LAtom[IDS][q];
+                    Sh_AN  = Pro_Snd_LAtom[IDS][q];
                     GSh_AN = natn[GSc_AN][Sh_AN];
                     Sh_wan = WhatSpecies[GSh_AN];
-                    tno2 = Spe_Total_VPS_Pro[Sh_wan];
+                    tno2   = Spe_Total_VPS_Pro[Sh_wan];
                     Sh_AN2 = Pro_Snd_LAtom2[IDS][q];
 
                     tmp_array[num] = (double)Sc_AN;
@@ -4449,8 +4413,8 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
             if (R_comm_flag == 1) {
 
-                size2 = R_array[IDR][2];
-                tmp_array2 = (double*)malloc(sizeof(double) * size2);
+                size2      = R_array[IDR][2];
+                tmp_array2 = (double *)malloc(sizeof(double) * size2);
 
                 if (ID != 0) {
                     MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
@@ -4474,11 +4438,11 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                     GSc_AN = natn[Gc_AN][Sh_AN2];
                     Sc_wan = WhatSpecies[GSc_AN];
-                    tno1 = Spe_Total_CNO[Sc_wan];
+                    tno1   = Spe_Total_CNO[Sc_wan];
 
                     GSh_AN = natn[GSc_AN][Sh_AN];
                     Sh_wan = WhatSpecies[GSh_AN];
-                    tno2 = Spe_Total_VPS_Pro[Sh_wan];
+                    tno2   = Spe_Total_VPS_Pro[Sh_wan];
 
                     for (so = 0; so <= VPS_j_dependency[Sh_wan]; so++) {
                         for (kk = 0; kk <= 3; kk++) {
@@ -4508,16 +4472,16 @@ void Force_HNL(double***** CDM0, double***** iDM0)
         if (Mc_AN <= Matomnum) {
 
             /* get Nthrds0 */
-            // comment out May 20th, 2023 H. Kawai
-            // #pragma omp parallel shared(Nthrds0)
+
+#pragma omp parallel shared(Nthrds0)
             {
                 Nthrds0 = omp_get_num_threads();
             }
 
             /* allocation of arrays */
-            dEx_threads = (double*)malloc(sizeof(double) * Nthrds0);
-            dEy_threads = (double*)malloc(sizeof(double) * Nthrds0);
-            dEz_threads = (double*)malloc(sizeof(double) * Nthrds0);
+            dEx_threads = (double *)malloc(sizeof(double) * Nthrds0);
+            dEy_threads = (double *)malloc(sizeof(double) * Nthrds0);
+            dEz_threads = (double *)malloc(sizeof(double) * Nthrds0);
 
             for (Nloop = 0; Nloop < Nthrds0; Nloop++) {
                 dEx_threads[Nloop] = 0.0;
@@ -4527,14 +4491,16 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
             /* one-dimensionalize the h_AN and q_AN loops */
 
-            OneD2h_AN = (int*)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
-            OneD2q_AN = (int*)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
+            OneD2h_AN = (int *)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
+            OneD2q_AN = (int *)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
 
             ODNloop = 0;
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
-                if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)
-                    || (Solver == 5 || Solver == 8 || Solver == 11))
+                if (SpinP_switch == 3 &&
+                        (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch ||
+                         Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) ||
+                    (Solver == 5 || Solver == 8 || Solver == 11))
                     start_q_AN = 0;
                 else
                     start_q_AN = h_AN;
@@ -4551,39 +4517,44 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                 }
             }
 
-            // comment out April 28th, 2023 H. Kawai
-            // #pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,dEx_threads,dEy_threads,dEz_threads,CDM0,SpinP_switch,SO_switch,Hub_U_switch,Constraint_NCS_switch,Zeeman_NCS_switch,Zeeman_NCO_switch,DS_NL,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver,F_NL_flag,F_U_flag) private(OMPID,Nthrds,Nprocs,Hx,Hy,Hz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,km,Nloop,pref)
+// comment out April 28th, 2023 H. Kawai
+#pragma omp parallel shared(ODNloop, OneD2h_AN, OneD2q_AN, Mc_AN, Gc_AN, dEx_threads, dEy_threads, dEz_threads, CDM0,  \
+                                SpinP_switch, SO_switch, Hub_U_switch, Constraint_NCS_switch, Zeeman_NCS_switch,       \
+                                Zeeman_NCO_switch, DS_NL, RMI1, Spe_Total_CNO, WhatSpecies, F_G2M, natn, FNAN,         \
+                                List_YOUSO, Solver, F_NL_flag, F_U_flag)                                               \
+    private(OMPID, Nthrds, Nprocs, Hx, Hy, Hz, i, j, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, \
+                km, Nloop, pref)
             {
 
                 /* allocation of arrays */
 
-                Hx = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+                Hx = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
                 for (i = 0; i < 3; i++) {
-                    Hx[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+                    Hx[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
                     for (j = 0; j < List_YOUSO[7]; j++) {
-                        Hx[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                        Hx[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
                     }
                 }
 
-                Hy = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+                Hy = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
                 for (i = 0; i < 3; i++) {
-                    Hy[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+                    Hy[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
                     for (j = 0; j < List_YOUSO[7]; j++) {
-                        Hy[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                        Hy[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
                     }
                 }
 
-                Hz = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+                Hz = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
                 for (i = 0; i < 3; i++) {
-                    Hz[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+                    Hz[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
                     for (j = 0; j < List_YOUSO[7]; j++) {
-                        Hz[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                        Hz[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
                     }
                 }
 
                 /* get info. on OpenMP */
 
-                OMPID = omp_get_thread_num();
+                OMPID  = omp_get_thread_num();
                 Nthrds = omp_get_num_threads();
                 Nprocs = omp_get_num_procs();
 
@@ -4598,17 +4569,17 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                     Gh_AN = natn[Gc_AN][h_AN];
                     Mh_AN = F_G2M[Gh_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    ian = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    ian   = Spe_Total_CNO[Hwan];
 
                     /* set informations on q_AN */
 
                     Gq_AN = natn[Gc_AN][q_AN];
                     Mq_AN = F_G2M[Gq_AN];
-                    Qwan = WhatSpecies[Gq_AN];
-                    jan = Spe_Total_CNO[Qwan];
-                    kl = RMI1[Mc_AN][h_AN][q_AN];
-                    km = RMI1[Mc_AN][q_AN][h_AN];
+                    Qwan  = WhatSpecies[Gq_AN];
+                    jan   = Spe_Total_CNO[Qwan];
+                    kl    = RMI1[Mc_AN][h_AN][q_AN];
+                    km    = RMI1[Mc_AN][q_AN][h_AN];
 
                     if (0 <= kl) {
 
@@ -4641,7 +4612,9 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                         /* collinear spin polarized or non-colliear without SO and LDA+U */
 
-                        else if (SpinP_switch == 1 || (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
+                        else if (SpinP_switch == 1 ||
+                                 (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 &&
+                                  Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
 
                             if (Solver == 5 || Solver == 8 || Solver == 11) {
                                 pref = 1.0;
@@ -4655,27 +4628,47 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                             for (i = 0; i < ian; i++) {
                                 for (j = 0; j < jan; j++) {
 
-                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r);
-                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r);
-                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r);
+                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r);
+                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r);
+                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r);
                                 }
                             }
                         }
 
                         /* spin non-collinear with spin-orbit coupling or with LDA+U */
 
-                        else if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
+                        else if (SpinP_switch == 3 &&
+                                 (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) ||
+                                  1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
 
                             pref = 1.0;
 
                             for (i = 0; i < ian; i++) {
                                 for (j = 0; j < jan; j++) {
 
-                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r - iDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].i + CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r - iDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].i + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx[2][i][j].r - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx[2][i][j].i);
+                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r -
+                                                                  iDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].i +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r -
+                                                                  iDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].i +
+                                                                  2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx[2][i][j].r -
+                                                                  2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx[2][i][j].i);
 
-                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r - iDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].i + CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r - iDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].i + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy[2][i][j].r - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy[2][i][j].i);
+                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r -
+                                                                  iDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].i +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r -
+                                                                  iDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].i +
+                                                                  2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy[2][i][j].r -
+                                                                  2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy[2][i][j].i);
 
-                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r - iDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].i + CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r - iDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].i + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz[2][i][j].r - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz[2][i][j].i);
+                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r -
+                                                                  iDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].i +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r -
+                                                                  iDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].i +
+                                                                  2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz[2][i][j].r -
+                                                                  2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz[2][i][j].i);
                                 }
                             }
                         }
@@ -4732,8 +4725,8 @@ void Force_HNL(double***** CDM0, double***** iDM0)
             }
 
             if (2 <= level_stdout) {
-                printf("<Force>  force(HNL3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                    myid, Mc_AN, Gc_AN, dEx, dEy, dEz);
+                printf("<Force>  force(HNL3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN,
+                       Gc_AN, dEx, dEy, dEz);
                 fflush(stdout);
             }
 
@@ -4762,8 +4755,8 @@ void Force_HNL(double***** CDM0, double***** iDM0)
         Gc_AN = M2G[Mc_AN];
 
         if (2 <= level_stdout) {
-            printf("<Force>  force(HNL) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                myid, Mc_AN, Gc_AN, Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
+            printf("<Force>  force(HNL) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                   Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
             fflush(stdout);
         }
 
@@ -4792,7 +4785,7 @@ void Force_HNL(double***** CDM0, double***** iDM0)
     free(Rcv_DS_NL_Size);
 }
 
-void Force4B(double***** CDM0)
+void Force4B(double ***** CDM0)
 {
     /****************************************************
                         #4 of Force
@@ -4800,39 +4793,39 @@ void Force4B(double***** CDM0)
               by the projector expansion of VNA
     ****************************************************/
 
-    int Mc_AN, Gc_AN, Cwan, i, j, h_AN, q_AN, start_q_AN, Mq_AN;
-    int jan, kl, Qwan, Gq_AN, Gh_AN, Mh_AN, Hwan, ian;
-    int l1, l2, l3, l, LL, Mul1, Num_RVNA, tno0, ncp;
-    int tno1, tno2, size1, size2, n, kk, num, po, po1, po2;
-    int numprocs, myid, tag = 999, ID, IDS, IDR;
+    int   Mc_AN, Gc_AN, Cwan, i, j, h_AN, q_AN, start_q_AN, Mq_AN;
+    int   jan, kl, Qwan, Gq_AN, Gh_AN, Mh_AN, Hwan, ian;
+    int   l1, l2, l3, l, LL, Mul1, Num_RVNA, tno0, ncp;
+    int   tno1, tno2, size1, size2, n, kk, num, po, po1, po2;
+    int   numprocs, myid, tag = 999, ID, IDS, IDR;
     int **S_array, **R_array;
-    int S_comm_flag, R_comm_flag;
-    int SA_num, q, Sc_AN, GSc_AN;
-    int Sc_wan, Sh_AN, GSh_AN, Sh_wan;
-    int Sh_AN2, fan, jg, j0, jg0, Mj_AN0;
-    int Original_Mc_AN;
+    int   S_comm_flag, R_comm_flag;
+    int   SA_num, q, Sc_AN, GSc_AN;
+    int   Sc_wan, Sh_AN, GSh_AN, Sh_wan;
+    int   Sh_AN2, fan, jg, j0, jg0, Mj_AN0;
+    int   Original_Mc_AN;
 
-    double rcutA, rcutB, rcut;
-    double dEx, dEy, dEz, ene, pref;
-    double Stime_atom, Etime_atom;
-    double **HVNAx, **HVNAy, **HVNAz;
-    int* VNA_List;
-    int* VNA_List2;
-    int *Snd_DS_VNA_Size, *Rcv_DS_VNA_Size;
-    int* Indicator;
-    Type_DS_VNA* tmp_array;
-    Type_DS_VNA* tmp_array2;
+    double        rcutA, rcutB, rcut;
+    double        dEx, dEy, dEz, ene, pref;
+    double        Stime_atom, Etime_atom;
+    double **     HVNAx, **HVNAy, **HVNAz;
+    int *         VNA_List;
+    int *         VNA_List2;
+    int *         Snd_DS_VNA_Size, *Rcv_DS_VNA_Size;
+    int *         Indicator;
+    Type_DS_VNA * tmp_array;
+    Type_DS_VNA * tmp_array2;
 
     /* for OpenMP */
-    int OMPID, Nthrds, Nthrds0, Nprocs, Nloop, ODNloop;
-    int *OneD2h_AN, *OneD2q_AN;
-    double* dEx_threads;
-    double* dEy_threads;
-    double* dEz_threads;
-    double stime, etime;
-    double stime1, etime1;
+    int      OMPID, Nthrds, Nthrds0, Nprocs, Nloop, ODNloop;
+    int *    OneD2h_AN, *OneD2q_AN;
+    double * dEx_threads;
+    double * dEy_threads;
+    double * dEz_threads;
+    double   stime, etime;
+    double   stime1, etime1;
 
-    MPI_Status stat;
+    MPI_Status  stat;
     MPI_Request request;
 
     static int counter = 0;
@@ -4850,28 +4843,28 @@ void Force4B(double***** CDM0)
          allocation of arrays
     *****************************/
 
-    Indicator = (int*)malloc(sizeof(int) * numprocs);
+    Indicator = (int *)malloc(sizeof(int) * numprocs);
 
-    S_array = (int**)malloc(sizeof(int*) * numprocs);
+    S_array = (int **)malloc(sizeof(int *) * numprocs);
     for (ID = 0; ID < numprocs; ID++) {
-        S_array[ID] = (int*)malloc(sizeof(int) * 3);
+        S_array[ID] = (int *)malloc(sizeof(int) * 3);
     }
 
-    R_array = (int**)malloc(sizeof(int*) * numprocs);
+    R_array = (int **)malloc(sizeof(int *) * numprocs);
     for (ID = 0; ID < numprocs; ID++) {
-        R_array[ID] = (int*)malloc(sizeof(int) * 3);
+        R_array[ID] = (int *)malloc(sizeof(int) * 3);
     }
 
-    Snd_DS_VNA_Size = (int*)malloc(sizeof(int) * numprocs);
-    Rcv_DS_VNA_Size = (int*)malloc(sizeof(int) * numprocs);
+    Snd_DS_VNA_Size = (int *)malloc(sizeof(int) * numprocs);
+    Rcv_DS_VNA_Size = (int *)malloc(sizeof(int) * numprocs);
 
-    VNA_List = (int*)malloc(sizeof(int) * (List_YOUSO[34] * (List_YOUSO[35] + 1) + 2));
-    VNA_List2 = (int*)malloc(sizeof(int) * (List_YOUSO[34] * (List_YOUSO[35] + 1) + 2));
+    VNA_List  = (int *)malloc(sizeof(int) * (List_YOUSO[34] * (List_YOUSO[35] + 1) + 2));
+    VNA_List2 = (int *)malloc(sizeof(int) * (List_YOUSO[34] * (List_YOUSO[35] + 1) + 2));
 
     /* initialize the temporal array storing the force contribution */
 
     for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
-        Gc_AN = F_M2G[Mc_AN];
+        Gc_AN           = F_M2G[Mc_AN];
         Gxyz[Gc_AN][41] = 0.0;
         Gxyz[Gc_AN][42] = 0.0;
         Gxyz[Gc_AN][43] = 0.0;
@@ -4902,9 +4895,9 @@ void Force4B(double***** CDM0)
     *************************************************************/
 
     l = 0;
-    for (i = 0; i <= List_YOUSO[35]; i++) { /* max L */
+    for (i = 0; i <= List_YOUSO[35]; i++) {    /* max L */
         for (j = 0; j < List_YOUSO[34]; j++) { /* # of radial projectors */
-            VNA_List[l] = i;
+            VNA_List[l]  = i;
             VNA_List2[l] = j;
             l++;
         }
@@ -4928,13 +4921,13 @@ void Force4B(double***** CDM0)
         for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
             Gc_AN = F_M2G[Mc_AN];
-            Cwan = WhatSpecies[Gc_AN];
-            tno0 = Spe_Total_CNO[Cwan];
+            Cwan  = WhatSpecies[Gc_AN];
+            tno0  = Spe_Total_CNO[Cwan];
 
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                 Gh_AN = natn[Gc_AN][h_AN];
-                Hwan = WhatSpecies[Gh_AN];
+                Hwan  = WhatSpecies[Gh_AN];
 
                 for (i = 0; i < tno0; i++) {
 
@@ -4959,12 +4952,14 @@ void Force4B(double***** CDM0)
 
     dtime(&stime);
 
-#pragma omp parallel shared(CntDS_VNA, DS_VNA, Cnt_switch, VNA_proj_ene, VNA_List2, VNA_List, Num_RVNA, natn, FNAN, Spe_Total_CNO, WhatSpecies, F_M2G, Matomnum) private(kk, OMPID, Nthrds, Nprocs, Gc_AN, Cwan, tno0, Mc_AN, h_AN, Gh_AN, Hwan, i, l, l1, LL, Mul1, ene, l2, l3)
+#pragma omp parallel shared(CntDS_VNA, DS_VNA, Cnt_switch, VNA_proj_ene, VNA_List2, VNA_List, Num_RVNA, natn, FNAN,    \
+                                Spe_Total_CNO, WhatSpecies, F_M2G, Matomnum)                                           \
+    private(kk, OMPID, Nthrds, Nprocs, Gc_AN, Cwan, tno0, Mc_AN, h_AN, Gh_AN, Hwan, i, l, l1, LL, Mul1, ene, l2, l3)
     {
 
         /* get info. on OpenMP */
 
-        OMPID = omp_get_thread_num();
+        OMPID  = omp_get_thread_num();
         Nthrds = omp_get_num_threads();
         Nprocs = omp_get_num_procs();
 
@@ -4972,24 +4967,24 @@ void Force4B(double***** CDM0)
             for (Mc_AN = (OMPID * Matomnum / Nthrds + 1); Mc_AN < ((OMPID + 1) * Matomnum / Nthrds + 1); Mc_AN++) {
 
                 Gc_AN = F_M2G[Mc_AN];
-                Cwan = WhatSpecies[Gc_AN];
-                tno0 = Spe_Total_CNO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno0  = Spe_Total_CNO[Cwan];
 
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
+                    Hwan  = WhatSpecies[Gh_AN];
 
                     for (i = 0; i < tno0; i++) {
 
                         l = 0;
                         for (l1 = 0; l1 < Num_RVNA; l1++) {
 
-                            LL = VNA_List[l1];
+                            LL   = VNA_List[l1];
                             Mul1 = VNA_List2[l1];
 
                             ene = VNA_proj_ene[Hwan][LL][Mul1];
-                            l2 = 2 * VNA_List[l1];
+                            l2  = 2 * VNA_List[l1];
 
                             if (Cnt_switch == 0) {
                                 for (l3 = 0; l3 <= l2; l3++) {
@@ -5055,16 +5050,16 @@ void Force4B(double***** CDM0)
             if (0 < (F_Snd_Num[IDS] - F_Snd_Num_WK[IDS])) {
 
                 size1 = 0;
-                n = F_Snd_Num_WK[IDS];
+                n     = F_Snd_Num_WK[IDS];
 
                 Mc_AN = Snd_MAN[IDS][n];
                 Gc_AN = Snd_GAN[IDS][n];
-                Cwan = WhatSpecies[Gc_AN];
-                tno1 = Spe_Total_NO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno1  = Spe_Total_NO[Cwan];
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno2 = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno2  = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
                     size1 += tno1 * tno2;
                 }
 
@@ -5107,21 +5102,21 @@ void Force4B(double***** CDM0)
 
                 /* allocation of the array */
 
-                tmp_array = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA) * size1);
+                tmp_array = (Type_DS_VNA *)malloc(sizeof(Type_DS_VNA) * size1);
 
                 /* multidimentional array to the vector array */
 
                 num = 0;
-                n = F_Snd_Num_WK[IDS];
+                n   = F_Snd_Num_WK[IDS];
 
                 Mc_AN = Snd_MAN[IDS][n];
                 Gc_AN = Snd_GAN[IDS][n];
-                Cwan = WhatSpecies[Gc_AN];
-                tno1 = Spe_Total_NO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno1  = Spe_Total_NO[Cwan];
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno2 = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno2  = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
 
                     for (i = 0; i < tno1; i++) {
                         for (j = 0; j < tno2; j++) {
@@ -5140,24 +5135,24 @@ void Force4B(double***** CDM0)
 
             if (0 < (F_Rcv_Num[IDR] - F_Rcv_Num_WK[IDR])) {
 
-                size2 = Rcv_DS_VNA_Size[IDR];
-                tmp_array2 = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA) * size2);
+                size2      = Rcv_DS_VNA_Size[IDR];
+                tmp_array2 = (Type_DS_VNA *)malloc(sizeof(Type_DS_VNA) * size2);
                 MPI_Recv(&tmp_array2[0], size2, MPI_Type_DS_VNA, IDR, tag, mpi_comm_level1, &stat);
 
                 /* store */
 
-                num = 0;
-                n = F_Rcv_Num_WK[IDR];
+                num            = 0;
+                n              = F_Rcv_Num_WK[IDR];
                 Original_Mc_AN = F_TopMAN[IDR] + n;
-                Gc_AN = Rcv_GAN[IDR][n];
-                Cwan = WhatSpecies[Gc_AN];
-                tno1 = Spe_Total_NO[Cwan];
+                Gc_AN          = Rcv_GAN[IDR][n];
+                Cwan           = WhatSpecies[Gc_AN];
+                tno1           = Spe_Total_NO[Cwan];
 
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno2 = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno2  = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
 
                     for (i = 0; i < tno1; i++) {
                         for (j = 0; j < tno2; j++) {
@@ -5174,33 +5169,38 @@ void Force4B(double***** CDM0)
                        multiplying overlap integrals
                 *****************************************/
 
-#pragma omp parallel shared(List_YOUSO, time_per_atom, Gxyz, CDM0, SpinP_switch, CntHVNA2, HVNA2, DS_VNA, Cnt_switch, RMI1, Original_Mc_AN, IDR, Rcv_GAN, F_Rcv_Num_WK, Spe_Total_CNO, F_G2M, natn, FNAN, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, Mc_AN, Cwan, fan, h_AN, Gh_AN, Mh_AN, Hwan, ian, n, jg, j0, jg0, Mj_AN0, po2, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, HVNAx, HVNAy, HVNAz, i, j)
+#pragma omp parallel shared(List_YOUSO, time_per_atom, Gxyz, CDM0, SpinP_switch, CntHVNA2, HVNA2, DS_VNA, Cnt_switch,  \
+                                RMI1, Original_Mc_AN, IDR, Rcv_GAN, F_Rcv_Num_WK, Spe_Total_CNO, F_G2M, natn, FNAN,    \
+                                WhatSpecies, M2G, Matomnum)                                                            \
+    private(OMPID, Nthrds, Nprocs, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, Mc_AN, Cwan, fan, h_AN, Gh_AN, Mh_AN, \
+                Hwan, ian, n, jg, j0, jg0, Mj_AN0, po2, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, HVNAx, HVNAy, HVNAz, i, j)
                 {
 
                     /* allocation of array */
 
-                    HVNAx = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+                    HVNAx = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
                     for (j = 0; j < List_YOUSO[7]; j++) {
-                        HVNAx[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                        HVNAx[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
                     }
 
-                    HVNAy = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+                    HVNAy = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
                     for (j = 0; j < List_YOUSO[7]; j++) {
-                        HVNAy[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                        HVNAy[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
                     }
 
-                    HVNAz = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+                    HVNAz = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
                     for (j = 0; j < List_YOUSO[7]; j++) {
-                        HVNAz[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                        HVNAz[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
                     }
 
                     /* get info. on OpenMP */
 
-                    OMPID = omp_get_thread_num();
+                    OMPID  = omp_get_thread_num();
                     Nthrds = omp_get_num_threads();
                     Nprocs = omp_get_num_procs();
 
-                    for (Mc_AN = (OMPID * Matomnum / Nthrds + 1); Mc_AN < ((OMPID + 1) * Matomnum / Nthrds + 1); Mc_AN++) {
+                    for (Mc_AN = (OMPID * Matomnum / Nthrds + 1); Mc_AN < ((OMPID + 1) * Matomnum / Nthrds + 1);
+                         Mc_AN++) {
 
                         dtime(&Stime_atom);
 
@@ -5209,26 +5209,26 @@ void Force4B(double***** CDM0)
                         dEz = 0.0;
 
                         Gc_AN = M2G[Mc_AN];
-                        Cwan = WhatSpecies[Gc_AN];
-                        fan = FNAN[Gc_AN];
+                        Cwan  = WhatSpecies[Gc_AN];
+                        fan   = FNAN[Gc_AN];
 
-                        h_AN = 0;
+                        h_AN  = 0;
                         Gh_AN = natn[Gc_AN][h_AN];
                         Mh_AN = F_G2M[Gh_AN];
-                        Hwan = WhatSpecies[Gh_AN];
-                        ian = Spe_Total_CNO[Hwan];
+                        Hwan  = WhatSpecies[Gh_AN];
+                        ian   = Spe_Total_CNO[Hwan];
 
-                        n = F_Rcv_Num_WK[IDR];
+                        n  = F_Rcv_Num_WK[IDR];
                         jg = Rcv_GAN[IDR][n];
 
                         for (j0 = 0; j0 <= fan; j0++) {
 
-                            jg0 = natn[Gc_AN][j0];
+                            jg0    = natn[Gc_AN][j0];
                             Mj_AN0 = F_G2M[jg0];
 
                             po2 = 0;
                             if (Original_Mc_AN == Mj_AN0) {
-                                po2 = 1;
+                                po2  = 1;
                                 q_AN = j0;
                             }
 
@@ -5236,9 +5236,9 @@ void Force4B(double***** CDM0)
 
                                 Gq_AN = natn[Gc_AN][q_AN];
                                 Mq_AN = F_G2M[Gq_AN];
-                                Qwan = WhatSpecies[Gq_AN];
-                                jan = Spe_Total_CNO[Qwan];
-                                kl = RMI1[Mc_AN][h_AN][q_AN];
+                                Qwan  = WhatSpecies[Gq_AN];
+                                jan   = Spe_Total_CNO[Qwan];
+                                kl    = RMI1[Mc_AN][h_AN][q_AN];
 
                                 if (Cnt_switch == 0) {
                                     dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, HVNA2, HVNA3, HVNAx, HVNAy, HVNAz);
@@ -5274,19 +5274,19 @@ void Force4B(double***** CDM0)
                                     for (i = 0; i < ian; i++) {
                                         for (j = 0; j < jan; j++) {
                                             if (q_AN == h_AN) {
-                                                dEx += (CDM0[0][Mh_AN][kl][i][j]
-                                                           + CDM0[1][Mh_AN][kl][i][j])
-                                                    * HVNAx[i][j];
-                                                dEy += (CDM0[0][Mh_AN][kl][i][j]
-                                                           + CDM0[1][Mh_AN][kl][i][j])
-                                                    * HVNAy[i][j];
-                                                dEz += (CDM0[0][Mh_AN][kl][i][j]
-                                                           + CDM0[1][Mh_AN][kl][i][j])
-                                                    * HVNAz[i][j];
+                                                dEx +=
+                                                    (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAx[i][j];
+                                                dEy +=
+                                                    (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAy[i][j];
+                                                dEz +=
+                                                    (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAz[i][j];
                                             } else {
-                                                dEx += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAx[i][j];
-                                                dEy += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAy[i][j];
-                                                dEz += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAz[i][j];
+                                                dEx += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) *
+                                                       HVNAx[i][j];
+                                                dEy += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) *
+                                                       HVNAy[i][j];
+                                                dEz += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) *
+                                                       HVNAz[i][j];
                                             }
                                         }
                                     }
@@ -5381,29 +5381,32 @@ void Force4B(double***** CDM0)
 
     dtime(&stime);
 
-#pragma omp parallel shared(time_per_atom, Gxyz, CDM0, SpinP_switch, CntHVNA2, HVNA2, DS_VNA, Cnt_switch, RMI1, FNAN, Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO) private(HVNAx, HVNAy, HVNAz, OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, i, j, kk)
+#pragma omp parallel shared(time_per_atom, Gxyz, CDM0, SpinP_switch, CntHVNA2, HVNA2, DS_VNA, Cnt_switch, RMI1, FNAN,  \
+                                Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO)                    \
+    private(HVNAx, HVNAy, HVNAz, OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, h_AN,     \
+                Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, i, j, kk)
     {
 
         /* allocation of array */
 
-        HVNAx = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+        HVNAx = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            HVNAx[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+            HVNAx[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
         }
 
-        HVNAy = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+        HVNAy = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            HVNAy[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+            HVNAy[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
         }
 
-        HVNAz = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+        HVNAz = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            HVNAz[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+            HVNAz[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
         }
 
         /* get info. on OpenMP */
 
-        OMPID = omp_get_thread_num();
+        OMPID  = omp_get_thread_num();
         Nthrds = omp_get_num_threads();
         Nprocs = omp_get_num_procs();
 
@@ -5416,11 +5419,11 @@ void Force4B(double***** CDM0)
             dEz = 0.0;
 
             Gc_AN = M2G[Mc_AN];
-            h_AN = 0;
+            h_AN  = 0;
             Gh_AN = natn[Gc_AN][h_AN];
             Mh_AN = F_G2M[Gh_AN];
-            Hwan = WhatSpecies[Gh_AN];
-            ian = Spe_Total_CNO[Hwan];
+            Hwan  = WhatSpecies[Gh_AN];
+            ian   = Spe_Total_CNO[Hwan];
 
             for (q_AN = h_AN; q_AN <= FNAN[Gc_AN]; q_AN++) {
 
@@ -5430,8 +5433,8 @@ void Force4B(double***** CDM0)
                 if (Mq_AN <= Matomnum) {
 
                     Qwan = WhatSpecies[Gq_AN];
-                    jan = Spe_Total_CNO[Qwan];
-                    kl = RMI1[Mc_AN][h_AN][q_AN];
+                    jan  = Spe_Total_CNO[Qwan];
+                    kl   = RMI1[Mc_AN][h_AN][q_AN];
 
                     if (Cnt_switch == 0) {
                         dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, HVNA2, HVNA3, HVNAx, HVNAy, HVNAz);
@@ -5441,24 +5444,24 @@ void Force4B(double***** CDM0)
 
                     if (SpinP_switch == 0) {
 
-// #pragma acc kernels
-// #pragma acc loop independent
+                        // #pragma acc kernels
+                        // #pragma acc loop independent
                         for (i = 0; i < ian; i++) {
-// #pragma acc loop independent
+                            // #pragma acc loop independent
                             for (j = 0; j < jan; j++) {
                                 if (q_AN == h_AN) {
-// #pragma acc atomic update
+                                    // #pragma acc atomic update
                                     dEx += 2.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAx[i][j];
-// #pragma acc atomic update
+                                    // #pragma acc atomic update
                                     dEy += 2.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAy[i][j];
-// #pragma acc atomic update
+                                    // #pragma acc atomic update
                                     dEz += 2.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAz[i][j];
                                 } else {
-// #pragma acc atomic update
+                                    // #pragma acc atomic update
                                     dEx += 4.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAx[i][j];
-// #pragma acc atomic update
+                                    // #pragma acc atomic update
                                     dEy += 4.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAy[i][j];
-// #pragma acc atomic update
+                                    // #pragma acc atomic update
                                     dEz += 4.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAz[i][j];
                                 }
                             }
@@ -5472,15 +5475,9 @@ void Force4B(double***** CDM0)
                         for (i = 0; i < ian; i++) {
                             for (j = 0; j < jan; j++) {
                                 if (q_AN == h_AN) {
-                                    dEx += (CDM0[0][Mh_AN][kl][i][j]
-                                               + CDM0[1][Mh_AN][kl][i][j])
-                                        * HVNAx[i][j];
-                                    dEy += (CDM0[0][Mh_AN][kl][i][j]
-                                               + CDM0[1][Mh_AN][kl][i][j])
-                                        * HVNAy[i][j];
-                                    dEz += (CDM0[0][Mh_AN][kl][i][j]
-                                               + CDM0[1][Mh_AN][kl][i][j])
-                                        * HVNAz[i][j];
+                                    dEx += (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAx[i][j];
+                                    dEy += (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAy[i][j];
+                                    dEz += (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAz[i][j];
                                 } else {
                                     dEx += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAx[i][j];
                                     dEy += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAy[i][j];
@@ -5562,7 +5559,7 @@ void Force4B(double***** CDM0)
             IDS = (myid + ID) % numprocs;
             IDR = (myid - ID + numprocs) % numprocs;
 
-            i = Indicator[IDS];
+            i  = Indicator[IDS];
             po = 0;
 
             Gh_AN = Pro_Snd_GAtom[IDS][i];
@@ -5586,11 +5583,11 @@ void Force4B(double***** CDM0)
                 size1 = 0;
                 for (q = Indicator[IDS]; q <= (Indicator[IDS] + SA_num - 1); q++) {
 
-                    Sc_AN = Pro_Snd_MAtom[IDS][q];
+                    Sc_AN  = Pro_Snd_MAtom[IDS][q];
                     GSc_AN = F_M2G[Sc_AN];
                     Sc_wan = WhatSpecies[GSc_AN];
-                    tno1 = Spe_Total_CNO[Sc_wan];
-                    tno2 = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
+                    tno1   = Spe_Total_CNO[Sc_wan];
+                    tno2   = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
                     size1 += 4 * tno1 * tno2;
                     size1 += 3;
                 }
@@ -5599,7 +5596,7 @@ void Force4B(double***** CDM0)
 
             else {
                 SA_num = 0;
-                size1 = 0;
+                size1  = 0;
             }
 
             S_array[IDS][0] = Gh_AN;
@@ -5647,7 +5644,7 @@ void Force4B(double***** CDM0)
 
                 /* allocate tmp_array */
 
-                tmp_array = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA) * size1);
+                tmp_array = (Type_DS_VNA *)malloc(sizeof(Type_DS_VNA) * size1);
 
                 /* multidimentional array to vector array */
 
@@ -5655,15 +5652,15 @@ void Force4B(double***** CDM0)
 
                 for (q = Indicator[IDS]; q <= (Indicator[IDS] + SA_num - 1); q++) {
 
-                    Sc_AN = Pro_Snd_MAtom[IDS][q];
+                    Sc_AN  = Pro_Snd_MAtom[IDS][q];
                     GSc_AN = F_M2G[Sc_AN];
                     Sc_wan = WhatSpecies[GSc_AN];
-                    tno1 = Spe_Total_CNO[Sc_wan];
+                    tno1   = Spe_Total_CNO[Sc_wan];
 
-                    Sh_AN = Pro_Snd_LAtom[IDS][q];
+                    Sh_AN  = Pro_Snd_LAtom[IDS][q];
                     GSh_AN = natn[GSc_AN][Sh_AN];
                     Sh_wan = WhatSpecies[GSh_AN];
-                    tno2 = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
+                    tno2   = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
 
                     Sh_AN2 = Pro_Snd_LAtom2[IDS][q];
 
@@ -5702,8 +5699,8 @@ void Force4B(double***** CDM0)
 
             if (R_comm_flag == 1) {
 
-                size2 = R_array[IDR][2];
-                tmp_array2 = (Type_DS_VNA*)malloc(sizeof(Type_DS_VNA) * size2);
+                size2      = R_array[IDR][2];
+                tmp_array2 = (Type_DS_VNA *)malloc(sizeof(Type_DS_VNA) * size2);
 
                 if (ID != 0) {
                     MPI_Recv(&tmp_array2[0], size2, MPI_Type_DS_VNA, IDR, tag, mpi_comm_level1, &stat);
@@ -5764,17 +5761,17 @@ void Force4B(double***** CDM0)
 
         if (Mc_AN <= Matomnum) {
 
-            /* get Nthrds0 */
-            // comment out April 25th, 2023 H. Kawai
-            // #pragma omp parallel shared(Nthrds0)
+/* get Nthrds0 */
+// comment out April 25th, 2023 H. Kawai
+#pragma omp parallel shared(Nthrds0)
             {
                 Nthrds0 = omp_get_num_threads();
             }
 
             /* allocation of arrays */
-            dEx_threads = (double*)malloc(sizeof(double) * Nthrds0);
-            dEy_threads = (double*)malloc(sizeof(double) * Nthrds0);
-            dEz_threads = (double*)malloc(sizeof(double) * Nthrds0);
+            dEx_threads = (double *)malloc(sizeof(double) * Nthrds0);
+            dEy_threads = (double *)malloc(sizeof(double) * Nthrds0);
+            dEz_threads = (double *)malloc(sizeof(double) * Nthrds0);
 
             for (Nloop = 0; Nloop < Nthrds0; Nloop++) {
                 dEx_threads[Nloop] = 0.0;
@@ -5784,8 +5781,8 @@ void Force4B(double***** CDM0)
 
             /* one-dimensionalize the h_AN and q_AN loops */
 
-            OneD2h_AN = (int*)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
-            OneD2q_AN = (int*)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
+            OneD2h_AN = (int *)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
+            OneD2q_AN = (int *)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
 
             ODNloop = 0;
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
@@ -5807,30 +5804,34 @@ void Force4B(double***** CDM0)
                 }
             }
 
-            // comment out April 25th, 2023 H. Kawai
-            // #pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,dEx_threads,dEy_threads,dEz_threads,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,Cnt_switch,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver) private(OMPID,Nthrds,Nprocs,HVNAx,HVNAy,HVNAz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop,pref)
+// comment out April 25th, 2023 H. Kawai
+#pragma omp parallel shared(ODNloop, OneD2h_AN, OneD2q_AN, Mc_AN, Gc_AN, dEx_threads, dEy_threads, dEz_threads, CDM0,  \
+                                SpinP_switch, CntHVNA2, HVNA2, DS_VNA, Cnt_switch, RMI1, Spe_Total_CNO, WhatSpecies,   \
+                                F_G2M, natn, FNAN, List_YOUSO, Solver)                                                 \
+    private(OMPID, Nthrds, Nprocs, HVNAx, HVNAy, HVNAz, i, j, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, \
+                jan, kl, Nloop, pref)
             {
 
                 /* allocation of arrays */
 
-                HVNAx = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+                HVNAx = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
                 for (j = 0; j < List_YOUSO[7]; j++) {
-                    HVNAx[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                    HVNAx[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
                 }
 
-                HVNAy = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+                HVNAy = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
                 for (j = 0; j < List_YOUSO[7]; j++) {
-                    HVNAy[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                    HVNAy[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
                 }
 
-                HVNAz = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+                HVNAz = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
                 for (j = 0; j < List_YOUSO[7]; j++) {
-                    HVNAz[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+                    HVNAz[j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
                 }
 
                 /* get info. on OpenMP */
 
-                OMPID = omp_get_thread_num();
+                OMPID  = omp_get_thread_num();
                 Nthrds = omp_get_num_threads();
                 Nprocs = omp_get_num_procs();
 
@@ -5845,16 +5846,16 @@ void Force4B(double***** CDM0)
 
                     Gh_AN = natn[Gc_AN][h_AN];
                     Mh_AN = F_G2M[Gh_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    ian = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    ian   = Spe_Total_CNO[Hwan];
 
                     /* set informations on q_AN */
 
                     Gq_AN = natn[Gc_AN][q_AN];
                     Mq_AN = F_G2M[Gq_AN];
-                    Qwan = WhatSpecies[Gq_AN];
-                    jan = Spe_Total_CNO[Qwan];
-                    kl = RMI1[Mc_AN][h_AN][q_AN];
+                    Qwan  = WhatSpecies[Gq_AN];
+                    jan   = Spe_Total_CNO[Qwan];
+                    kl    = RMI1[Mc_AN][h_AN][q_AN];
 
                     if (0 <= kl) {
 
@@ -5902,9 +5903,12 @@ void Force4B(double***** CDM0)
 
                             for (i = 0; i < ian; i++) {
                                 for (j = 0; j < jan; j++) {
-                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAx[i][j];
-                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAy[i][j];
-                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAz[i][j];
+                                    dEx_threads[OMPID] +=
+                                        pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAx[i][j];
+                                    dEy_threads[OMPID] +=
+                                        pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAy[i][j];
+                                    dEz_threads[OMPID] +=
+                                        pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAz[i][j];
                                 }
                             }
                         }
@@ -5981,8 +5985,8 @@ void Force4B(double***** CDM0)
         Gc_AN = M2G[Mc_AN];
 
         if (2 <= level_stdout) {
-            printf("<Force>  force(4B) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                myid, Mc_AN, Gc_AN, Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
+            printf("<Force>  force(4B) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                   Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
             fflush(stdout);
         }
 
@@ -6014,20 +6018,18 @@ void Force4B(double***** CDM0)
     free(VNA_List2);
 }
 
-void dHNL(int where_flag,
-    int Mc_AN, int h_AN, int q_AN,
-    double****** DS_NL1,
-    dcomplex*** Hx, dcomplex*** Hy, dcomplex*** Hz)
+void dHNL(int where_flag, int Mc_AN, int h_AN, int q_AN, double ****** DS_NL1, dcomplex *** Hx, dcomplex *** Hy,
+          dcomplex *** Hz)
 {
-    int i, j, k, m, n, l, kg, kan, so, deri_kind;
-    int ig, ian, jg, jan, kl, kl1, kl2;
-    int wakg, l1, l2, l3, Gc_AN, Mi_AN, Mi_AN2, Mj_AN, Mj_AN2;
-    int Rni, Rnj, somax;
-    double PF[2], sumx, sumy, sumz, ene, dmp, deri_dmp;
-    double tmpx, tmpy, tmpz, tmp, r;
-    double x0, y0, z0, x1, y1, z1, dx, dy, dz;
-    double rcuti, rcutj, rcut;
-    double PFp, PFm, ene_p, ene_m;
+    int      i, j, k, m, n, l, kg, kan, so, deri_kind;
+    int      ig, ian, jg, jan, kl, kl1, kl2;
+    int      wakg, l1, l2, l3, Gc_AN, Mi_AN, Mi_AN2, Mj_AN, Mj_AN2;
+    int      Rni, Rnj, somax;
+    double   PF[2], sumx, sumy, sumz, ene, dmp, deri_dmp;
+    double   tmpx, tmpy, tmpz, tmp, r;
+    double   x0, y0, z0, x1, y1, z1, dx, dy, dz;
+    double   rcuti, rcutj, rcut;
+    double   PFp, PFm, ene_p, ene_m;
     dcomplex sumx0, sumy0, sumz0;
     dcomplex sumx1, sumy1, sumz1;
     dcomplex sumx2, sumy2, sumz2;
@@ -6037,21 +6039,21 @@ void dHNL(int where_flag,
     ****************************************************/
 
     Gc_AN = M2G[Mc_AN];
-    ig = natn[Gc_AN][h_AN];
-    Rni = ncn[Gc_AN][h_AN];
+    ig    = natn[Gc_AN][h_AN];
+    Rni   = ncn[Gc_AN][h_AN];
     Mi_AN = F_G2M[ig];
-    ian = Spe_Total_CNO[WhatSpecies[ig]];
+    ian   = Spe_Total_CNO[WhatSpecies[ig]];
     rcuti = Spe_Atom_Cut1[WhatSpecies[ig]];
 
-    jg = natn[Gc_AN][q_AN];
-    Rnj = ncn[Gc_AN][q_AN];
+    jg    = natn[Gc_AN][q_AN];
+    Rnj   = ncn[Gc_AN][q_AN];
     Mj_AN = F_G2M[jg];
-    jan = Spe_Total_CNO[WhatSpecies[jg]];
+    jan   = Spe_Total_CNO[WhatSpecies[jg]];
     rcutj = Spe_Atom_Cut1[WhatSpecies[jg]];
 
     rcut = rcuti + rcutj;
-    kl = RMI1[Mc_AN][h_AN][q_AN];
-    dmp = dampingF(rcut, Dis[ig][kl]);
+    kl   = RMI1[Mc_AN][h_AN][q_AN];
+    dmp  = dampingF(rcut, Dis[ig][kl]);
 
     for (so = 0; so < 3; so++) {
         for (i = 0; i < List_YOUSO[7]; i++) {
@@ -6071,10 +6073,10 @@ void dHNL(int where_flag,
 
         for (k = 0; k <= FNAN[Gc_AN]; k++) {
 
-            kg = natn[Gc_AN][k];
+            kg   = natn[Gc_AN][k];
             wakg = WhatSpecies[kg];
-            kan = Spe_Total_VPS_Pro[wakg];
-            kl = RMI1[Mc_AN][q_AN][k];
+            kan  = Spe_Total_VPS_Pro[wakg];
+            kl   = RMI1[Mc_AN][q_AN][k];
 
             /****************************************************
                          l-dependent non-local part
@@ -6161,36 +6163,27 @@ void dHNL(int where_flag,
                             ene_m = Spe_VNLE[1][wakg][l1 - 1];
 
                             if (Spe_VPS_List[wakg][l1] == 0) {
-                                l2 = 0;
+                                l2  = 0;
                                 PFp = 1.0;
                                 PFm = 0.0;
                             } else if (Spe_VPS_List[wakg][l1] == 1) {
-                                l2 = 2;
+                                l2  = 2;
                                 PFp = 2.0 / 3.0;
                                 PFm = 1.0 / 3.0;
                             } else if (Spe_VPS_List[wakg][l1] == 2) {
-                                l2 = 4;
+                                l2  = 4;
                                 PFp = 3.0 / 5.0;
                                 PFm = 2.0 / 5.0;
                             } else if (Spe_VPS_List[wakg][l1] == 3) {
-                                l2 = 6;
+                                l2  = 6;
                                 PFp = 4.0 / 7.0;
                                 PFm = 3.0 / 7.0;
                             }
 
-                            dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r,
-                                &sumx1.r, &sumy1.r, &sumz1.r,
-                                &sumx2.r, &sumy2.r, &sumz2.r,
-                                &sumx0.i, &sumy0.i, &sumz0.i,
-                                &sumx1.i, &sumy1.i, &sumz1.i,
-                                &sumx2.i, &sumy2.i, &sumz2.i,
-                                1.0,
-                                PFp, PFm,
-                                ene_p, ene_m,
-                                l2, &l,
-                                Mc_AN, k, m,
-                                Mj_AN2, kl, n,
-                                DS_NL1);
+                            dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r, &sumx1.r, &sumy1.r, &sumz1.r, &sumx2.r, &sumy2.r,
+                                    &sumz2.r, &sumx0.i, &sumy0.i, &sumz0.i, &sumx1.i, &sumy1.i, &sumz1.i, &sumx2.i,
+                                    &sumy2.i, &sumz2.i, 1.0, PFp, PFm, ene_p, ene_m, l2, &l, Mc_AN, k, m, Mj_AN2, kl, n,
+                                    DS_NL1);
                         }
 
                         if (q_AN == 0) {
@@ -6202,36 +6195,27 @@ void dHNL(int where_flag,
                                 ene_m = Spe_VNLE[1][wakg][l1 - 1];
 
                                 if (Spe_VPS_List[wakg][l1] == 0) {
-                                    l2 = 0;
+                                    l2  = 0;
                                     PFp = 1.0;
                                     PFm = 0.0;
                                 } else if (Spe_VPS_List[wakg][l1] == 1) {
-                                    l2 = 2;
+                                    l2  = 2;
                                     PFp = 2.0 / 3.0;
                                     PFm = 1.0 / 3.0;
                                 } else if (Spe_VPS_List[wakg][l1] == 2) {
-                                    l2 = 4;
+                                    l2  = 4;
                                     PFp = 3.0 / 5.0;
                                     PFm = 2.0 / 5.0;
                                 } else if (Spe_VPS_List[wakg][l1] == 3) {
-                                    l2 = 6;
+                                    l2  = 6;
                                     PFp = 4.0 / 7.0;
                                     PFm = 3.0 / 7.0;
                                 }
 
-                                dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r,
-                                    &sumx1.r, &sumy1.r, &sumz1.r,
-                                    &sumx2.r, &sumy2.r, &sumz2.r,
-                                    &sumx0.i, &sumy0.i, &sumz0.i,
-                                    &sumx1.i, &sumy1.i, &sumz1.i,
-                                    &sumx2.i, &sumy2.i, &sumz2.i,
-                                    -1.0,
-                                    PFp, PFm,
-                                    ene_p, ene_m,
-                                    l2, &l,
-                                    Mj_AN2, kl, n,
-                                    Mc_AN, k, m,
-                                    DS_NL1);
+                                dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r, &sumx1.r, &sumy1.r, &sumz1.r, &sumx2.r, &sumy2.r,
+                                        &sumz2.r, &sumx0.i, &sumy0.i, &sumz0.i, &sumx1.i, &sumy1.i, &sumz1.i, &sumx2.i,
+                                        &sumy2.i, &sumz2.i, -1.0, PFp, PFm, ene_p, ene_m, l2, &l, Mj_AN2, kl, n, Mc_AN,
+                                        k, m, DS_NL1);
                             }
                         }
 
@@ -6275,19 +6259,19 @@ void dHNL(int where_flag,
             for (m = 0; m < ian; m++) {
                 for (n = m; n < jan; n++) {
 
-                    tmpx = Hx[0][m][n].r + Hx[0][n][m].r;
+                    tmpx          = Hx[0][m][n].r + Hx[0][n][m].r;
                     Hx[0][m][n].r = tmpx;
                     Hx[0][n][m].r = tmpx;
                     Hx[1][m][n].r = tmpx;
                     Hx[1][n][m].r = tmpx;
 
-                    tmpy = Hy[0][m][n].r + Hy[0][n][m].r;
+                    tmpy          = Hy[0][m][n].r + Hy[0][n][m].r;
                     Hy[0][m][n].r = tmpy;
                     Hy[0][n][m].r = tmpy;
                     Hy[1][m][n].r = tmpy;
                     Hy[1][n][m].r = tmpy;
 
-                    tmpz = Hz[0][m][n].r + Hz[0][n][m].r;
+                    tmpz          = Hz[0][m][n].r + Hz[0][n][m].r;
                     Hz[0][m][n].r = tmpz;
                     Hz[0][n][m].r = tmpz;
                     Hz[1][m][n].r = tmpz;
@@ -6298,10 +6282,10 @@ void dHNL(int where_flag,
 
         else if (where_flag == 1) {
 
-            kg = natn[Gc_AN][0];
+            kg   = natn[Gc_AN][0];
             wakg = WhatSpecies[kg];
-            kan = Spe_Total_VPS_Pro[wakg];
-            kl = RMI1[Mc_AN][q_AN][0];
+            kan  = Spe_Total_VPS_Pro[wakg];
+            kl   = RMI1[Mc_AN][q_AN][0];
 
             /****************************************************
                          l-dependent non-local part
@@ -6318,10 +6302,10 @@ void dHNL(int where_flag,
 
                         if (Mj_AN <= Matomnum) {
                             Mj_AN2 = Mj_AN;
-                            kl2 = RMI1[Mc_AN][q_AN][0];
+                            kl2    = RMI1[Mc_AN][q_AN][0];
                         } else {
                             Mj_AN2 = Matomnum + 1;
-                            kl2 = RMI1[Mc_AN][0][q_AN];
+                            kl2    = RMI1[Mc_AN][0][q_AN];
                         }
 
                         l = 0;
@@ -6380,10 +6364,10 @@ void dHNL(int where_flag,
 
                         if (Mj_AN <= Matomnum) {
                             Mj_AN2 = Mj_AN;
-                            kl2 = RMI1[Mc_AN][q_AN][0];
+                            kl2    = RMI1[Mc_AN][q_AN][0];
                         } else {
                             Mj_AN2 = Matomnum + 1;
-                            kl2 = RMI1[Mc_AN][0][q_AN];
+                            kl2    = RMI1[Mc_AN][0][q_AN];
                         }
 
                         l = 0;
@@ -6393,38 +6377,29 @@ void dHNL(int where_flag,
                             ene_m = Spe_VNLE[1][wakg][l1 - 1];
 
                             if (Spe_VPS_List[wakg][l1] == 0) {
-                                l2 = 0;
+                                l2  = 0;
                                 PFp = 1.0;
                                 PFm = 0.0;
                             } else if (Spe_VPS_List[wakg][l1] == 1) {
-                                l2 = 2;
+                                l2  = 2;
                                 PFp = 2.0 / 3.0;
                                 PFm = 1.0 / 3.0;
                             } else if (Spe_VPS_List[wakg][l1] == 2) {
-                                l2 = 4;
+                                l2  = 4;
                                 PFp = 3.0 / 5.0;
                                 PFm = 2.0 / 5.0;
                             } else if (Spe_VPS_List[wakg][l1] == 3) {
-                                l2 = 6;
+                                l2  = 6;
                                 PFp = 4.0 / 7.0;
                                 PFm = 3.0 / 7.0;
                             }
 
                             /* 1 */
 
-                            dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r,
-                                &sumx1.r, &sumy1.r, &sumz1.r,
-                                &sumx2.r, &sumy2.r, &sumz2.r,
-                                &sumx0.i, &sumy0.i, &sumz0.i,
-                                &sumx1.i, &sumy1.i, &sumz1.i,
-                                &sumx2.i, &sumy2.i, &sumz2.i,
-                                -1.0,
-                                PFp, PFm,
-                                -ene_p, -ene_m,
-                                l2, &l,
-                                Mj_AN2, kl2, n,
-                                Mc_AN, 0, m,
-                                DS_NL1);
+                            dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r, &sumx1.r, &sumy1.r, &sumz1.r, &sumx2.r, &sumy2.r,
+                                    &sumz2.r, &sumx0.i, &sumy0.i, &sumz0.i, &sumx1.i, &sumy1.i, &sumz1.i, &sumx2.i,
+                                    &sumy2.i, &sumz2.i, -1.0, PFp, PFm, -ene_p, -ene_m, l2, &l, Mj_AN2, kl2, n, Mc_AN,
+                                    0, m, DS_NL1);
                         }
 
                         Hx[0][m][n].r += sumx0.r; /* up-up */
@@ -6477,10 +6452,10 @@ void dHNL(int where_flag,
 
         for (k = 0; k <= FNAN[Gc_AN]; k++) {
 
-            kg = natn[Gc_AN][k];
+            kg   = natn[Gc_AN][k];
             wakg = WhatSpecies[kg];
-            kan = Spe_Total_VPS_Pro[wakg];
-            kl = RMI1[Mc_AN][h_AN][k];
+            kan  = Spe_Total_VPS_Pro[wakg];
+            kl   = RMI1[Mc_AN][h_AN][k];
 
             if (Mi_AN <= Matomnum)
                 Mi_AN2 = Mi_AN;
@@ -6511,36 +6486,27 @@ void dHNL(int where_flag,
                             ene_m = Spe_VNLE[1][wakg][l1 - 1];
 
                             if (Spe_VPS_List[wakg][l1] == 0) {
-                                l2 = 0;
+                                l2  = 0;
                                 PFp = 1.0;
                                 PFm = 0.0;
                             } else if (Spe_VPS_List[wakg][l1] == 1) {
-                                l2 = 2;
+                                l2  = 2;
                                 PFp = 2.0 / 3.0;
                                 PFm = 1.0 / 3.0;
                             } else if (Spe_VPS_List[wakg][l1] == 2) {
-                                l2 = 4;
+                                l2  = 4;
                                 PFp = 3.0 / 5.0;
                                 PFm = 2.0 / 5.0;
                             } else if (Spe_VPS_List[wakg][l1] == 3) {
-                                l2 = 6;
+                                l2  = 6;
                                 PFp = 4.0 / 7.0;
                                 PFm = 3.0 / 7.0;
                             }
 
-                            dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r,
-                                &sumx1.r, &sumy1.r, &sumz1.r,
-                                &sumx2.r, &sumy2.r, &sumz2.r,
-                                &sumx0.i, &sumy0.i, &sumz0.i,
-                                &sumx1.i, &sumy1.i, &sumz1.i,
-                                &sumx2.i, &sumy2.i, &sumz2.i,
-                                -1.0,
-                                PFp, PFm,
-                                ene_p, ene_m,
-                                l2, &l,
-                                Mj_AN, k, n,
-                                Mi_AN2, kl, m,
-                                DS_NL1);
+                            dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r, &sumx1.r, &sumy1.r, &sumz1.r, &sumx2.r, &sumy2.r,
+                                    &sumz2.r, &sumx0.i, &sumy0.i, &sumz0.i, &sumx1.i, &sumy1.i, &sumz1.i, &sumx2.i,
+                                    &sumy2.i, &sumz2.i, -1.0, PFp, PFm, ene_p, ene_m, l2, &l, Mj_AN, k, n, Mi_AN2, kl,
+                                    m, DS_NL1);
                         }
 
                         Hx[0][m][n].r += sumx0.r; /* up-up */
@@ -6581,11 +6547,11 @@ void dHNL(int where_flag,
                                dH*ep*H
         ****************************************************/
 
-        kg = natn[Gc_AN][0];
+        kg   = natn[Gc_AN][0];
         wakg = WhatSpecies[kg];
-        kan = Spe_Total_VPS_Pro[wakg];
-        kl1 = RMI1[Mc_AN][0][h_AN];
-        kl2 = RMI1[Mc_AN][0][q_AN];
+        kan  = Spe_Total_VPS_Pro[wakg];
+        kl1  = RMI1[Mc_AN][0][h_AN];
+        kl2  = RMI1[Mc_AN][0][q_AN];
 
         /****************************************************
                        l-dependent non-local part
@@ -6676,38 +6642,29 @@ void dHNL(int where_flag,
                         ene_m = Spe_VNLE[1][wakg][l1 - 1];
 
                         if (Spe_VPS_List[wakg][l1] == 0) {
-                            l2 = 0;
+                            l2  = 0;
                             PFp = 1.0;
                             PFm = 0.0;
                         } else if (Spe_VPS_List[wakg][l1] == 1) {
-                            l2 = 2;
+                            l2  = 2;
                             PFp = 2.0 / 3.0;
                             PFm = 1.0 / 3.0;
                         } else if (Spe_VPS_List[wakg][l1] == 2) {
-                            l2 = 4;
+                            l2  = 4;
                             PFp = 3.0 / 5.0;
                             PFm = 2.0 / 5.0;
                         } else if (Spe_VPS_List[wakg][l1] == 3) {
-                            l2 = 6;
+                            l2  = 6;
                             PFp = 4.0 / 7.0;
                             PFm = 3.0 / 7.0;
                         }
 
                         /* 2 */
 
-                        dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r,
-                            &sumx1.r, &sumy1.r, &sumz1.r,
-                            &sumx2.r, &sumy2.r, &sumz2.r,
-                            &sumx0.i, &sumy0.i, &sumz0.i,
-                            &sumx1.i, &sumy1.i, &sumz1.i,
-                            &sumx2.i, &sumy2.i, &sumz2.i,
-                            1.0,
-                            PFp, PFm,
-                            -ene_p, -ene_m,
-                            l2, &l,
-                            Matomnum + 1, kl1, m,
-                            Matomnum + 1, kl2, n,
-                            DS_NL1);
+                        dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r, &sumx1.r, &sumy1.r, &sumz1.r, &sumx2.r, &sumy2.r,
+                                &sumz2.r, &sumx0.i, &sumy0.i, &sumz0.i, &sumx1.i, &sumy1.i, &sumz1.i, &sumx2.i,
+                                &sumy2.i, &sumz2.i, 1.0, PFp, PFm, -ene_p, -ene_m, l2, &l, Matomnum + 1, kl1, m,
+                                Matomnum + 1, kl2, n, DS_NL1);
                     }
 
                     Hx[0][m][n].r = sumx0.r; /* up-up */
@@ -6743,11 +6700,11 @@ void dHNL(int where_flag,
 
         if (q_AN != 0) {
 
-            kg = natn[Gc_AN][0];
+            kg   = natn[Gc_AN][0];
             wakg = WhatSpecies[kg];
-            kan = Spe_Total_VPS_Pro[wakg];
-            kl1 = RMI1[Mc_AN][0][h_AN];
-            kl2 = RMI1[Mc_AN][0][q_AN];
+            kan  = Spe_Total_VPS_Pro[wakg];
+            kl1  = RMI1[Mc_AN][0][h_AN];
+            kl2  = RMI1[Mc_AN][0][q_AN];
 
             /****************************************************
                            l-dependent non-local part
@@ -6776,9 +6733,12 @@ void dHNL(int where_flag,
                                 l2 = 6;
 
                             for (l3 = 0; l3 <= l2; l3++) {
-                                sumx -= ene * DS_NL1[0][0][Matomnum + 1][kl1][m][l] * DS_NL1[0][1][Matomnum + 1][kl2][n][l];
-                                sumy -= ene * DS_NL1[0][0][Matomnum + 1][kl1][m][l] * DS_NL1[0][2][Matomnum + 1][kl2][n][l];
-                                sumz -= ene * DS_NL1[0][0][Matomnum + 1][kl1][m][l] * DS_NL1[0][3][Matomnum + 1][kl2][n][l];
+                                sumx -=
+                                    ene * DS_NL1[0][0][Matomnum + 1][kl1][m][l] * DS_NL1[0][1][Matomnum + 1][kl2][n][l];
+                                sumy -=
+                                    ene * DS_NL1[0][0][Matomnum + 1][kl1][m][l] * DS_NL1[0][2][Matomnum + 1][kl2][n][l];
+                                sumz -=
+                                    ene * DS_NL1[0][0][Matomnum + 1][kl1][m][l] * DS_NL1[0][3][Matomnum + 1][kl2][n][l];
                                 l++;
                             }
                         }
@@ -6822,38 +6782,29 @@ void dHNL(int where_flag,
                             ene_m = Spe_VNLE[1][wakg][l1 - 1];
 
                             if (Spe_VPS_List[wakg][l1] == 0) {
-                                l2 = 0;
+                                l2  = 0;
                                 PFp = 1.0;
                                 PFm = 0.0;
                             } else if (Spe_VPS_List[wakg][l1] == 1) {
-                                l2 = 2;
+                                l2  = 2;
                                 PFp = 2.0 / 3.0;
                                 PFm = 1.0 / 3.0;
                             } else if (Spe_VPS_List[wakg][l1] == 2) {
-                                l2 = 4;
+                                l2  = 4;
                                 PFp = 3.0 / 5.0;
                                 PFm = 2.0 / 5.0;
                             } else if (Spe_VPS_List[wakg][l1] == 3) {
-                                l2 = 6;
+                                l2  = 6;
                                 PFp = 4.0 / 7.0;
                                 PFm = 3.0 / 7.0;
                             }
 
                             /* 4 */
 
-                            dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r,
-                                &sumx1.r, &sumy1.r, &sumz1.r,
-                                &sumx2.r, &sumy2.r, &sumz2.r,
-                                &sumx0.i, &sumy0.i, &sumz0.i,
-                                &sumx1.i, &sumy1.i, &sumz1.i,
-                                &sumx2.i, &sumy2.i, &sumz2.i,
-                                -1.0,
-                                PFp, PFm,
-                                -ene_p, -ene_m,
-                                l2, &l,
-                                Matomnum + 1, kl2, n,
-                                Matomnum + 1, kl1, m,
-                                DS_NL1);
+                            dHNL_SO(&sumx0.r, &sumy0.r, &sumz0.r, &sumx1.r, &sumy1.r, &sumz1.r, &sumx2.r, &sumy2.r,
+                                    &sumz2.r, &sumx0.i, &sumy0.i, &sumz0.i, &sumx1.i, &sumy1.i, &sumz1.i, &sumx2.i,
+                                    &sumy2.i, &sumz2.i, -1.0, PFp, PFm, -ene_p, -ene_m, l2, &l, Matomnum + 1, kl2, n,
+                                    Matomnum + 1, kl1, m, DS_NL1);
                         }
 
                         Hx[0][m][n].r += sumx0.r; /* up-up */
@@ -6927,10 +6878,10 @@ void dHNL(int where_flag,
 
         if (rcut <= r) {
             deri_dmp = 0.0;
-            tmp = 0.0;
+            tmp      = 0.0;
         } else {
             deri_dmp = deri_dampingF(rcut, r);
-            tmp = deri_dmp / dmp;
+            tmp      = deri_dmp / dmp;
         }
 
         x0 = Gxyz[ig][1] + atv[Rni][1];
@@ -7040,14 +6991,12 @@ void dHNL(int where_flag,
     }
 }
 
-void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
-    Type_DS_VNA***** DS_VNA1,
-    double***** TmpHVNA2, double***** TmpHVNA3,
-    double** Hx, double** Hy, double** Hz)
+void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN, Type_DS_VNA ***** DS_VNA1, double ***** TmpHVNA2,
+           double ***** TmpHVNA3, double ** Hx, double ** Hy, double ** Hz)
 {
-    int i, j, k, m, n, l, kg, kan, so, deri_kind;
-    int ig, ian, jg, jan, kl, kl1, kl2, Rni, Rnj;
-    int wakg, l1, l2, l3, Gc_AN, Mi_AN, Mj_AN, Mj_AN2, num_projectors;
+    int    i, j, k, m, n, l, kg, kan, so, deri_kind;
+    int    ig, ian, jg, jan, kl, kl1, kl2, Rni, Rnj;
+    int    wakg, l1, l2, l3, Gc_AN, Mi_AN, Mj_AN, Mj_AN2, num_projectors;
     double sumx, sumy, sumz, ene, rcuti, rcutj, rcut;
     double tmpx, tmpy, tmpz, dmp, deri_dmp, tmp;
     double dx, dy, dz, x0, y0, z0, x1, y1, z1, r;
@@ -7055,9 +7004,9 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
     double sumx0, sumy0, sumz0;
     double sumx1, sumy1, sumz1;
     double sumx2, sumy2, sumz2;
-    int L, LL, Mul1, Num_RVNA;
+    int    L, LL, Mul1, Num_RVNA;
 
-    Num_RVNA = List_YOUSO[34] * (List_YOUSO[35] + 1);
+    Num_RVNA       = List_YOUSO[34] * (List_YOUSO[35] + 1);
     num_projectors = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
 
     /****************************************************
@@ -7065,21 +7014,21 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
     ****************************************************/
 
     Gc_AN = M2G[Mc_AN];
-    ig = natn[Gc_AN][h_AN];
-    Rni = ncn[Gc_AN][h_AN];
+    ig    = natn[Gc_AN][h_AN];
+    Rni   = ncn[Gc_AN][h_AN];
     Mi_AN = F_G2M[ig];
-    ian = Spe_Total_CNO[WhatSpecies[ig]];
+    ian   = Spe_Total_CNO[WhatSpecies[ig]];
     rcuti = Spe_Atom_Cut1[WhatSpecies[ig]];
 
-    jg = natn[Gc_AN][q_AN];
-    Rnj = ncn[Gc_AN][q_AN];
+    jg    = natn[Gc_AN][q_AN];
+    Rnj   = ncn[Gc_AN][q_AN];
     Mj_AN = F_G2M[jg];
-    jan = Spe_Total_CNO[WhatSpecies[jg]];
+    jan   = Spe_Total_CNO[WhatSpecies[jg]];
     rcutj = Spe_Atom_Cut1[WhatSpecies[jg]];
 
     rcut = rcuti + rcutj;
-    kl = RMI1[Mc_AN][h_AN][q_AN];
-    dmp = dampingF(rcut, Dis[ig][kl]);
+    kl   = RMI1[Mc_AN][h_AN][q_AN];
+    dmp  = dampingF(rcut, Dis[ig][kl]);
 
     for (m = 0; m < ian; m++) {
         for (n = 0; n < jan; n++) {
@@ -7097,18 +7046,18 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
 
     if (h_AN == 0 && q_AN == 0 && where_flag == 0) {
 
-// #pragma acc kernels
-// #pragma acc loop independent
+        // #pragma acc kernels
+        // #pragma acc loop independent
         for (k = 1; k <= FNAN[Gc_AN]; k++) {
-// #pragma acc loop independent
+            // #pragma acc loop independent
             for (m = 0; m < ian; m++) {
-// #pragma acc loop independent
+                // #pragma acc loop independent
                 for (n = 0; n < jan; n++) {
-// #pragma acc atomic update
+                    // #pragma acc atomic update
                     Hx[m][n] += TmpHVNA2[1][Mc_AN][k][m][n];
-// #pragma acc atomic update
+                    // #pragma acc atomic update
                     Hy[m][n] += TmpHVNA2[2][Mc_AN][k][m][n];
-// #pragma acc atomic update
+                    // #pragma acc atomic update
                     Hz[m][n] += TmpHVNA2[3][Mc_AN][k][m][n];
                 }
             }
@@ -7150,9 +7099,9 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
 
             for (k = 0; k <= FNAN[Gc_AN]; k++) {
 
-                kg = natn[Gc_AN][k];
+                kg   = natn[Gc_AN][k];
                 wakg = WhatSpecies[kg];
-                kl = RMI1[Mc_AN][q_AN][k];
+                kl   = RMI1[Mc_AN][q_AN][k];
 
                 /****************************************************
                                      non-local part
@@ -7164,28 +7113,28 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
                         Mj_AN2 = Mj_AN;
                     else
                         Mj_AN2 = Matomnum + 1;
-// #pragma acc kernels
-// #pragma acc loop independent
+                    // #pragma acc kernels
+                    // #pragma acc loop independent
                     for (m = 0; m < ian; m++) {
-// #pragma acc loop independent
+                        // #pragma acc loop independent
                         for (n = 0; n < jan; n++) {
 
                             sumx = 0.0;
                             sumy = 0.0;
                             sumz = 0.0;
 
-// #pragma acc loop reduction(+:sumx) reduction(+:sumy) reduction(+:sumz)
+                            // #pragma acc loop reduction(+:sumx) reduction(+:sumy) reduction(+:sumz)
                             for (l = 0; l < num_projectors; l++) {
                                 sumx += DS_VNA1[1][Mc_AN][k][m][l] * DS_VNA1[0][Mj_AN2][kl][n][l];
                                 sumy += DS_VNA1[2][Mc_AN][k][m][l] * DS_VNA1[0][Mj_AN2][kl][n][l];
                                 sumz += DS_VNA1[3][Mc_AN][k][m][l] * DS_VNA1[0][Mj_AN2][kl][n][l];
                             }
 
-// #pragma acc atomic update
+                            // #pragma acc atomic update
                             Hx[m][n] += sumx;
-// #pragma acc atomic update
+                            // #pragma acc atomic update
                             Hy[m][n] += sumy;
-// #pragma acc atomic update
+                            // #pragma acc atomic update
                             Hz[m][n] += sumz;
 
                         } /* n */
@@ -7203,21 +7152,21 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
 
             if (q_AN == 0) {
 
-// #pragma acc kernels
-// #pragma acc loop independent
+                // #pragma acc kernels
+                // #pragma acc loop independent
                 for (m = 0; m < ian; m++) {
-// #pragma acc loop independent
+                    // #pragma acc loop independent
                     for (n = m; n < jan; n++) {
 
-                        tmpx = Hx[m][n] + Hx[n][m];
+                        tmpx     = Hx[m][n] + Hx[n][m];
                         Hx[m][n] = tmpx;
                         Hx[n][m] = tmpx;
 
-                        tmpy = Hy[m][n] + Hy[n][m];
+                        tmpy     = Hy[m][n] + Hy[n][m];
                         Hy[m][n] = tmpy;
                         Hy[n][m] = tmpy;
 
-                        tmpz = Hz[m][n] + Hz[n][m];
+                        tmpz     = Hz[m][n] + Hz[n][m];
                         Hz[m][n] = tmpz;
                         Hz[n][m] = tmpz;
                     }
@@ -7227,16 +7176,16 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
 
             else if (where_flag == 1) {
 
-                kg = natn[Gc_AN][0];
+                kg   = natn[Gc_AN][0];
                 wakg = WhatSpecies[kg];
 
                 /****************************************************
                                      non-local part
                 ****************************************************/
-// #pragma acc kernels
-// #pragma acc loop independent
+                // #pragma acc kernels
+                // #pragma acc loop independent
                 for (m = 0; m < ian; m++) {
-// #pragma acc loop independent
+                    // #pragma acc loop independent
                     for (n = 0; n < jan; n++) {
 
                         sumx = 0.0;
@@ -7245,24 +7194,24 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
 
                         if (Mj_AN <= Matomnum) {
                             Mj_AN2 = Mj_AN;
-                            kl = RMI1[Mc_AN][q_AN][0];
+                            kl     = RMI1[Mc_AN][q_AN][0];
                         } else {
                             Mj_AN2 = Matomnum + 1;
-                            kl = RMI1[Mc_AN][0][q_AN];
+                            kl     = RMI1[Mc_AN][0][q_AN];
                         }
 
-// #pragma acc loop reduction(-:sumx) reduction(-:sumy) reduction(-:sumz)
+                        // #pragma acc loop reduction(-:sumx) reduction(-:sumy) reduction(-:sumz)
                         for (l = 0; l < num_projectors; l++) {
                             sumx -= DS_VNA1[0][Mc_AN][0][m][l] * DS_VNA1[1][Mj_AN2][kl][n][l];
                             sumy -= DS_VNA1[0][Mc_AN][0][m][l] * DS_VNA1[2][Mj_AN2][kl][n][l];
                             sumz -= DS_VNA1[0][Mc_AN][0][m][l] * DS_VNA1[3][Mj_AN2][kl][n][l];
                         }
 
-// #pragma acc atomic update
+                        // #pragma acc atomic update
                         Hx[m][n] += sumx;
-// #pragma acc atomic update
+                        // #pragma acc atomic update
                         Hy[m][n] += sumy;
-// #pragma acc atomic update
+                        // #pragma acc atomic update
                         Hz[m][n] += sumz;
                     }
                 }
@@ -7276,24 +7225,24 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
                                  dH*ep*H
             ****************************************************/
 
-            kg = natn[Gc_AN][0];
+            kg   = natn[Gc_AN][0];
             wakg = WhatSpecies[kg];
-            kl1 = RMI1[Mc_AN][0][h_AN];
-            kl2 = RMI1[Mc_AN][0][q_AN];
+            kl1  = RMI1[Mc_AN][0][h_AN];
+            kl2  = RMI1[Mc_AN][0][q_AN];
 
             /****************************************************
                                non-local part
             ****************************************************/
-// #pragma acc kernels
-// #pragma acc loop independent
+            // #pragma acc kernels
+            // #pragma acc loop independent
             for (m = 0; m < ian; m++) {
-// #pragma acc loop independent
+                // #pragma acc loop independent
                 for (n = 0; n < jan; n++) {
 
                     sumx = 0.0;
                     sumy = 0.0;
                     sumz = 0.0;
-// #pragma acc loop reduction(-:sumx) reduction(-:sumy) reduction(-:sumz)
+                    // #pragma acc loop reduction(-:sumx) reduction(-:sumy) reduction(-:sumz)
                     for (l = 0; l < num_projectors; l++) {
                         sumx -= DS_VNA1[1][Matomnum + 1][kl1][m][l] * DS_VNA1[0][Matomnum + 1][kl2][n][l];
                         sumy -= DS_VNA1[2][Matomnum + 1][kl1][m][l] * DS_VNA1[0][Matomnum + 1][kl2][n][l];
@@ -7312,34 +7261,34 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
 
             if (q_AN != 0) {
 
-                kg = natn[Gc_AN][0];
+                kg   = natn[Gc_AN][0];
                 wakg = WhatSpecies[kg];
-                kl1 = RMI1[Mc_AN][0][h_AN];
-                kl2 = RMI1[Mc_AN][0][q_AN];
+                kl1  = RMI1[Mc_AN][0][h_AN];
+                kl2  = RMI1[Mc_AN][0][q_AN];
 
                 /****************************************************
                                     non-local part
                 ****************************************************/
-// #pragma acc kernels
-// #pragma acc loop independent
+                // #pragma acc kernels
+                // #pragma acc loop independent
                 for (m = 0; m < ian; m++) {
-// #pragma acc loop independent
+                    // #pragma acc loop independent
                     for (n = 0; n < jan; n++) {
 
                         sumx = 0.0;
                         sumy = 0.0;
                         sumz = 0.0;
-// #pragma acc loop reduction(-:sumx) reduction(-:sumy) reduction(-:sumz)
+                        // #pragma acc loop reduction(-:sumx) reduction(-:sumy) reduction(-:sumz)
                         for (l = 0; l < num_projectors; l++) {
                             sumx -= DS_VNA1[0][Matomnum + 1][kl1][m][l] * DS_VNA1[1][Matomnum + 1][kl2][n][l];
                             sumy -= DS_VNA1[0][Matomnum + 1][kl1][m][l] * DS_VNA1[2][Matomnum + 1][kl2][n][l];
                             sumz -= DS_VNA1[0][Matomnum + 1][kl1][m][l] * DS_VNA1[3][Matomnum + 1][kl2][n][l];
                         }
-// #pragma acc atomic update
+                        // #pragma acc atomic update
                         Hx[m][n] += sumx;
-// #pragma acc atomic update
+                        // #pragma acc atomic update
                         Hy[m][n] += sumy;
-// #pragma acc atomic update
+                        // #pragma acc atomic update
                         Hz[m][n] += sumz;
                     }
                 }
@@ -7374,10 +7323,10 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
 
         if (rcut <= r) {
             deri_dmp = 0.0;
-            tmp = 0.0;
+            tmp      = 0.0;
         } else {
             deri_dmp = deri_dampingF(rcut, r);
-            tmp = deri_dmp / dmp;
+            tmp      = deri_dmp / dmp;
         }
 
         x0 = Gxyz[ig][1] + atv[Rni][1];
@@ -7427,37 +7376,14 @@ void dHVNA(int where_flag, int Mc_AN, int h_AN, int q_AN,
     }
 }
 
-void dHNL_SO(
-    double* sumx0r,
-    double* sumy0r,
-    double* sumz0r,
-    double* sumx1r,
-    double* sumy1r,
-    double* sumz1r,
-    double* sumx2r,
-    double* sumy2r,
-    double* sumz2r,
-    double* sumx0i,
-    double* sumy0i,
-    double* sumz0i,
-    double* sumx1i,
-    double* sumy1i,
-    double* sumz1i,
-    double* sumx2i,
-    double* sumy2i,
-    double* sumz2i,
-    double fugou,
-    double PFp,
-    double PFm,
-    double ene_p,
-    double ene_m,
-    int l2, int* l,
-    int Mc_AN, int k, int m,
-    int Mj_AN, int kl, int n,
-    double****** DS_NL1)
+void dHNL_SO(double * sumx0r, double * sumy0r, double * sumz0r, double * sumx1r, double * sumy1r, double * sumz1r,
+             double * sumx2r, double * sumy2r, double * sumz2r, double * sumx0i, double * sumy0i, double * sumz0i,
+             double * sumx1i, double * sumy1i, double * sumz1i, double * sumx2i, double * sumy2i, double * sumz2i,
+             double fugou, double PFp, double PFm, double ene_p, double ene_m, int l2, int * l, int Mc_AN, int k, int m,
+             int Mj_AN, int kl, int n, double ****** DS_NL1)
 {
 
-    int l3, i;
+    int    l3, i;
     double tmpx, tmpy, tmpz;
     double tmp0, tmp1, tmp2;
     double tmp3, tmp4, tmp5, tmp6;
@@ -7474,11 +7400,14 @@ void dHNL_SO(
         if (l2 == 2) {
 
             /* real contribution of l+1/2 to off diagonal up-down matrix */
-            tmpx = fugou * (ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
+            tmpx = fugou * (ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                            ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
 
-            tmpy = fugou * (ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
+            tmpy = fugou * (ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                            ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
 
-            tmpz = fugou * (ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
+            tmpz = fugou * (ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                            ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
 
             *sumx2r += tmpx;
             *sumy2r += tmpy;
@@ -7486,11 +7415,14 @@ void dHNL_SO(
 
             /* imaginary contribution of l+1/2 to off diagonal up-down matrix */
 
-            tmpx = fugou * (-ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] + ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1]);
+            tmpx = fugou * (-ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] +
+                            ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1]);
 
-            tmpy = fugou * (-ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] + ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1]);
+            tmpy = fugou * (-ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] +
+                            ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1]);
 
-            tmpz = fugou * (-ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] + ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1]);
+            tmpz = fugou * (-ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] +
+                            ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1]);
 
             *sumx2i += tmpx;
             *sumy2i += tmpy;
@@ -7498,11 +7430,14 @@ void dHNL_SO(
 
             /* real contribution of l-1/2 for to diagonal up-down matrix */
 
-            tmpx = fugou * (ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
+            tmpx = fugou * (ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                            ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
 
-            tmpy = fugou * (ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
+            tmpy = fugou * (ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                            ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
 
-            tmpz = fugou * (ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
+            tmpz = fugou * (ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                            ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
 
             *sumx2r -= tmpx;
             *sumy2r -= tmpy;
@@ -7510,11 +7445,14 @@ void dHNL_SO(
 
             /* imaginary contribution of l-1/2 to off diagonal up-down matrix */
 
-            tmpx = fugou * (-ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] + ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1]);
+            tmpx = fugou * (-ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] +
+                            ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1]);
 
-            tmpy = fugou * (-ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] + ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1]);
+            tmpy = fugou * (-ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] +
+                            ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1]);
 
-            tmpz = fugou * (-ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] + ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1]);
+            tmpz = fugou * (-ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] +
+                            ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1]);
 
             *sumx2i -= tmpx;
             *sumy2i -= tmpy;
@@ -7531,7 +7469,12 @@ void dHNL_SO(
             /* real contribution of l+1/2 to off diagonal up-down matrix */
 
             for (i = 1; i <= 3; i++) {
-                deri[i] = fugou * (-tmp2 * DS_NL1[0][i][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] + tmp2 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l] + tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] - tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] + tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2]);
+                deri[i] = fugou * (-tmp2 * DS_NL1[0][i][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] +
+                                   tmp2 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l] +
+                                   tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] -
+                                   tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] +
+                                   tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                                   tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2]);
             }
             *sumx2r += deri[1];
             *sumy2r += deri[2];
@@ -7540,7 +7483,12 @@ void dHNL_SO(
             /* imaginary contribution of l+1/2 to off diagonal up-down matrix */
 
             for (i = 1; i <= 3; i++) {
-                deri[i] = fugou * (+tmp2 * DS_NL1[0][i][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - tmp2 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l] + tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] - tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] + tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2]);
+                deri[i] = fugou * (+tmp2 * DS_NL1[0][i][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                                   tmp2 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l] +
+                                   tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                                   tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] -
+                                   tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] +
+                                   tmp1 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2]);
             }
             *sumx2i += deri[1];
             *sumy2i += deri[2];
@@ -7552,7 +7500,12 @@ void dHNL_SO(
             tmp2 = tmp0 * tmp1;
 
             for (i = 1; i <= 3; i++) {
-                deri[i] = fugou * (-tmp2 * DS_NL1[1][i][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] + tmp2 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l] + tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] - tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] + tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2]);
+                deri[i] = fugou * (-tmp2 * DS_NL1[1][i][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] +
+                                   tmp2 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l] +
+                                   tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] -
+                                   tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] +
+                                   tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                                   tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2]);
             }
             *sumx2r -= deri[1];
             *sumy2r -= deri[2];
@@ -7561,7 +7514,12 @@ void dHNL_SO(
             /* imaginary contribution of l-1/2 to off diagonal up-down matrix */
 
             for (i = 1; i <= 3; i++) {
-                deri[i] = fugou * (+tmp2 * DS_NL1[1][i][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - tmp2 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l] + tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] - tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] + tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2]);
+                deri[i] = fugou * (+tmp2 * DS_NL1[1][i][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                                   tmp2 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l] +
+                                   tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                                   tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] -
+                                   tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] +
+                                   tmp1 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2]);
             }
             *sumx2i -= deri[1];
             *sumy2i -= deri[2];
@@ -7583,7 +7541,16 @@ void dHNL_SO(
             tmp6 = tmp0 * tmp3; /* sqrt(6.0)     */
 
             for (i = 1; i <= 3; i++) {
-                deri[i] = fugou * (-tmp6 * DS_NL1[0][i][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] + tmp6 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l] - tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] + tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] - tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] + tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5] + tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] - tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] + tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4]);
+                deri[i] = fugou * (-tmp6 * DS_NL1[0][i][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] +
+                                   tmp6 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l] -
+                                   tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] +
+                                   tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] -
+                                   tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] +
+                                   tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                                   tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5] +
+                                   tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] -
+                                   tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] +
+                                   tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4]);
             }
             *sumx2r += deri[1];
             *sumy2r += deri[2];
@@ -7592,7 +7559,16 @@ void dHNL_SO(
             /* imaginary contribution of l+1/2 to off diagonal up-down matrix */
 
             for (i = 1; i <= 3; i++) {
-                deri[i] = fugou * (+tmp6 * DS_NL1[0][i][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - tmp6 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l] + tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] - tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] + tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] + tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] - tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] - tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5] + tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4]);
+                deri[i] = fugou * (+tmp6 * DS_NL1[0][i][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                                   tmp6 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l] +
+                                   tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                                   tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] -
+                                   tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] +
+                                   tmp5 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] +
+                                   tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] -
+                                   tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] -
+                                   tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5] +
+                                   tmp4 * DS_NL1[0][i][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4]);
             }
             *sumx2i += deri[1];
             *sumy2i += deri[2];
@@ -7606,7 +7582,16 @@ void dHNL_SO(
             tmp6 = tmp0 * tmp3; /* sqrt(6.0)     */
 
             for (i = 1; i <= 3; i++) {
-                deri[i] = fugou * (-tmp6 * DS_NL1[1][i][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] + tmp6 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l] - tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] + tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] - tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] + tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5] + tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] - tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] + tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4]);
+                deri[i] = fugou * (-tmp6 * DS_NL1[1][i][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] +
+                                   tmp6 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l] -
+                                   tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] +
+                                   tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] -
+                                   tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] +
+                                   tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                                   tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5] +
+                                   tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] -
+                                   tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] +
+                                   tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4]);
             }
             *sumx2r -= deri[1];
             *sumy2r -= deri[2];
@@ -7615,7 +7600,16 @@ void dHNL_SO(
             /* imaginary contribution of l-1/2 to off diagonal up-down matrix */
 
             for (i = 1; i <= 3; i++) {
-                deri[i] = fugou * (+tmp6 * DS_NL1[1][i][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - tmp6 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l] + tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] - tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] + tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] + tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] - tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] - tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5] + tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4]);
+                deri[i] = fugou * (+tmp6 * DS_NL1[1][i][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                                   tmp6 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l] +
+                                   tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                                   tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] -
+                                   tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] +
+                                   tmp5 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] +
+                                   tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] -
+                                   tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] -
+                                   tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5] +
+                                   tmp4 * DS_NL1[1][i][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4]);
             }
             *sumx2i -= deri[1];
             *sumy2i -= deri[2];
@@ -7630,11 +7624,14 @@ void dHNL_SO(
     /* p */
     if (l2 == 2) {
 
-        tmpx = fugou * (ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] - ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
+        tmpx = fugou * (ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] -
+                        ene_p / 3.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
 
-        tmpy = fugou * (ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] - ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
+        tmpy = fugou * (ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] -
+                        ene_p / 3.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
 
-        tmpz = fugou * (ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] - ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
+        tmpz = fugou * (ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] -
+                        ene_p / 3.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l]);
 
         /* contribution of l+1/2 for up spin */
         *sumx0i += -tmpx;
@@ -7646,11 +7643,14 @@ void dHNL_SO(
         *sumy1i += tmpy;
         *sumz1i += tmpz;
 
-        tmpx = fugou * (ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] - ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
+        tmpx = fugou * (ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] -
+                        ene_m / 3.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
 
-        tmpy = fugou * (ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] - ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
+        tmpy = fugou * (ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] -
+                        ene_m / 3.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
 
-        tmpz = fugou * (ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] - ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
+        tmpz = fugou * (ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] -
+                        ene_m / 3.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l]);
 
         /* contribution of l-1/2 for up spin */
         *sumx0i += tmpx;
@@ -7666,11 +7666,20 @@ void dHNL_SO(
     /* d */
     else if (l2 == 4) {
 
-        tmpx = fugou * (ene_p * 2.0 / 5.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - ene_p * 2.0 / 5.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] + ene_p * 1.0 / 5.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - ene_p * 1.0 / 5.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3]);
+        tmpx = fugou * (ene_p * 2.0 / 5.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                        ene_p * 2.0 / 5.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] +
+                        ene_p * 1.0 / 5.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                        ene_p * 1.0 / 5.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3]);
 
-        tmpy = fugou * (ene_p * 2.0 / 5.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - ene_p * 2.0 / 5.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] + ene_p * 1.0 / 5.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - ene_p * 1.0 / 5.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3]);
+        tmpy = fugou * (ene_p * 2.0 / 5.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                        ene_p * 2.0 / 5.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] +
+                        ene_p * 1.0 / 5.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                        ene_p * 1.0 / 5.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3]);
 
-        tmpz = fugou * (ene_p * 2.0 / 5.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - ene_p * 2.0 / 5.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] + ene_p * 1.0 / 5.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - ene_p * 1.0 / 5.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3]);
+        tmpz = fugou * (ene_p * 2.0 / 5.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                        ene_p * 2.0 / 5.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] +
+                        ene_p * 1.0 / 5.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                        ene_p * 1.0 / 5.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3]);
 
         /* contribution of l+1/2 for up spin */
         *sumx0i += -tmpx;
@@ -7682,11 +7691,20 @@ void dHNL_SO(
         *sumy1i += tmpy;
         *sumz1i += tmpz;
 
-        tmpx = fugou * (ene_m * 2.0 / 5.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - ene_m * 2.0 / 5.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] + ene_m * 1.0 / 5.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - ene_m * 1.0 / 5.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3]);
+        tmpx = fugou * (ene_m * 2.0 / 5.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                        ene_m * 2.0 / 5.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] +
+                        ene_m * 1.0 / 5.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                        ene_m * 1.0 / 5.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3]);
 
-        tmpy = fugou * (ene_m * 2.0 / 5.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - ene_m * 2.0 / 5.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] + ene_m * 1.0 / 5.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - ene_m * 1.0 / 5.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3]);
+        tmpy = fugou * (ene_m * 2.0 / 5.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                        ene_m * 2.0 / 5.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] +
+                        ene_m * 1.0 / 5.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                        ene_m * 1.0 / 5.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3]);
 
-        tmpz = fugou * (ene_m * 2.0 / 5.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - ene_m * 2.0 / 5.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] + ene_m * 1.0 / 5.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - ene_m * 1.0 / 5.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3]);
+        tmpz = fugou * (ene_m * 2.0 / 5.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                        ene_m * 2.0 / 5.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] +
+                        ene_m * 1.0 / 5.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                        ene_m * 1.0 / 5.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3]);
 
         /* contribution of l-1/2 for up spin */
         *sumx0i += tmpx;
@@ -7703,11 +7721,26 @@ void dHNL_SO(
     /* f */
     else if (l2 == 6) {
 
-        tmpx = fugou * (ene_p * 1.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - ene_p * 1.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] + ene_p * 2.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - ene_p * 2.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] + ene_p * 3.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] - ene_p * 3.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5]);
+        tmpx = fugou * (ene_p * 1.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                        ene_p * 1.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] +
+                        ene_p * 2.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                        ene_p * 2.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] +
+                        ene_p * 3.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] -
+                        ene_p * 3.0 / 7.0 * DS_NL1[0][1][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5]);
 
-        tmpy = fugou * (ene_p * 1.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - ene_p * 1.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] + ene_p * 2.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - ene_p * 2.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] + ene_p * 3.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] - ene_p * 3.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5]);
+        tmpy = fugou * (ene_p * 1.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                        ene_p * 1.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] +
+                        ene_p * 2.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                        ene_p * 2.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] +
+                        ene_p * 3.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] -
+                        ene_p * 3.0 / 7.0 * DS_NL1[0][2][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5]);
 
-        tmpz = fugou * (ene_p * 1.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] - ene_p * 1.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] + ene_p * 2.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] - ene_p * 2.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] + ene_p * 3.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] - ene_p * 3.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5]);
+        tmpz = fugou * (ene_p * 1.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 1] * DS_NL1[0][0][Mj_AN][kl][n][*l + 2] -
+                        ene_p * 1.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 2] * DS_NL1[0][0][Mj_AN][kl][n][*l + 1] +
+                        ene_p * 2.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 3] * DS_NL1[0][0][Mj_AN][kl][n][*l + 4] -
+                        ene_p * 2.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 4] * DS_NL1[0][0][Mj_AN][kl][n][*l + 3] +
+                        ene_p * 3.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 5] * DS_NL1[0][0][Mj_AN][kl][n][*l + 6] -
+                        ene_p * 3.0 / 7.0 * DS_NL1[0][3][Mc_AN][k][m][*l + 6] * DS_NL1[0][0][Mj_AN][kl][n][*l + 5]);
 
         /* contribution of l+1/2 for up spin */
         *sumx0i += -tmpx;
@@ -7719,11 +7752,26 @@ void dHNL_SO(
         *sumy1i += tmpy;
         *sumz1i += tmpz;
 
-        tmpx = fugou * (ene_m * 1.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - ene_m * 1.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] + ene_m * 2.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - ene_m * 2.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] + ene_m * 3.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] - ene_m * 3.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5]);
+        tmpx = fugou * (ene_m * 1.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                        ene_m * 1.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] +
+                        ene_m * 2.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                        ene_m * 2.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] +
+                        ene_m * 3.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] -
+                        ene_m * 3.0 / 7.0 * DS_NL1[1][1][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5]);
 
-        tmpy = fugou * (ene_m * 1.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - ene_m * 1.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] + ene_m * 2.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - ene_m * 2.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] + ene_m * 3.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] - ene_m * 3.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5]);
+        tmpy = fugou * (ene_m * 1.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                        ene_m * 1.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] +
+                        ene_m * 2.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                        ene_m * 2.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] +
+                        ene_m * 3.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] -
+                        ene_m * 3.0 / 7.0 * DS_NL1[1][2][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5]);
 
-        tmpz = fugou * (ene_m * 1.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] - ene_m * 1.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] + ene_m * 2.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] - ene_m * 2.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] + ene_m * 3.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] - ene_m * 3.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5]);
+        tmpz = fugou * (ene_m * 1.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 1] * DS_NL1[1][0][Mj_AN][kl][n][*l + 2] -
+                        ene_m * 1.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 2] * DS_NL1[1][0][Mj_AN][kl][n][*l + 1] +
+                        ene_m * 2.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 3] * DS_NL1[1][0][Mj_AN][kl][n][*l + 4] -
+                        ene_m * 2.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 4] * DS_NL1[1][0][Mj_AN][kl][n][*l + 3] +
+                        ene_m * 3.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 5] * DS_NL1[1][0][Mj_AN][kl][n][*l + 6] -
+                        ene_m * 3.0 / 7.0 * DS_NL1[1][3][Mc_AN][k][m][*l + 6] * DS_NL1[1][0][Mj_AN][kl][n][*l + 5]);
 
         /* contribution of l-1/2 for up spin */
         *sumx0i += tmpx;
@@ -7774,23 +7822,22 @@ void dHNL_SO(
     }
 }
 
-void dH_U_full(int Mc_AN, int h_AN, int q_AN,
-    double***** OLP, double**** v_eff,
-    double*** Hx, double*** Hy, double*** Hz)
+void dH_U_full(int Mc_AN, int h_AN, int q_AN, double ***** OLP, double **** v_eff, double *** Hx, double *** Hy,
+               double *** Hz)
 {
-    int i, j, k, m, n, kg, kan, so, deri_kind, Mk_AN;
-    int ig, ian, jg, jan, kl, kl1, kl2, spin, spinmax;
-    int wakg, l1, l2, l3, Gc_AN, Mi_AN, Mj_AN;
-    int Rwan, Lwan, p, p0;
-    double PF[2], sumx, sumy, sumz, ene;
-    double tmpx, tmpy, tmpz;
-    double Lsum0, Lsum1, Lsum2, Lsum3;
-    double Rsum0, Rsum1, Rsum2, Rsum3;
-    double PFp, PFm, ene_p, ene_m;
+    int       i, j, k, m, n, kg, kan, so, deri_kind, Mk_AN;
+    int       ig, ian, jg, jan, kl, kl1, kl2, spin, spinmax;
+    int       wakg, l1, l2, l3, Gc_AN, Mi_AN, Mj_AN;
+    int       Rwan, Lwan, p, p0;
+    double    PF[2], sumx, sumy, sumz, ene;
+    double    tmpx, tmpy, tmpz;
+    double    Lsum0, Lsum1, Lsum2, Lsum3;
+    double    Rsum0, Rsum1, Rsum2, Rsum3;
+    double    PFp, PFm, ene_p, ene_m;
     double ***Hx2, ***Hy2, ***Hz2;
-    double sumx0, sumy0, sumz0;
-    double sumx1, sumy1, sumz1;
-    double sumx2, sumy2, sumz2;
+    double    sumx0, sumy0, sumz0;
+    double    sumx1, sumy1, sumz1;
+    double    sumx2, sumy2, sumz2;
 
     /****************************************************
      allocation of arrays:
@@ -7800,27 +7847,27 @@ void dH_U_full(int Mc_AN, int h_AN, int q_AN,
      double Hz2[3][List_YOUSO[7]][List_YOUSO[7]];
     ****************************************************/
 
-    Hx2 = (double***)malloc(sizeof(double**) * 3);
+    Hx2 = (double ***)malloc(sizeof(double **) * 3);
     for (i = 0; i < 3; i++) {
-        Hx2[i] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+        Hx2[i] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hx2[i][j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+            Hx2[i][j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
         }
     }
 
-    Hy2 = (double***)malloc(sizeof(double**) * 3);
+    Hy2 = (double ***)malloc(sizeof(double **) * 3);
     for (i = 0; i < 3; i++) {
-        Hy2[i] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+        Hy2[i] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hy2[i][j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+            Hy2[i][j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
         }
     }
 
-    Hz2 = (double***)malloc(sizeof(double**) * 3);
+    Hz2 = (double ***)malloc(sizeof(double **) * 3);
     for (i = 0; i < 3; i++) {
-        Hz2[i] = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
+        Hz2[i] = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hz2[i][j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+            Hz2[i][j] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
         }
     }
 
@@ -7834,14 +7881,14 @@ void dH_U_full(int Mc_AN, int h_AN, int q_AN,
         spinmax = 1;
 
     Gc_AN = M2G[Mc_AN];
-    ig = natn[Gc_AN][h_AN];
-    Lwan = WhatSpecies[ig];
+    ig    = natn[Gc_AN][h_AN];
+    Lwan  = WhatSpecies[ig];
     Mi_AN = F_G2M[ig]; /* F_G2M should be used */
-    ian = Spe_Total_CNO[Lwan];
-    jg = natn[Gc_AN][q_AN];
-    Rwan = WhatSpecies[jg];
+    ian   = Spe_Total_CNO[Lwan];
+    jg    = natn[Gc_AN][q_AN];
+    Rwan  = WhatSpecies[jg];
     Mj_AN = F_G2M[jg]; /* F_G2M should be used */
-    jan = Spe_Total_CNO[Rwan];
+    jan   = Spe_Total_CNO[Rwan];
 
     if (h_AN == 0) {
 
@@ -7851,11 +7898,11 @@ void dH_U_full(int Mc_AN, int h_AN, int q_AN,
 
         for (k = 0; k <= FNAN[Gc_AN]; k++) {
 
-            kg = natn[Gc_AN][k];
+            kg    = natn[Gc_AN][k];
             Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-            wakg = WhatSpecies[kg];
-            kan = Spe_Total_NO[wakg];
-            kl = RMI1[Mc_AN][q_AN][k];
+            wakg  = WhatSpecies[kg];
+            kan   = Spe_Total_NO[wakg];
+            kl    = RMI1[Mc_AN][q_AN][k];
 
             /****************************************************
                         derivative at h_AN (=Mc_AN)
@@ -7963,11 +8010,11 @@ void dH_U_full(int Mc_AN, int h_AN, int q_AN,
 
         else {
 
-            kg = natn[Gc_AN][0];
+            kg    = natn[Gc_AN][0];
             Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-            wakg = WhatSpecies[kg];
-            kan = Spe_Total_NO[wakg];
-            kl = RMI1[Mc_AN][q_AN][0];
+            wakg  = WhatSpecies[kg];
+            kan   = Spe_Total_NO[wakg];
+            kl    = RMI1[Mc_AN][q_AN][0];
 
             /****************************************************
                               derivative at k=0
@@ -8042,12 +8089,12 @@ void dH_U_full(int Mc_AN, int h_AN, int q_AN,
                                dS*ep*S
         ****************************************************/
 
-        kg = natn[Gc_AN][0];
+        kg    = natn[Gc_AN][0];
         Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-        wakg = WhatSpecies[kg];
-        kan = Spe_Total_NO[wakg];
-        kl1 = RMI1[Mc_AN][h_AN][0];
-        kl2 = RMI1[Mc_AN][q_AN][0];
+        wakg  = WhatSpecies[kg];
+        kan   = Spe_Total_NO[wakg];
+        kl1   = RMI1[Mc_AN][h_AN][0];
+        kl2   = RMI1[Mc_AN][q_AN][0];
 
         for (m = 0; m < ian; m++) {
             for (n = 0; n < jan; n++) {
@@ -8117,12 +8164,12 @@ void dH_U_full(int Mc_AN, int h_AN, int q_AN,
         if (q_AN == 0) {
 
             for (k = 0; k <= FNAN[Gc_AN]; k++) {
-                kg = natn[Gc_AN][k];
+                kg    = natn[Gc_AN][k];
                 Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-                wakg = WhatSpecies[kg];
-                kan = Spe_Total_NO[wakg];
-                kl1 = RMI1[Mc_AN][h_AN][k];
-                kl2 = RMI1[Mc_AN][q_AN][k];
+                wakg  = WhatSpecies[kg];
+                kan   = Spe_Total_NO[wakg];
+                kl1   = RMI1[Mc_AN][h_AN][k];
+                kl2   = RMI1[Mc_AN][q_AN][k];
 
                 if (0 <= kl1) {
 
@@ -8191,12 +8238,12 @@ void dH_U_full(int Mc_AN, int h_AN, int q_AN,
 
         else {
 
-            kg = natn[Gc_AN][0];
+            kg    = natn[Gc_AN][0];
             Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-            wakg = WhatSpecies[kg];
-            kan = Spe_Total_NO[wakg];
-            kl1 = RMI1[Mc_AN][h_AN][0];
-            kl2 = RMI1[Mc_AN][q_AN][0];
+            wakg  = WhatSpecies[kg];
+            kan   = Spe_Total_NO[wakg];
+            kl1   = RMI1[Mc_AN][h_AN][0];
+            kl2   = RMI1[Mc_AN][q_AN][0];
 
             for (m = 0; m < ian; m++) {
                 for (n = 0; n < jan; n++) {
@@ -8292,14 +8339,13 @@ void dH_U_full(int Mc_AN, int h_AN, int q_AN,
     free(Hz2);
 }
 
-void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
-    double***** OLP, dcomplex***** NC_v_eff,
-    dcomplex**** Hx, dcomplex**** Hy, dcomplex**** Hz)
+void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN, double ***** OLP, dcomplex ***** NC_v_eff, dcomplex **** Hx,
+                  dcomplex **** Hy, dcomplex **** Hz)
 {
-    int i, j, k, m, n, kg, kan, so, deri_kind, Mk_AN;
-    int ig, ian, jg, jan, kl, kl1, kl2, spin;
-    int wakg, l1, l2, l3, Gc_AN, Mi_AN, Mj_AN;
-    int Rwan, Lwan, p, p0, s1, s2;
+    int    i, j, k, m, n, kg, kan, so, deri_kind, Mk_AN;
+    int    ig, ian, jg, jan, kl, kl1, kl2, spin;
+    int    wakg, l1, l2, l3, Gc_AN, Mi_AN, Mj_AN;
+    int    Rwan, Lwan, p, p0, s1, s2;
     double PF[2], sumx, sumy, sumz, ene;
     double tmpx, tmpy, tmpz;
     double Lsum0, Lsum1, Lsum2, Lsum3;
@@ -8319,14 +8365,14 @@ void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
     ****************************************************/
 
     Gc_AN = M2G[Mc_AN];
-    ig = natn[Gc_AN][h_AN];
-    Lwan = WhatSpecies[ig];
+    ig    = natn[Gc_AN][h_AN];
+    Lwan  = WhatSpecies[ig];
     Mi_AN = F_G2M[ig]; /* F_G2M should be used */
-    ian = Spe_Total_CNO[Lwan];
-    jg = natn[Gc_AN][q_AN];
-    Rwan = WhatSpecies[jg];
+    ian   = Spe_Total_CNO[Lwan];
+    jg    = natn[Gc_AN][q_AN];
+    Rwan  = WhatSpecies[jg];
     Mj_AN = F_G2M[jg]; /* F_G2M should be used */
-    jan = Spe_Total_CNO[Rwan];
+    jan   = Spe_Total_CNO[Rwan];
 
     if (h_AN == 0) {
 
@@ -8336,11 +8382,11 @@ void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
 
         for (k = 0; k <= FNAN[Gc_AN]; k++) {
 
-            kg = natn[Gc_AN][k];
+            kg    = natn[Gc_AN][k];
             Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-            wakg = WhatSpecies[kg];
-            kan = Spe_Total_NO[wakg];
-            kl = RMI1[Mc_AN][q_AN][k];
+            wakg  = WhatSpecies[kg];
+            kan   = Spe_Total_NO[wakg];
+            kl    = RMI1[Mc_AN][q_AN][k];
 
             /****************************************************
                         derivative at h_AN (=Mc_AN)
@@ -8502,11 +8548,11 @@ void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
 
         else {
 
-            kg = natn[Gc_AN][0];
+            kg    = natn[Gc_AN][0];
             Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-            wakg = WhatSpecies[kg];
-            kan = Spe_Total_NO[wakg];
-            kl = RMI1[Mc_AN][q_AN][0];
+            wakg  = WhatSpecies[kg];
+            kan   = Spe_Total_NO[wakg];
+            kl    = RMI1[Mc_AN][q_AN][0];
 
             /****************************************************
                               derivative at k=0
@@ -8625,12 +8671,12 @@ void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
                                dS*ep*S
         ****************************************************/
 
-        kg = natn[Gc_AN][0];
+        kg    = natn[Gc_AN][0];
         Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-        wakg = WhatSpecies[kg];
-        kan = Spe_Total_NO[wakg];
-        kl1 = RMI1[Mc_AN][h_AN][0];
-        kl2 = RMI1[Mc_AN][q_AN][0];
+        wakg  = WhatSpecies[kg];
+        kan   = Spe_Total_NO[wakg];
+        kl1   = RMI1[Mc_AN][h_AN][0];
+        kl2   = RMI1[Mc_AN][q_AN][0];
 
         for (m = 0; m < ian; m++) {
             for (n = 0; n < jan; n++) {
@@ -8731,12 +8777,12 @@ void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
         if (q_AN == 0) {
 
             for (k = 0; k <= FNAN[Gc_AN]; k++) {
-                kg = natn[Gc_AN][k];
+                kg    = natn[Gc_AN][k];
                 Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-                wakg = WhatSpecies[kg];
-                kan = Spe_Total_NO[wakg];
-                kl1 = RMI1[Mc_AN][h_AN][k];
-                kl2 = RMI1[Mc_AN][q_AN][k];
+                wakg  = WhatSpecies[kg];
+                kan   = Spe_Total_NO[wakg];
+                kl1   = RMI1[Mc_AN][h_AN][k];
+                kl2   = RMI1[Mc_AN][q_AN][k];
 
                 if (0 <= kl1) {
 
@@ -8849,12 +8895,12 @@ void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
 
         else {
 
-            kg = natn[Gc_AN][0];
+            kg    = natn[Gc_AN][0];
             Mk_AN = F_G2M[kg]; /* F_G2M should be used */
-            wakg = WhatSpecies[kg];
-            kan = Spe_Total_NO[wakg];
-            kl1 = RMI1[Mc_AN][h_AN][0];
-            kl2 = RMI1[Mc_AN][q_AN][0];
+            wakg  = WhatSpecies[kg];
+            kan   = Spe_Total_NO[wakg];
+            kl1   = RMI1[Mc_AN][h_AN][0];
+            kl2   = RMI1[Mc_AN][q_AN][0];
 
             for (m = 0; m < ian; m++) {
                 for (n = 0; n < jan; n++) {
@@ -8963,25 +9009,23 @@ void dH_U_NC_full(int Mc_AN, int h_AN, int q_AN,
     }
 }
 
-void dHCH(int where_flag,
-    int Mc_AN, int h_AN, int q_AN,
-    double***** OLP1,
-    dcomplex*** Hx, dcomplex*** Hy, dcomplex*** Hz)
+void dHCH(int where_flag, int Mc_AN, int h_AN, int q_AN, double ***** OLP1, dcomplex *** Hx, dcomplex *** Hy,
+          dcomplex *** Hz)
 {
-    int i, j, k, m, n, l, kg, kan, so, deri_kind, L;
-    int ig, ian, jg, jan, kl, kl1, kl2, mul;
-    int wakg, l1, l2, l3, Gc_AN, Mi_AN, Mi_AN2, Mj_AN, Mj_AN2;
-    int Rni, Rnj, somax, apply_flag, target_spin;
-    double** penalty;
-    double penalty_value;
-    double PF[2], sumx[2], sumy[2], sumz[2], ene, dmp, deri_dmp;
-    double tmpx, tmpy, tmpz, tmp, r;
-    double x0, y0, z0, x1, y1, z1, dx, dy, dz;
-    double rcuti, rcutj, rcut;
-    double PFp, PFm, ene_p, ene_m;
-    dcomplex sumx0, sumy0, sumz0;
-    dcomplex sumx1, sumy1, sumz1;
-    dcomplex sumx2, sumy2, sumz2;
+    int       i, j, k, m, n, l, kg, kan, so, deri_kind, L;
+    int       ig, ian, jg, jan, kl, kl1, kl2, mul;
+    int       wakg, l1, l2, l3, Gc_AN, Mi_AN, Mi_AN2, Mj_AN, Mj_AN2;
+    int       Rni, Rnj, somax, apply_flag, target_spin;
+    double ** penalty;
+    double    penalty_value;
+    double    PF[2], sumx[2], sumy[2], sumz[2], ene, dmp, deri_dmp;
+    double    tmpx, tmpy, tmpz, tmp, r;
+    double    x0, y0, z0, x1, y1, z1, dx, dy, dz;
+    double    rcuti, rcutj, rcut;
+    double    PFp, PFm, ene_p, ene_m;
+    dcomplex  sumx0, sumy0, sumz0;
+    dcomplex  sumx1, sumy1, sumz1;
+    dcomplex  sumx2, sumy2, sumz2;
 
     /****************************************************
      start calc.
@@ -8991,9 +9035,9 @@ void dHCH(int where_flag,
 
     penalty_value = penalty_value_CoreHole;
 
-    penalty = (double**)malloc(sizeof(double*) * 2);
+    penalty = (double **)malloc(sizeof(double *) * 2);
     for (i = 0; i < 2; i++) {
-        penalty[i] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
+        penalty[i] = (double *)malloc(sizeof(double) * List_YOUSO[7]);
     }
 
     wakg = WhatSpecies[Core_Hole_Atom];
@@ -9078,21 +9122,21 @@ void dHCH(int where_flag,
     /* get information of relevant atoms */
 
     Gc_AN = M2G[Mc_AN];
-    ig = natn[Gc_AN][h_AN];
-    Rni = ncn[Gc_AN][h_AN];
+    ig    = natn[Gc_AN][h_AN];
+    Rni   = ncn[Gc_AN][h_AN];
     Mi_AN = F_G2M[ig];
-    ian = Spe_Total_CNO[WhatSpecies[ig]];
+    ian   = Spe_Total_CNO[WhatSpecies[ig]];
     rcuti = Spe_Atom_Cut1[WhatSpecies[ig]];
 
-    jg = natn[Gc_AN][q_AN];
-    Rnj = ncn[Gc_AN][q_AN];
+    jg    = natn[Gc_AN][q_AN];
+    Rnj   = ncn[Gc_AN][q_AN];
     Mj_AN = F_G2M[jg];
-    jan = Spe_Total_CNO[WhatSpecies[jg]];
+    jan   = Spe_Total_CNO[WhatSpecies[jg]];
     rcutj = Spe_Atom_Cut1[WhatSpecies[jg]];
 
     rcut = rcuti + rcutj;
-    kl = RMI1[Mc_AN][h_AN][q_AN];
-    dmp = dampingF(rcut, Dis[ig][kl]);
+    kl   = RMI1[Mc_AN][h_AN][q_AN];
+    dmp  = dampingF(rcut, Dis[ig][kl]);
 
     for (so = 0; so < 3; so++) {
         for (i = 0; i < List_YOUSO[7]; i++) {
@@ -9112,10 +9156,10 @@ void dHCH(int where_flag,
 
         for (k = 0; k <= FNAN[Gc_AN]; k++) {
 
-            kg = natn[Gc_AN][k];
+            kg   = natn[Gc_AN][k];
             wakg = WhatSpecies[kg];
-            kan = Spe_Total_CNO[wakg];
-            kl = RMI1[Mc_AN][q_AN][k];
+            kan  = Spe_Total_CNO[wakg];
+            kl   = RMI1[Mc_AN][q_AN][k];
 
             /****************************************************
                          l-dependent non-local part
@@ -9191,27 +9235,16 @@ void dHCH(int where_flag,
                         sumy2 = Complex(0.0, 0.0);
                         sumz2 = Complex(0.0, 0.0);
 
-                        dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i,
-                            &sumx1.r, &sumx1.i, &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i,
-                            &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i, &sumz2.r, &sumz2.i,
-                            1.0,
-                            Mc_AN, k, m,
-                            Mj_AN2, kl, n,
-                            kg, wakg,
-                            penalty_value,
-                            OLP1);
+                        dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i, &sumx1.r, &sumx1.i,
+                                &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i, &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i,
+                                &sumz2.r, &sumz2.i, 1.0, Mc_AN, k, m, Mj_AN2, kl, n, kg, wakg, penalty_value, OLP1);
 
                         if (q_AN == 0) {
 
-                            dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i,
-                                &sumx1.r, &sumx1.i, &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i,
-                                &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i, &sumz2.r, &sumz2.i,
-                                -1.0,
-                                Mj_AN2, kl, n,
-                                Mc_AN, k, m,
-                                kg, wakg,
-                                penalty_value,
-                                OLP1);
+                            dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i, &sumx1.r, &sumx1.i,
+                                    &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i, &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i,
+                                    &sumz2.r, &sumz2.i, -1.0, Mj_AN2, kl, n, Mc_AN, k, m, kg, wakg, penalty_value,
+                                    OLP1);
                         }
 
                         Hx[0][m][n].r += sumx0.r; /* up-up */
@@ -9254,27 +9287,27 @@ void dHCH(int where_flag,
             for (m = 0; m < ian; m++) {
                 for (n = m; n < jan; n++) {
 
-                    tmpx = Hx[0][m][n].r + Hx[0][n][m].r;
+                    tmpx          = Hx[0][m][n].r + Hx[0][n][m].r;
                     Hx[0][m][n].r = tmpx;
                     Hx[0][n][m].r = tmpx;
 
-                    tmpy = Hy[0][m][n].r + Hy[0][n][m].r;
+                    tmpy          = Hy[0][m][n].r + Hy[0][n][m].r;
                     Hy[0][m][n].r = tmpy;
                     Hy[0][n][m].r = tmpy;
 
-                    tmpz = Hz[0][m][n].r + Hz[0][n][m].r;
+                    tmpz          = Hz[0][m][n].r + Hz[0][n][m].r;
                     Hz[0][m][n].r = tmpz;
                     Hz[0][n][m].r = tmpz;
 
-                    tmpx = Hx[1][m][n].r + Hx[1][n][m].r;
+                    tmpx          = Hx[1][m][n].r + Hx[1][n][m].r;
                     Hx[1][m][n].r = tmpx;
                     Hx[1][n][m].r = tmpx;
 
-                    tmpy = Hy[1][m][n].r + Hy[1][n][m].r;
+                    tmpy          = Hy[1][m][n].r + Hy[1][n][m].r;
                     Hy[1][m][n].r = tmpy;
                     Hy[1][n][m].r = tmpy;
 
-                    tmpz = Hz[1][m][n].r + Hz[1][n][m].r;
+                    tmpz          = Hz[1][m][n].r + Hz[1][n][m].r;
                     Hz[1][m][n].r = tmpz;
                     Hz[1][n][m].r = tmpz;
                 }
@@ -9283,10 +9316,10 @@ void dHCH(int where_flag,
 
         else if (where_flag == 1) {
 
-            kg = natn[Gc_AN][0];
+            kg   = natn[Gc_AN][0];
             wakg = WhatSpecies[kg];
-            kan = Spe_Total_VPS_Pro[wakg];
-            kl = RMI1[Mc_AN][q_AN][0];
+            kan  = Spe_Total_VPS_Pro[wakg];
+            kl   = RMI1[Mc_AN][q_AN][0];
 
             /****************************************************
                          l-dependent non-local part
@@ -9296,10 +9329,10 @@ void dHCH(int where_flag,
 
                 if (Mj_AN <= Matomnum) {
                     Mj_AN2 = Mj_AN;
-                    kl2 = RMI1[Mc_AN][q_AN][0];
+                    kl2    = RMI1[Mc_AN][q_AN][0];
                 } else {
                     Mj_AN2 = Matomnum + 1;
-                    kl2 = RMI1[Mc_AN][0][q_AN];
+                    kl2    = RMI1[Mc_AN][0][q_AN];
                 }
 
                 if (kg == Core_Hole_Atom) {
@@ -9347,10 +9380,10 @@ void dHCH(int where_flag,
 
                 if (Mj_AN <= Matomnum) {
                     Mj_AN2 = Mj_AN;
-                    kl2 = RMI1[Mc_AN][q_AN][0];
+                    kl2    = RMI1[Mc_AN][q_AN][0];
                 } else {
                     Mj_AN2 = Matomnum + 1;
-                    kl2 = RMI1[Mc_AN][0][q_AN];
+                    kl2    = RMI1[Mc_AN][0][q_AN];
                 }
 
                 for (m = 0; m < ian; m++) {
@@ -9368,15 +9401,9 @@ void dHCH(int where_flag,
 
                         /* 1 */
 
-                        dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i,
-                            &sumx1.r, &sumx1.i, &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i,
-                            &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i, &sumz2.r, &sumz2.i,
-                            -1.0,
-                            Mj_AN2, kl2, n,
-                            Mc_AN, 0, m,
-                            kg, wakg,
-                            -penalty_value,
-                            OLP1);
+                        dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i, &sumx1.r, &sumx1.i,
+                                &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i, &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i,
+                                &sumz2.r, &sumz2.i, -1.0, Mj_AN2, kl2, n, Mc_AN, 0, m, kg, wakg, -penalty_value, OLP1);
 
                         Hx[0][m][n].r += sumx0.r; /* up-up */
                         Hy[0][m][n].r += sumy0.r; /* up-up */
@@ -9428,10 +9455,10 @@ void dHCH(int where_flag,
 
         for (k = 0; k <= FNAN[Gc_AN]; k++) {
 
-            kg = natn[Gc_AN][k];
+            kg   = natn[Gc_AN][k];
             wakg = WhatSpecies[kg];
-            kan = Spe_Total_VPS_Pro[wakg];
-            kl = RMI1[Mc_AN][h_AN][k];
+            kan  = Spe_Total_VPS_Pro[wakg];
+            kl   = RMI1[Mc_AN][h_AN][k];
 
             if (Mi_AN <= Matomnum)
                 Mi_AN2 = Mi_AN;
@@ -9453,15 +9480,9 @@ void dHCH(int where_flag,
                         sumy2 = Complex(0.0, 0.0);
                         sumz2 = Complex(0.0, 0.0);
 
-                        dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i,
-                            &sumx1.r, &sumx1.i, &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i,
-                            &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i, &sumz2.r, &sumz2.i,
-                            -1.0,
-                            Mj_AN, k, n,
-                            Mi_AN2, kl, m,
-                            kg, wakg,
-                            penalty_value,
-                            OLP1);
+                        dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i, &sumx1.r, &sumx1.i,
+                                &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i, &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i,
+                                &sumz2.r, &sumz2.i, -1.0, Mj_AN, k, n, Mi_AN2, kl, m, kg, wakg, penalty_value, OLP1);
 
                         Hx[0][m][n].r += sumx0.r; /* up-up */
                         Hy[0][m][n].r += sumy0.r; /* up-up */
@@ -9501,11 +9522,11 @@ void dHCH(int where_flag,
                                dH*ep*H
         ****************************************************/
 
-        kg = natn[Gc_AN][0];
+        kg   = natn[Gc_AN][0];
         wakg = WhatSpecies[kg];
-        kan = Spe_Total_VPS_Pro[wakg];
-        kl1 = RMI1[Mc_AN][0][h_AN];
-        kl2 = RMI1[Mc_AN][0][q_AN];
+        kan  = Spe_Total_VPS_Pro[wakg];
+        kl1  = RMI1[Mc_AN][0][h_AN];
+        kl2  = RMI1[Mc_AN][0][q_AN];
 
         /****************************************************
                        l-dependent non-local part
@@ -9529,13 +9550,19 @@ void dHCH(int where_flag,
 
                         for (i = 0; i < Spe_Total_CNO[wakg]; i++) {
 
-                            sumx[0] -= penalty[0][i] * OLP1[1][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
-                            sumy[0] -= penalty[0][i] * OLP1[2][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
-                            sumz[0] -= penalty[0][i] * OLP1[3][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
+                            sumx[0] -=
+                                penalty[0][i] * OLP1[1][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
+                            sumy[0] -=
+                                penalty[0][i] * OLP1[2][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
+                            sumz[0] -=
+                                penalty[0][i] * OLP1[3][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
 
-                            sumx[1] -= penalty[1][i] * OLP1[1][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
-                            sumy[1] -= penalty[1][i] * OLP1[2][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
-                            sumz[1] -= penalty[1][i] * OLP1[3][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
+                            sumx[1] -=
+                                penalty[1][i] * OLP1[1][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
+                            sumy[1] -=
+                                penalty[1][i] * OLP1[2][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
+                            sumz[1] -=
+                                penalty[1][i] * OLP1[3][Matomnum + 1][kl1][m][i] * OLP1[0][Matomnum + 1][kl2][n][i];
                         }
 
                         Hx[0][m][n].r = sumx[0];
@@ -9587,15 +9614,9 @@ void dHCH(int where_flag,
 
                     /* 2 */
 
-                    dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i,
-                        &sumx1.r, &sumx1.i, &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i,
-                        &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i, &sumz2.r, &sumz2.i,
-                        1.0,
-                        Matomnum + 1, kl1, m,
-                        Matomnum + 1, kl2, n,
-                        kg, wakg,
-                        -penalty_value,
-                        OLP1);
+                    dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i, &sumx1.r, &sumx1.i, &sumy1.r,
+                            &sumy1.i, &sumz1.r, &sumz1.i, &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i, &sumz2.r, &sumz2.i,
+                            1.0, Matomnum + 1, kl1, m, Matomnum + 1, kl2, n, kg, wakg, -penalty_value, OLP1);
 
                     Hx[0][m][n].r = sumx0.r; /* up-up */
                     Hy[0][m][n].r = sumy0.r; /* up-up */
@@ -9630,11 +9651,11 @@ void dHCH(int where_flag,
 
         if (q_AN != 0) {
 
-            kg = natn[Gc_AN][0];
+            kg   = natn[Gc_AN][0];
             wakg = WhatSpecies[kg];
-            kan = Spe_Total_VPS_Pro[wakg];
-            kl1 = RMI1[Mc_AN][0][h_AN];
-            kl2 = RMI1[Mc_AN][0][q_AN];
+            kan  = Spe_Total_VPS_Pro[wakg];
+            kl1  = RMI1[Mc_AN][0][h_AN];
+            kl2  = RMI1[Mc_AN][0][q_AN];
 
             /****************************************************
                            l-dependent non-local part
@@ -9658,13 +9679,19 @@ void dHCH(int where_flag,
 
                             for (i = 0; i < Spe_Total_CNO[wakg]; i++) {
 
-                                sumx[0] -= penalty[0][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[1][Matomnum + 1][kl2][n][i];
-                                sumy[0] -= penalty[0][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[2][Matomnum + 1][kl2][n][i];
-                                sumz[0] -= penalty[0][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[3][Matomnum + 1][kl2][n][i];
+                                sumx[0] -=
+                                    penalty[0][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[1][Matomnum + 1][kl2][n][i];
+                                sumy[0] -=
+                                    penalty[0][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[2][Matomnum + 1][kl2][n][i];
+                                sumz[0] -=
+                                    penalty[0][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[3][Matomnum + 1][kl2][n][i];
 
-                                sumx[1] -= penalty[1][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[1][Matomnum + 1][kl2][n][i];
-                                sumy[1] -= penalty[1][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[2][Matomnum + 1][kl2][n][i];
-                                sumz[1] -= penalty[1][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[3][Matomnum + 1][kl2][n][i];
+                                sumx[1] -=
+                                    penalty[1][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[1][Matomnum + 1][kl2][n][i];
+                                sumy[1] -=
+                                    penalty[1][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[2][Matomnum + 1][kl2][n][i];
+                                sumz[1] -=
+                                    penalty[1][i] * OLP1[0][Matomnum + 1][kl1][m][i] * OLP1[3][Matomnum + 1][kl2][n][i];
                             }
 
                             Hx[0][m][n].r += sumx[0];
@@ -9700,15 +9727,10 @@ void dHCH(int where_flag,
 
                         /* 4 */
 
-                        dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i,
-                            &sumx1.r, &sumx1.i, &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i,
-                            &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i, &sumz2.r, &sumz2.i,
-                            -1.0,
-                            Matomnum + 1, kl2, n,
-                            Matomnum + 1, kl1, m,
-                            kg, wakg,
-                            -penalty_value,
-                            OLP1);
+                        dHCH_SO(&sumx0.r, &sumx0.i, &sumy0.r, &sumy0.i, &sumz0.r, &sumz0.i, &sumx1.r, &sumx1.i,
+                                &sumy1.r, &sumy1.i, &sumz1.r, &sumz1.i, &sumx2.r, &sumx2.i, &sumy2.r, &sumy2.i,
+                                &sumz2.r, &sumz2.i, -1.0, Matomnum + 1, kl2, n, Matomnum + 1, kl1, m, kg, wakg,
+                                -penalty_value, OLP1);
 
                         Hx[0][m][n].r += sumx0.r; /* up-up */
                         Hy[0][m][n].r += sumy0.r; /* up-up */
@@ -9781,10 +9803,10 @@ void dHCH(int where_flag,
 
         if (rcut <= r) {
             deri_dmp = 0.0;
-            tmp = 0.0;
+            tmp      = 0.0;
         } else {
             deri_dmp = deri_dampingF(rcut, r);
-            tmp = deri_dmp / dmp;
+            tmp      = deri_dmp / dmp;
         }
 
         x0 = Gxyz[ig][1] + atv[Rni][1];
@@ -9901,17 +9923,13 @@ void dHCH(int where_flag,
     free(penalty);
 }
 
-void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, double* sumz0r, double* sumz0i,
-    double* sumx1r, double* sumx1i, double* sumy1r, double* sumy1i, double* sumz1r, double* sumz1i,
-    double* sumx2r, double* sumx2i, double* sumy2r, double* sumy2i, double* sumz2r, double* sumz2i,
-    double fugou,
-    int Mc_AN, int k, int m,
-    int Mj_AN, int kl, int n,
-    int kg, int wakg,
-    double penalty_value,
-    double***** OLP1)
+void dHCH_SO(double * sumx0r, double * sumx0i, double * sumy0r, double * sumy0i, double * sumz0r, double * sumz0i,
+             double * sumx1r, double * sumx1i, double * sumy1r, double * sumy1i, double * sumz1r, double * sumz1i,
+             double * sumx2r, double * sumx2i, double * sumy2r, double * sumy2i, double * sumz2r, double * sumz2i,
+             double fugou, int Mc_AN, int k, int m, int Mj_AN, int kl, int n, int kg, int wakg, double penalty_value,
+             double ***** OLP1)
 {
-    int L, L2, l, mul, apply_flag;
+    int    L, L2, l, mul, apply_flag;
     double d12_m12, d12_p12;
     double d32_m12, d32_p12, d32_m32, d32_p32;
     double d52_m12, d52_p12, d52_m32, d52_p32, d52_m52, d52_p52;
@@ -9932,25 +9950,25 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
 
             if ((strcmp(Core_Hole_Orbital, "s") == 0) && l == 0 && mul == 0) {
 
-                L2 = 0;
+                L2         = 0;
                 apply_flag = 1;
             }
 
             else if ((strcmp(Core_Hole_Orbital, "p") == 0) && l == 1 && mul == 0) {
 
-                L2 = 2;
+                L2         = 2;
                 apply_flag = 1;
             }
 
             else if ((strcmp(Core_Hole_Orbital, "d") == 0) && l == 2 && mul == 0) {
 
-                L2 = 4;
+                L2         = 4;
                 apply_flag = 1;
             }
 
             else if ((strcmp(Core_Hole_Orbital, "f") == 0) && l == 3 && mul == 0) {
 
-                L2 = 6;
+                L2         = 6;
                 apply_flag = 1;
             }
 
@@ -10088,32 +10106,44 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
                     if (L2 == 2) {
 
                         /* real contribution of l+1/2 to off-diagonal up-down matrix */
-                        *sumx2r += fugou * (d32_m12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - d32_p12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
+                        *sumx2r += fugou * (d32_m12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                            d32_p12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
 
-                        *sumy2r += fugou * (d32_m12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - d32_p12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
+                        *sumy2r += fugou * (d32_m12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                            d32_p12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
 
-                        *sumz2r += fugou * (d32_m12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - d32_p12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
+                        *sumz2r += fugou * (d32_m12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                            d32_p12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
 
                         /* imaginary contribution of l+1/2 to off-diagonal up-down matrix */
-                        *sumx2i += fugou * (-d32_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + d32_p12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
+                        *sumx2i += fugou * (-d32_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                            d32_p12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
 
-                        *sumx2i += fugou * (-d32_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + d32_p12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
+                        *sumx2i += fugou * (-d32_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                            d32_p12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
 
-                        *sumx2i += fugou * (-d32_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + d32_p12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
+                        *sumx2i += fugou * (-d32_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                            d32_p12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
 
                         /* real contribution of l-1/2 for to off-diagonal up-down matrix */
-                        *sumx2r -= fugou * (d12_m12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - d12_p12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
+                        *sumx2r -= fugou * (d12_m12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                            d12_p12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
 
-                        *sumy2r -= fugou * (d12_m12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - d12_p12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
+                        *sumy2r -= fugou * (d12_m12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                            d12_p12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
 
-                        *sumz2r -= fugou * (d12_m12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - d12_p12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
+                        *sumz2r -= fugou * (d12_m12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                            d12_p12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L]);
 
                         /* imaginary contribution of l-1/2 to off-diagonal up-down matrix */
-                        *sumx2i -= fugou * (-d12_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + d12_p12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
+                        *sumx2i -= fugou * (-d12_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                            d12_p12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
 
-                        *sumy2i -= fugou * (-d12_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + d12_p12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
+                        *sumy2i -= fugou * (-d12_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                            d12_p12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
 
-                        *sumz2i -= fugou * (-d12_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + d12_p12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
+                        *sumz2i -= fugou * (-d12_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                            d12_p12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1]);
                     }
 
                     /***************
@@ -10124,35 +10154,107 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
 
                         /* real contribution of l+1/2 to off diagonal up-down matrix */
 
-                        *sumx2r += fugou * (-sqrt(3.0) * d52_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(3.0) * d52_m12 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] + d52_m32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] - d52_p32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] + d52_m32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] - d52_p32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumx2r +=
+                            fugou * (-sqrt(3.0) * d52_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(3.0) * d52_m12 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d52_m32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     d52_p32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     d52_m32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d52_p32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
-                        *sumy2r += fugou * (-sqrt(3.0) * d52_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(3.0) * d52_m12 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] + d52_m32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] - d52_p32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] + d52_m32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] - d52_p32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumy2r +=
+                            fugou * (-sqrt(3.0) * d52_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(3.0) * d52_m12 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d52_m32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     d52_p32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     d52_m32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d52_p32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
-                        *sumz2r += fugou * (-sqrt(3.0) * d52_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(3.0) * d52_m12 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] + d52_m32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] - d52_p32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] + d52_m32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] - d52_p32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumz2r +=
+                            fugou * (-sqrt(3.0) * d52_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(3.0) * d52_m12 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d52_m32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     d52_p32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     d52_m32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d52_p32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
                         /* imaginary contribution of l+1/2 to off diagonal up-down matrix */
 
-                        *sumx2i += fugou * (sqrt(3.0) * d52_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(3.0) * d52_m12 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] + d52_m32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - d52_p32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - d52_m32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + d52_p32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumx2i +=
+                            fugou * (sqrt(3.0) * d52_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(3.0) * d52_m12 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d52_m32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d52_p32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     d52_m32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     d52_p32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
-                        *sumy2i += fugou * (sqrt(3.0) * d52_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(3.0) * d52_m12 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] + d52_m32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - d52_p32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - d52_m32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + d52_p32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumy2i +=
+                            fugou * (sqrt(3.0) * d52_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(3.0) * d52_m12 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d52_m32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d52_p32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     d52_m32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     d52_p32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
-                        *sumz2i += fugou * (sqrt(3.0) * d52_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(3.0) * d52_m12 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] + d52_m32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - d52_p32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - d52_m32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + d52_p32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumz2i +=
+                            fugou * (sqrt(3.0) * d52_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(3.0) * d52_m12 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d52_m32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d52_p32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     d52_m32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     d52_p32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
                         /* real contribution of l-1/2 for to diagonal up-down matrix */
 
-                        *sumx2r -= fugou * (-sqrt(3.0) * d32_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(3.0) * d32_m12 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] + d32_m32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] - d32_p32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] + d32_m32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] - d32_p32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumx2r -=
+                            fugou * (-sqrt(3.0) * d32_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(3.0) * d32_m12 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d32_m32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     d32_p32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     d32_m32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d32_p32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
-                        *sumy2r -= fugou * (-sqrt(3.0) * d32_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(3.0) * d32_m12 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] + d32_m32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] - d32_p32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] + d32_m32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] - d32_p32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumy2r -=
+                            fugou * (-sqrt(3.0) * d32_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(3.0) * d32_m12 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d32_m32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     d32_p32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     d32_m32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d32_p32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
-                        *sumz2r -= fugou * (-sqrt(3.0) * d32_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(3.0) * d32_m12 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] + d32_m32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] - d32_p32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] + d32_m32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] - d32_p32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumz2r -=
+                            fugou * (-sqrt(3.0) * d32_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(3.0) * d32_m12 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d32_m32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     d32_p32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     d32_m32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d32_p32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
                         /* imaginary contribution of l-1/2 to off diagonal up-down matrix */
 
-                        *sumx2i -= fugou * (sqrt(3.0) * d32_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(3.0) * d32_m12 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] + d32_m32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - d32_p32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - d32_m32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + d32_p32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumx2i -=
+                            fugou * (sqrt(3.0) * d32_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(3.0) * d32_m12 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d32_m32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d32_p32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     d32_m32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     d32_p32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
-                        *sumy2i -= fugou * (sqrt(3.0) * d32_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(3.0) * d32_m12 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] + d32_m32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - d32_p32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - d32_m32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + d32_p32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumy2i -=
+                            fugou * (sqrt(3.0) * d32_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(3.0) * d32_m12 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d32_m32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d32_p32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     d32_m32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     d32_p32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
 
-                        *sumz2i -= fugou * (sqrt(3.0) * d32_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(3.0) * d32_m12 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] + d32_m32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - d32_p32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - d32_m32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + d32_p32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
+                        *sumz2i -=
+                            fugou * (sqrt(3.0) * d32_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(3.0) * d32_m12 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L] +
+                                     d32_m32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     d32_p32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     d32_m32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     d32_p32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2]);
                     }
 
                     /***************
@@ -10163,35 +10265,155 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
 
                         /* real contribution of l+1/2 to off diagonal up-down matrix */
 
-                        *sumx2r += fugou * (-sqrt(6.0) * d72_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + sqrt(6.0) * d72_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] - sqrt(2.5) * d72_p32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d72_m32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d72_p32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] + sqrt(2.5) * d72_m32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(1.5) * d72_p52 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d72_m52 * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d72_p52 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] + sqrt(1.5) * d72_m52 * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumx2r +=
+                            fugou * (-sqrt(6.0) * d72_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     sqrt(6.0) * d72_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] -
+                                     sqrt(2.5) * d72_p32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d72_m32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d72_p32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                                     sqrt(2.5) * d72_m32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(1.5) * d72_p52 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d72_m52 * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d72_p52 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                                     sqrt(1.5) * d72_m52 * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
-                        *sumy2r += fugou * (-sqrt(6.0) * d72_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + sqrt(6.0) * d72_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] - sqrt(2.5) * d72_p32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d72_m32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d72_p32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] + sqrt(2.5) * d72_m32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(1.5) * d72_p52 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d72_m52 * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d72_p52 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] + sqrt(1.5) * d72_m52 * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumy2r +=
+                            fugou * (-sqrt(6.0) * d72_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     sqrt(6.0) * d72_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] -
+                                     sqrt(2.5) * d72_p32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d72_m32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d72_p32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                                     sqrt(2.5) * d72_m32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(1.5) * d72_p52 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d72_m52 * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d72_p52 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                                     sqrt(1.5) * d72_m52 * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
-                        *sumz2r += fugou * (-sqrt(6.0) * d72_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + sqrt(6.0) * d72_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] - sqrt(2.5) * d72_p32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d72_m32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d72_p32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] + sqrt(2.5) * d72_m32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(1.5) * d72_p52 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d72_m52 * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d72_p52 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] + sqrt(1.5) * d72_m52 * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumz2r +=
+                            fugou * (-sqrt(6.0) * d72_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     sqrt(6.0) * d72_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] -
+                                     sqrt(2.5) * d72_p32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d72_m32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d72_p32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                                     sqrt(2.5) * d72_m32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(1.5) * d72_p52 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d72_m52 * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d72_p52 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                                     sqrt(1.5) * d72_m52 * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
                         /* imaginary contribution of l+1/2 to off diagonal up-down matrix */
 
-                        *sumx2i += fugou * (sqrt(6.0) * d72_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(6.0) * d72_m12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] + sqrt(2.5) * d72_p32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(2.5) * d72_m32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d72_p32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d72_m32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] + sqrt(1.5) * d72_p52 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] - sqrt(1.5) * d72_m52 * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d72_p52 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d72_m52 * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumx2i +=
+                            fugou * (sqrt(6.0) * d72_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(6.0) * d72_m12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] +
+                                     sqrt(2.5) * d72_p32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(2.5) * d72_m32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d72_p32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d72_m32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                     sqrt(1.5) * d72_p52 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                                     sqrt(1.5) * d72_m52 * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d72_p52 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d72_m52 * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
-                        *sumy2i += fugou * (sqrt(6.0) * d72_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(6.0) * d72_m12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] + sqrt(2.5) * d72_p32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(2.5) * d72_m32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d72_p32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d72_m32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] + sqrt(1.5) * d72_p52 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] - sqrt(1.5) * d72_m52 * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d72_p52 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d72_m52 * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumy2i +=
+                            fugou * (sqrt(6.0) * d72_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(6.0) * d72_m12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] +
+                                     sqrt(2.5) * d72_p32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(2.5) * d72_m32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d72_p32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d72_m32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                     sqrt(1.5) * d72_p52 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                                     sqrt(1.5) * d72_m52 * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d72_p52 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d72_m52 * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
-                        *sumz2i += fugou * (sqrt(6.0) * d72_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(6.0) * d72_m12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] + sqrt(2.5) * d72_p32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(2.5) * d72_m32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d72_p32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d72_m32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] + sqrt(1.5) * d72_p52 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] - sqrt(1.5) * d72_m52 * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d72_p52 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d72_m52 * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumz2i +=
+                            fugou * (sqrt(6.0) * d72_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(6.0) * d72_m12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] +
+                                     sqrt(2.5) * d72_p32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(2.5) * d72_m32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d72_p32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d72_m32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                     sqrt(1.5) * d72_p52 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                                     sqrt(1.5) * d72_m52 * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d72_p52 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d72_m52 * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
                         /* real contribution of l-1/2 for to off-diagonal up-down matrix */
 
-                        *sumx2r -= fugou * (-sqrt(6.0) * d52_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + sqrt(6.0) * d52_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] - sqrt(2.5) * d52_p32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d52_m32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d52_p32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] + sqrt(2.5) * d52_m32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(1.5) * d52_p52 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d52_m52 * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d52_p52 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] + sqrt(1.5) * d52_m52 * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumx2r -=
+                            fugou * (-sqrt(6.0) * d52_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     sqrt(6.0) * d52_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] -
+                                     sqrt(2.5) * d52_p32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d52_m32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d52_p32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                                     sqrt(2.5) * d52_m32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(1.5) * d52_p52 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d52_m52 * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d52_p52 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                                     sqrt(1.5) * d52_m52 * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
-                        *sumy2r -= fugou * (-sqrt(6.0) * d52_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + sqrt(6.0) * d52_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] - sqrt(2.5) * d52_p32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d52_m32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d52_p32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] + sqrt(2.5) * d52_m32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(1.5) * d52_p52 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d52_m52 * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d52_p52 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] + sqrt(1.5) * d52_m52 * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumy2r -=
+                            fugou * (-sqrt(6.0) * d52_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     sqrt(6.0) * d52_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] -
+                                     sqrt(2.5) * d52_p32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d52_m32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d52_p32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                                     sqrt(2.5) * d52_m32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(1.5) * d52_p52 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d52_m52 * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d52_p52 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                                     sqrt(1.5) * d52_m52 * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
-                        *sumz2r -= fugou * (-sqrt(6.0) * d52_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + sqrt(6.0) * d52_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] - sqrt(2.5) * d52_p32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d52_m32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d52_p32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] + sqrt(2.5) * d52_m32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(1.5) * d52_p52 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d52_m52 * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d52_p52 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] + sqrt(1.5) * d52_m52 * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumz2r -=
+                            fugou * (-sqrt(6.0) * d52_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                     sqrt(6.0) * d52_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L] -
+                                     sqrt(2.5) * d52_p32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d52_m32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d52_p32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                                     sqrt(2.5) * d52_m32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(1.5) * d52_p52 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d52_m52 * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d52_p52 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                                     sqrt(1.5) * d52_m52 * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
                         /* imaginary contribution of l-1/2 to off diagonal up-down matrix */
 
-                        *sumx2i -= fugou * (sqrt(6.0) * d52_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(6.0) * d52_m12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] + sqrt(2.5) * d52_p32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(2.5) * d52_m32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d52_p32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d52_m32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] + sqrt(1.5) * d52_p52 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] - sqrt(1.5) * d52_m52 * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d52_p52 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d52_m52 * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumx2i -=
+                            fugou * (sqrt(6.0) * d52_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(6.0) * d52_m12 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] +
+                                     sqrt(2.5) * d52_p32 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(2.5) * d52_m32 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d52_p32 * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d52_m32 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                     sqrt(1.5) * d52_p52 * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                                     sqrt(1.5) * d52_m52 * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d52_p52 * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d52_m52 * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
-                        *sumy2i -= fugou * (sqrt(6.0) * d52_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(6.0) * d52_m12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] + sqrt(2.5) * d52_p32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(2.5) * d52_m32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d52_p32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d52_m32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] + sqrt(1.5) * d52_p52 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] - sqrt(1.5) * d52_m52 * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d52_p52 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d52_m52 * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumy2i -=
+                            fugou * (sqrt(6.0) * d52_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(6.0) * d52_m12 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] +
+                                     sqrt(2.5) * d52_p32 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(2.5) * d52_m32 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d52_p32 * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d52_m32 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                     sqrt(1.5) * d52_p52 * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                                     sqrt(1.5) * d52_m52 * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d52_p52 * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d52_m52 * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
 
-                        *sumz2i -= fugou * (sqrt(6.0) * d52_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] - sqrt(6.0) * d52_m12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] + sqrt(2.5) * d52_p32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] - sqrt(2.5) * d52_m32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] - sqrt(2.5) * d52_p32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] + sqrt(2.5) * d52_m32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] + sqrt(1.5) * d52_p52 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] - sqrt(1.5) * d52_m52 * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] - sqrt(1.5) * d52_p52 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] + sqrt(1.5) * d52_m52 * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
+                        *sumz2i -=
+                            fugou * (sqrt(6.0) * d52_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                                     sqrt(6.0) * d52_m12 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L] +
+                                     sqrt(2.5) * d52_p32 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                                     sqrt(2.5) * d52_m32 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                     sqrt(2.5) * d52_p32 * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                                     sqrt(2.5) * d52_m32 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                                     sqrt(1.5) * d52_p52 * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                                     sqrt(1.5) * d52_m52 * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                                     sqrt(1.5) * d52_p52 * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 5] +
+                                     sqrt(1.5) * d52_m52 * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 4]);
                     }
 
                 } /* if (SpinP_switch==3) */
@@ -10206,35 +10428,53 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
 
                     /* contribution of l+1/2 for up spin */
 
-                    *sumx0i += 0.5 * fugou * (+(d32_m12 - 3.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + (-d32_m12 + 3.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumx0i += 0.5 * fugou *
+                               (+(d32_m12 - 3.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                (-d32_m12 + 3.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
-                    *sumy0i += 0.5 * fugou * (+(d32_m12 - 3.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + (-d32_m12 + 3.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumy0i += 0.5 * fugou *
+                               (+(d32_m12 - 3.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                (-d32_m12 + 3.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
-                    *sumz0i += 0.5 * fugou * (+(d32_m12 - 3.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + (-d32_m12 + 3.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumz0i += 0.5 * fugou *
+                               (+(d32_m12 - 3.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                (-d32_m12 + 3.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
                     /* contribution of l+1/2 for down spin */
 
-                    *sumx1i += 0.5 * fugou * (+(-d32_p12 + 3.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + (+d32_p12 - 3.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumx1i += 0.5 * fugou *
+                               (+(-d32_p12 + 3.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                (+d32_p12 - 3.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
-                    *sumy1i += 0.5 * fugou * (+(-d32_p12 + 3.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + (+d32_p12 - 3.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumy1i += 0.5 * fugou *
+                               (+(-d32_p12 + 3.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                (+d32_p12 - 3.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
-                    *sumz1i += 0.5 * fugou * (+(-d32_p12 + 3.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + (+d32_p12 - 3.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumz1i += 0.5 * fugou *
+                               (+(-d32_p12 + 3.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                (+d32_p12 - 3.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
                     /* contribution of l-1/2 for up spin */
 
-                    *sumx0i += fugou * (d12_m12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] - d12_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumx0i += fugou * (d12_m12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                        d12_m12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
-                    *sumy0i += fugou * (d12_m12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] - d12_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumy0i += fugou * (d12_m12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                        d12_m12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
-                    *sumz0i += fugou * (d12_m12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] - d12_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumz0i += fugou * (d12_m12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                                        d12_m12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
                     /* contribution of l-1/2 for down spin */
 
-                    *sumx1i += fugou * (-d12_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + d12_p12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumx1i += fugou * (-d12_p12 * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                        d12_p12 * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
-                    *sumy1i += fugou * (-d12_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + d12_p12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumy1i += fugou * (-d12_p12 * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                        d12_p12 * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
 
-                    *sumz1i += fugou * (-d12_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] + d12_p12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
+                    *sumz1i += fugou * (-d12_p12 * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                                        d12_p12 * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L]);
                 }
 
                 /* d */
@@ -10243,35 +10483,95 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
 
                     /* contribution of l+1/2 for up spin */
 
-                    *sumx0i += 0.5 * fugou * (+(d52_m32 - 5.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-d52_m32 + 5.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (2.0 * d52_m12 - 4.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumx0i +=
+                        0.5 * fugou *
+                        (+(d52_m32 - 5.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-d52_m32 + 5.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (2.0 * d52_m12 - 4.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
-                    *sumy0i += 0.5 * fugou * (+(d52_m32 - 5.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-d52_m32 + 5.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (2.0 * d52_m12 - 4.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumy0i +=
+                        0.5 * fugou *
+                        (+(d52_m32 - 5.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-d52_m32 + 5.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (2.0 * d52_m12 - 4.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
-                    *sumz0i += 0.5 * fugou * (+(d52_m32 - 5.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-d52_m32 + 5.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (2.0 * d52_m12 - 4.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumz0i +=
+                        0.5 * fugou *
+                        (+(d52_m32 - 5.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-d52_m32 + 5.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (2.0 * d52_m12 - 4.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
                     /* contribution of l+1/2 for down spin */
 
-                    *sumx1i += 0.5 * fugou * (-(d52_p32 - 5.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] - (-d52_p32 + 5.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (2.0 * d52_p12 - 4.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumx1i +=
+                        0.5 * fugou *
+                        (-(d52_p32 - 5.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                         (-d52_p32 + 5.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (2.0 * d52_p12 - 4.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
-                    *sumy1i += 0.5 * fugou * (-(d52_p32 - 5.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] - (-d52_p32 + 5.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (2.0 * d52_p12 - 4.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumy1i +=
+                        0.5 * fugou *
+                        (-(d52_p32 - 5.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                         (-d52_p32 + 5.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (2.0 * d52_p12 - 4.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
-                    *sumz1i += 0.5 * fugou * (-(d52_p32 - 5.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] - (-d52_p32 + 5.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (2.0 * d52_p12 - 4.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumz1i +=
+                        0.5 * fugou *
+                        (-(d52_p32 - 5.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                         (-d52_p32 + 5.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (2.0 * d52_p12 - 4.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
                     /* contribution of l-1/2 for up spin */
 
-                    *sumx0i += 0.5 * fugou * ((4.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-4.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (3.0 * d32_m12 - d32_p32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-3.0 * d32_m12 + d32_p32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumx0i +=
+                        0.5 * fugou *
+                        ((4.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-4.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (3.0 * d32_m12 - d32_p32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-3.0 * d32_m12 + d32_p32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
-                    *sumy0i += 0.5 * fugou * ((4.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-4.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (3.0 * d32_m12 - d32_p32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-3.0 * d32_m12 + d32_p32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumy0i +=
+                        0.5 * fugou *
+                        ((4.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-4.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (3.0 * d32_m12 - d32_p32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-3.0 * d32_m12 + d32_p32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
-                    *sumz0i += 0.5 * fugou * ((4.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-4.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (3.0 * d32_m12 - d32_p32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-3.0 * d32_m12 + d32_p32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumz0i +=
+                        0.5 * fugou *
+                        ((4.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-4.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (3.0 * d32_m12 - d32_p32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-3.0 * d32_m12 + d32_p32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
                     /* contribution of l-1/2 for down spin */
 
-                    *sumx1i += 0.5 * fugou * ((-4.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (+4.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (3.0 * d32_p12 - d32_m32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-3.0 * d32_p12 + d32_m32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumx1i +=
+                        0.5 * fugou *
+                        ((-4.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (+4.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (3.0 * d32_p12 - d32_m32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-3.0 * d32_p12 + d32_m32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
-                    *sumy1i += 0.5 * fugou * ((-4.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (+4.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (3.0 * d32_p12 - d32_m32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-3.0 * d32_p12 + d32_m32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumy1i +=
+                        0.5 * fugou *
+                        ((-4.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (+4.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (3.0 * d32_p12 - d32_m32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-3.0 * d32_p12 + d32_m32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
 
-                    *sumz1i += 0.5 * fugou * ((-4.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (+4.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (3.0 * d32_p12 - d32_m32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-3.0 * d32_p12 + d32_m32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
+                    *sumz1i +=
+                        0.5 * fugou *
+                        ((-4.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (+4.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (3.0 * d32_p12 - d32_m32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-3.0 * d32_p12 + d32_m32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3]);
                 }
 
                 /* f */
@@ -10280,35 +10580,119 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
 
                     /* contribution of l+1/2 for up spin */
 
-                    *sumx0i += 0.5 * fugou * ((3.0 * d72_m12 - 5.0 * d72_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (2.0 * d72_m32 - 6.0 * d72_p52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] + (1.0 * d72_m52 - 7.0 * d72_p72) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] + (-1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumx0i +=
+                        0.5 * fugou *
+                        ((3.0 * d72_m12 - 5.0 * d72_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (2.0 * d72_m32 - 6.0 * d72_p52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                         (1.0 * d72_m52 - 7.0 * d72_p72) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                         (-1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
-                    *sumy0i += 0.5 * fugou * ((3.0 * d72_m12 - 5.0 * d72_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (2.0 * d72_m32 - 6.0 * d72_p52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] + (1.0 * d72_m52 - 7.0 * d72_p72) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] + (-1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumy0i +=
+                        0.5 * fugou *
+                        ((3.0 * d72_m12 - 5.0 * d72_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (2.0 * d72_m32 - 6.0 * d72_p52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                         (1.0 * d72_m52 - 7.0 * d72_p72) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                         (-1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
-                    *sumz0i += 0.5 * fugou * ((3.0 * d72_m12 - 5.0 * d72_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (2.0 * d72_m32 - 6.0 * d72_p52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] + (1.0 * d72_m52 - 7.0 * d72_p72) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] + (-1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumz0i +=
+                        0.5 * fugou *
+                        ((3.0 * d72_m12 - 5.0 * d72_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (2.0 * d72_m32 - 6.0 * d72_p52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                         (1.0 * d72_m52 - 7.0 * d72_p72) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                         (-1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
                     /* contribution of l+1/2 for down spin */
 
-                    *sumx1i += 0.5 * fugou * (-(3.0 * d72_p12 - 5.0 * d72_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] - (-3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (2.0 * d72_p32 - 6.0 * d72_m52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] - (1.0 * d72_p52 - 7.0 * d72_m72) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] - (-1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumx1i +=
+                        0.5 * fugou *
+                        (-(3.0 * d72_p12 - 5.0 * d72_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                         (-3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (2.0 * d72_p32 - 6.0 * d72_m52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                         (1.0 * d72_p52 - 7.0 * d72_m72) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                         (-1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
-                    *sumy1i += 0.5 * fugou * (-(3.0 * d72_p12 - 5.0 * d72_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] - (-3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (2.0 * d72_p32 - 6.0 * d72_m52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] - (1.0 * d72_p52 - 7.0 * d72_m72) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] - (-1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumy1i +=
+                        0.5 * fugou *
+                        (-(3.0 * d72_p12 - 5.0 * d72_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                         (-3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (2.0 * d72_p32 - 6.0 * d72_m52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                         (1.0 * d72_p52 - 7.0 * d72_m72) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                         (-1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
-                    *sumz1i += 0.5 * fugou * (-(3.0 * d72_p12 - 5.0 * d72_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] - (-3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (2.0 * d72_p32 - 6.0 * d72_m52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] - (1.0 * d72_p52 - 7.0 * d72_m72) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] - (-1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumz1i +=
+                        0.5 * fugou *
+                        (-(3.0 * d72_p12 - 5.0 * d72_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                         (-3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (2.0 * d72_p32 - 6.0 * d72_m52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                         (1.0 * d72_p52 - 7.0 * d72_m72) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                         (-1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
                     /* contribution of l-1/2 for up spin */
 
-                    *sumx0i += 0.5 * fugou * ((4.0 * d52_m12 - 2.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (5.0 * d52_m32 - 1.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] + (+6.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] + (-6.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumx0i +=
+                        0.5 * fugou *
+                        ((4.0 * d52_m12 - 2.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (5.0 * d52_m32 - 1.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                         (+6.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                         (-6.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
-                    *sumy0i += 0.5 * fugou * ((4.0 * d52_m12 - 2.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (5.0 * d52_m32 - 1.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] + (+6.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] + (-6.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumy0i +=
+                        0.5 * fugou *
+                        ((4.0 * d52_m12 - 2.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (5.0 * d52_m32 - 1.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                         (+6.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                         (-6.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
-                    *sumz0i += 0.5 * fugou * ((4.0 * d52_m12 - 2.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] + (-4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] + (5.0 * d52_m32 - 1.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] + (-5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] + (+6.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] + (-6.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumz0i +=
+                        0.5 * fugou *
+                        ((4.0 * d52_m12 - 2.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] +
+                         (-4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] +
+                         (5.0 * d52_m32 - 1.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] +
+                         (-5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] +
+                         (+6.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] +
+                         (-6.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
                     /* contribution of l-1/2 for down spin */
 
-                    *sumx1i += 0.5 * fugou * (-(4.0 * d52_p12 - 2.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] - (-4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (5.0 * d52_p32 - 1.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] - (+6.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] - (-6.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumx1i +=
+                        0.5 * fugou *
+                        (-(4.0 * d52_p12 - 2.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                         (-4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (5.0 * d52_p32 - 1.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                         (+6.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                         (-6.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
-                    *sumy1i += 0.5 * fugou * (-(4.0 * d52_p12 - 2.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] - (-4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (5.0 * d52_p32 - 1.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] - (+6.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] - (-6.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumy1i +=
+                        0.5 * fugou *
+                        (-(4.0 * d52_p12 - 2.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                         (-4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (5.0 * d52_p32 - 1.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                         (+6.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                         (-6.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
 
-                    *sumz1i += 0.5 * fugou * (-(4.0 * d52_p12 - 2.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] - (-4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] - (5.0 * d52_p32 - 1.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] - (-5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] - (+6.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] - (-6.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
+                    *sumz1i +=
+                        0.5 * fugou *
+                        (-(4.0 * d52_p12 - 2.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 2] -
+                         (-4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 1] -
+                         (5.0 * d52_p32 - 1.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 4] -
+                         (-5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 3] -
+                         (+6.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 6] -
+                         (-6.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 5]);
                 }
 
                 /****************************************************
@@ -10338,27 +10722,33 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
 
                     /* VNL for j=l+1/2 */
                     *sumx0r += 0.5 * (d32_m12 + 3.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumx0r += 0.5 * (d32_m12 + 3.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumx0r +=
+                        0.5 * (d32_m12 + 3.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumx0r += 0.5 * (4.0 * d32_p12) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
 
                     *sumy0r += 0.5 * (d32_m12 + 3.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumy0r += 0.5 * (d32_m12 + 3.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumy0r +=
+                        0.5 * (d32_m12 + 3.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumy0r += 0.5 * (4.0 * d32_p12) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
 
                     *sumz0r += 0.5 * (d32_m12 + 3.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumz0r += 0.5 * (d32_m12 + 3.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumz0r +=
+                        0.5 * (d32_m12 + 3.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumz0r += 0.5 * (4.0 * d32_p12) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
 
                     *sumx1r += 0.5 * (d32_p12 + 3.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumx1r += 0.5 * (d32_p12 + 3.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumx1r +=
+                        0.5 * (d32_p12 + 3.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumx1r += 0.5 * (4.0 * d32_m12) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
 
                     *sumy1r += 0.5 * (d32_p12 + 3.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumy1r += 0.5 * (d32_p12 + 3.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumy1r +=
+                        0.5 * (d32_p12 + 3.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumy1r += 0.5 * (4.0 * d32_m12) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
 
                     *sumz1r += 0.5 * (d32_p12 + 3.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumz1r += 0.5 * (d32_p12 + 3.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumz1r +=
+                        0.5 * (d32_p12 + 3.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumz1r += 0.5 * (4.0 * d32_m12) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
 
                     /* VNL for j=l-1/2 */
@@ -10393,77 +10783,113 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
 
                     /* VNL for j=l+1/2 */
                     *sumx0r += 0.5 * (6.0 * d52_p12) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumx0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumx0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumx0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumx0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumx0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumx0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumx0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumx0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumy0r += 0.5 * (6.0 * d52_p12) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumy0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumy0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumy0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumy0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumy0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumy0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumy0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumy0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumz0r += 0.5 * (6.0 * d52_p12) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumz0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumz0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumz0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumz0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumz0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumz0r += 0.5 * (1.0 * d52_m32 + 5.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumz0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumz0r += 0.5 * (2.0 * d52_m12 + 4.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumx1r += 0.5 * (6.0 * d52_m12) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumx1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumx1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumx1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumx1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumx1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumx1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumx1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumx1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumy1r += 0.5 * (6.0 * d52_m12) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumy1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumy1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumy1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumy1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumy1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumy1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumy1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumy1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumz1r += 0.5 * (6.0 * d52_m12) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumz1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumz1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumz1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumz1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumz1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumz1r += 0.5 * (1.0 * d52_p32 + 5.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumz1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumz1r += 0.5 * (2.0 * d52_p12 + 4.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     /* VNL for j=l-1/2 */
                     *sumx0r += 0.5 * (4.0 * d32_p12) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
                     *sumx0r += 0.5 * (4.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumx0r += 0.5 * (4.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumx0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumx0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumx0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumx0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumy0r += 0.5 * (4.0 * d32_p12) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
                     *sumy0r += 0.5 * (4.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumy0r += 0.5 * (4.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumy0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumy0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumy0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumy0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumz0r += 0.5 * (4.0 * d32_p12) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
                     *sumz0r += 0.5 * (4.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumz0r += 0.5 * (4.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumz0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumz0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumz0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumz0r += 0.5 * (3.0 * d32_m12 + 1.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumx1r += 0.5 * (4.0 * d32_m12) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
                     *sumx1r += 0.5 * (4.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumx1r += 0.5 * (4.0 * d32_p32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumx1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumx1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumx1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumx1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[1][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumy1r += 0.5 * (4.0 * d32_m12) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
                     *sumy1r += 0.5 * (4.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumy1r += 0.5 * (4.0 * d32_p32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumy1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumy1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumy1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumy1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[2][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
 
                     *sumz1r += 0.5 * (4.0 * d32_m12) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
                     *sumz1r += 0.5 * (4.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
                     *sumz1r += 0.5 * (4.0 * d32_p32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumz1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumz1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumz1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumz1r += 0.5 * (3.0 * d32_p12 + 1.0 * d32_m32) * OLP1[3][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
                 }
 
                 /* f */
@@ -10472,99 +10898,159 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
 
                     /* VNL for j=l+1/2 */
                     *sumx0r += 0.5 * (8.0 * d72_p12) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumx0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumx0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumx0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumx0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
-                    *sumx0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
-                    *sumx0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
+                    *sumx0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[1][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumx0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[1][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumx0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[1][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumx0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[1][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumx0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[1][Mc_AN][k][m][L + 5] *
+                               OLP1[0][Mj_AN][kl][n][L + 5];
+                    *sumx0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[1][Mc_AN][k][m][L + 6] *
+                               OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumy0r += 0.5 * (8.0 * d72_p12) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumy0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumy0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumy0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumy0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
-                    *sumy0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
-                    *sumy0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
+                    *sumy0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[2][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumy0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[2][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumy0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[2][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumy0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[2][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumy0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[2][Mc_AN][k][m][L + 5] *
+                               OLP1[0][Mj_AN][kl][n][L + 5];
+                    *sumy0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[2][Mc_AN][k][m][L + 6] *
+                               OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumz0r += 0.5 * (8.0 * d72_p12) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumz0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumz0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumz0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumz0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
-                    *sumz0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
-                    *sumz0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
+                    *sumz0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[3][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumz0r += 0.5 * (3.0 * d72_m12 + 5.0 * d72_p32) * OLP1[3][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumz0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[3][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumz0r += 0.5 * (2.0 * d72_m32 + 6.0 * d72_p52) * OLP1[3][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumz0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[3][Mc_AN][k][m][L + 5] *
+                               OLP1[0][Mj_AN][kl][n][L + 5];
+                    *sumz0r += 0.5 * (1.0 * d72_m52 + 7.0 * d72_p72) * OLP1[3][Mc_AN][k][m][L + 6] *
+                               OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumx1r += 0.5 * (8.0 * d72_m12) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumx1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumx1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumx1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumx1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
-                    *sumx1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
-                    *sumx1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
+                    *sumx1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[1][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumx1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[1][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumx1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[1][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumx1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[1][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumx1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[1][Mc_AN][k][m][L + 5] *
+                               OLP1[0][Mj_AN][kl][n][L + 5];
+                    *sumx1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[1][Mc_AN][k][m][L + 6] *
+                               OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumy1r += 0.5 * (8.0 * d72_m12) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumy1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumy1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumy1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumy1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
-                    *sumy1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
-                    *sumy1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
+                    *sumy1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[2][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumy1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[2][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumy1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[2][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumy1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[2][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumy1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[2][Mc_AN][k][m][L + 5] *
+                               OLP1[0][Mj_AN][kl][n][L + 5];
+                    *sumy1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[2][Mc_AN][k][m][L + 6] *
+                               OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumz1r += 0.5 * (8.0 * d72_m12) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumz1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumz1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumz1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumz1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
-                    *sumz1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
-                    *sumz1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
+                    *sumz1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[3][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumz1r += 0.5 * (3.0 * d72_p12 + 5.0 * d72_m32) * OLP1[3][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumz1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[3][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumz1r += 0.5 * (2.0 * d72_p32 + 6.0 * d72_m52) * OLP1[3][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumz1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[3][Mc_AN][k][m][L + 5] *
+                               OLP1[0][Mj_AN][kl][n][L + 5];
+                    *sumz1r += 0.5 * (1.0 * d72_p52 + 7.0 * d72_m72) * OLP1[3][Mc_AN][k][m][L + 6] *
+                               OLP1[0][Mj_AN][kl][n][L + 6];
 
                     /* VNL for j=l-1/2 */
                     *sumx0r += 0.5 * (6.0 * d52_p12) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumx0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumx0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumx0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumx0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumx0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumx0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[1][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumx0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumx0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
                     *sumx0r += 0.5 * (6.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
                     *sumx0r += 0.5 * (6.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumy0r += 0.5 * (6.0 * d52_p12) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumy0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumy0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumy0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumy0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumy0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumy0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[2][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumy0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumy0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
                     *sumy0r += 0.5 * (6.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
                     *sumy0r += 0.5 * (6.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumz0r += 0.5 * (6.0 * d52_p12) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumz0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumz0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumz0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumz0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumz0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumz0r += 0.5 * (4.0 * d52_m12 + 2.0 * d52_p32) * OLP1[3][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumz0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumz0r += 0.5 * (5.0 * d52_m32 + 1.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
                     *sumz0r += 0.5 * (6.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
                     *sumz0r += 0.5 * (6.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumx1r += 0.5 * (6.0 * d52_m12) * OLP1[1][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumx1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumx1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumx1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumx1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumx1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumx1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[1][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumx1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumx1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[1][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
                     *sumx1r += 0.5 * (6.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
                     *sumx1r += 0.5 * (6.0 * d52_p52) * OLP1[1][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumy1r += 0.5 * (6.0 * d52_m12) * OLP1[2][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumy1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumy1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumy1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumy1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumy1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumy1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[2][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumy1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumy1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[2][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
                     *sumy1r += 0.5 * (6.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
                     *sumy1r += 0.5 * (6.0 * d52_p52) * OLP1[2][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
 
                     *sumz1r += 0.5 * (6.0 * d52_m12) * OLP1[3][Mc_AN][k][m][L] * OLP1[0][Mj_AN][kl][n][L];
-                    *sumz1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 1] * OLP1[0][Mj_AN][kl][n][L + 1];
-                    *sumz1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 2] * OLP1[0][Mj_AN][kl][n][L + 2];
-                    *sumz1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 3] * OLP1[0][Mj_AN][kl][n][L + 3];
-                    *sumz1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 4] * OLP1[0][Mj_AN][kl][n][L + 4];
+                    *sumz1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 1] *
+                               OLP1[0][Mj_AN][kl][n][L + 1];
+                    *sumz1r += 0.5 * (4.0 * d52_p12 + 2.0 * d52_m32) * OLP1[3][Mc_AN][k][m][L + 2] *
+                               OLP1[0][Mj_AN][kl][n][L + 2];
+                    *sumz1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 3] *
+                               OLP1[0][Mj_AN][kl][n][L + 3];
+                    *sumz1r += 0.5 * (5.0 * d52_p32 + 1.0 * d52_m52) * OLP1[3][Mc_AN][k][m][L + 4] *
+                               OLP1[0][Mj_AN][kl][n][L + 4];
                     *sumz1r += 0.5 * (6.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 5] * OLP1[0][Mj_AN][kl][n][L + 5];
                     *sumz1r += 0.5 * (6.0 * d52_p52) * OLP1[3][Mc_AN][k][m][L + 6] * OLP1[0][Mj_AN][kl][n][L + 6];
                 }
@@ -10579,17 +11065,17 @@ void dHCH_SO(double* sumx0r, double* sumx0i, double* sumy0r, double* sumy0i, dou
     } /* l */
 }
 
-void MPI_OLP(double***** OLP1)
+void MPI_OLP(double ***** OLP1)
 {
-    int i, j, h_AN, Gh_AN, Hwan, n;
-    int tno1, tno2, Mc_AN, Gc_AN, Cwan;
-    int num, k, size1, size2;
-    double* tmp_array;
-    double* tmp_array2;
-    int *Snd_S_Size, *Rcv_S_Size;
-    int numprocs, myid, ID, IDS, IDR, tag = 999;
+    int      i, j, h_AN, Gh_AN, Hwan, n;
+    int      tno1, tno2, Mc_AN, Gc_AN, Cwan;
+    int      num, k, size1, size2;
+    double * tmp_array;
+    double * tmp_array2;
+    int *    Snd_S_Size, *Rcv_S_Size;
+    int      numprocs, myid, ID, IDS, IDR, tag = 999;
 
-    MPI_Status stat;
+    MPI_Status  stat;
     MPI_Request request;
 
     /* MPI */
@@ -10600,8 +11086,8 @@ void MPI_OLP(double***** OLP1)
       allocation of arrays:
     ****************************************************/
 
-    Snd_S_Size = (int*)malloc(sizeof(int) * numprocs);
-    Rcv_S_Size = (int*)malloc(sizeof(int) * numprocs);
+    Snd_S_Size = (int *)malloc(sizeof(int) * numprocs);
+    Rcv_S_Size = (int *)malloc(sizeof(int) * numprocs);
 
     /******************************************************************
      MPI
@@ -10650,12 +11136,12 @@ void MPI_OLP(double***** OLP1)
                 for (n = 0; n < F_Snd_Num[IDS]; n++) {
                     Mc_AN = Snd_MAN[IDS][n];
                     Gc_AN = Snd_GAN[IDS][n];
-                    Cwan = WhatSpecies[Gc_AN];
-                    tno1 = Spe_Total_NO[Cwan];
+                    Cwan  = WhatSpecies[Gc_AN];
+                    tno1  = Spe_Total_NO[Cwan];
                     for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                         Gh_AN = natn[Gc_AN][h_AN];
-                        Hwan = WhatSpecies[Gh_AN];
-                        tno2 = Spe_Total_NO[Hwan];
+                        Hwan  = WhatSpecies[Gh_AN];
+                        tno2  = Spe_Total_NO[Hwan];
                         size1 += 4 * tno1 * tno2;
                     }
                 }
@@ -10705,7 +11191,7 @@ void MPI_OLP(double***** OLP1)
 
                 /* allocation of array */
 
-                tmp_array = (double*)malloc(sizeof(double) * size1);
+                tmp_array = (double *)malloc(sizeof(double) * size1);
 
                 /* multidimentional array to vector array */
 
@@ -10715,12 +11201,12 @@ void MPI_OLP(double***** OLP1)
                     for (n = 0; n < F_Snd_Num[IDS]; n++) {
                         Mc_AN = Snd_MAN[IDS][n];
                         Gc_AN = Snd_GAN[IDS][n];
-                        Cwan = WhatSpecies[Gc_AN];
-                        tno1 = Spe_Total_NO[Cwan];
+                        Cwan  = WhatSpecies[Gc_AN];
+                        tno1  = Spe_Total_NO[Cwan];
                         for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                             Gh_AN = natn[Gc_AN][h_AN];
-                            Hwan = WhatSpecies[Gh_AN];
-                            tno2 = Spe_Total_NO[Hwan];
+                            Hwan  = WhatSpecies[Gh_AN];
+                            tno2  = Spe_Total_NO[Hwan];
                             for (i = 0; i < tno1; i++) {
                                 for (j = 0; j < tno2; j++) {
                                     tmp_array[num] = OLP1[k][Mc_AN][h_AN][i][j];
@@ -10743,7 +11229,7 @@ void MPI_OLP(double***** OLP1)
                 size2 = Rcv_S_Size[IDR];
 
                 /* allocation of array */
-                tmp_array2 = (double*)malloc(sizeof(double) * size2);
+                tmp_array2 = (double *)malloc(sizeof(double) * size2);
 
                 MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
 
@@ -10754,13 +11240,13 @@ void MPI_OLP(double***** OLP1)
                     for (n = 0; n < F_Rcv_Num[IDR]; n++) {
                         Mc_AN++;
                         Gc_AN = Rcv_GAN[IDR][n];
-                        Cwan = WhatSpecies[Gc_AN];
-                        tno1 = Spe_Total_NO[Cwan];
+                        Cwan  = WhatSpecies[Gc_AN];
+                        tno1  = Spe_Total_NO[Cwan];
 
                         for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                             Gh_AN = natn[Gc_AN][h_AN];
-                            Hwan = WhatSpecies[Gh_AN];
-                            tno2 = Spe_Total_NO[Hwan];
+                            Hwan  = WhatSpecies[Gh_AN];
+                            tno2  = Spe_Total_NO[Hwan];
                             for (i = 0; i < tno1; i++) {
                                 for (j = 0; j < tno2; j++) {
                                     OLP1[k][Mc_AN][h_AN][i][j] = tmp_array2[num];
@@ -10790,46 +11276,46 @@ void MPI_OLP(double***** OLP1)
     free(Rcv_S_Size);
 }
 
-void Force_CoreHole(double***** CDM0, double***** iDM0)
+void Force_CoreHole(double ***** CDM0, double ***** iDM0)
 {
     /****************************************************
           Force arising from the penalty functional
           to create a core hole
     ****************************************************/
 
-    int Mc_AN, Gc_AN, Cwan, i, j, h_AN, q_AN, Mq_AN, start_q_AN;
-    int jan, kl, km, kl1, Qwan, Gq_AN, Gh_AN, Mh_AN, Hwan, ian;
-    int l1, l2, l3, l, LL, Mul1, tno0, ncp, so;
-    int tno1, tno2, size1, size2, n, kk, num, po, po1, po2;
-    int numprocs, myid, tag = 999, ID, IDS, IDR;
+    int   Mc_AN, Gc_AN, Cwan, i, j, h_AN, q_AN, Mq_AN, start_q_AN;
+    int   jan, kl, km, kl1, Qwan, Gq_AN, Gh_AN, Mh_AN, Hwan, ian;
+    int   l1, l2, l3, l, LL, Mul1, tno0, ncp, so;
+    int   tno1, tno2, size1, size2, n, kk, num, po, po1, po2;
+    int   numprocs, myid, tag = 999, ID, IDS, IDR;
     int **S_array, **R_array;
-    int S_comm_flag, R_comm_flag;
-    int SA_num, q, Sc_AN, GSc_AN, smul;
-    int Sc_wan, Sh_AN, GSh_AN, Sh_wan;
-    int Sh_AN2, fan, jg, j0, jg0, Mj_AN0;
-    int Original_Mc_AN;
+    int   S_comm_flag, R_comm_flag;
+    int   SA_num, q, Sc_AN, GSc_AN, smul;
+    int   Sc_wan, Sh_AN, GSh_AN, Sh_wan;
+    int   Sh_AN2, fan, jg, j0, jg0, Mj_AN0;
+    int   Original_Mc_AN;
 
-    double rcutA, rcutB, rcut;
-    double dEx, dEy, dEz, ene, pref;
-    double Stime_atom, Etime_atom;
+    double      rcutA, rcutB, rcut;
+    double      dEx, dEy, dEz, ene, pref;
+    double      Stime_atom, Etime_atom;
     dcomplex ***Hx, ***Hy, ***Hz;
     dcomplex ***Hx0, ***Hy0, ***Hz0;
     dcomplex ***Hx1, ***Hy1, ***Hz1;
-    int *Snd_OLP_Size, *Rcv_OLP_Size;
-    int* Indicator;
-    double* tmp_array;
-    double* tmp_array2;
+    int *       Snd_OLP_Size, *Rcv_OLP_Size;
+    int *       Indicator;
+    double *    tmp_array;
+    double *    tmp_array2;
 
     /* for OpenMP */
-    int OMPID, Nthrds, Nthrds0, Nprocs, Nloop, ODNloop;
-    int *OneD2h_AN, *OneD2q_AN;
-    double* dEx_threads;
-    double* dEy_threads;
-    double* dEz_threads;
-    double stime, etime;
-    double stime1, etime1;
+    int      OMPID, Nthrds, Nthrds0, Nprocs, Nloop, ODNloop;
+    int *    OneD2h_AN, *OneD2q_AN;
+    double * dEx_threads;
+    double * dEy_threads;
+    double * dEz_threads;
+    double   stime, etime;
+    double   stime1, etime1;
 
-    MPI_Status stat;
+    MPI_Status  stat;
     MPI_Request request;
 
     /* MPI */
@@ -10843,25 +11329,25 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
          allocation of arrays
     *****************************/
 
-    Indicator = (int*)malloc(sizeof(int) * numprocs);
+    Indicator = (int *)malloc(sizeof(int) * numprocs);
 
-    S_array = (int**)malloc(sizeof(int*) * numprocs);
+    S_array = (int **)malloc(sizeof(int *) * numprocs);
     for (ID = 0; ID < numprocs; ID++) {
-        S_array[ID] = (int*)malloc(sizeof(int) * 3);
+        S_array[ID] = (int *)malloc(sizeof(int) * 3);
     }
 
-    R_array = (int**)malloc(sizeof(int*) * numprocs);
+    R_array = (int **)malloc(sizeof(int *) * numprocs);
     for (ID = 0; ID < numprocs; ID++) {
-        R_array[ID] = (int*)malloc(sizeof(int) * 3);
+        R_array[ID] = (int *)malloc(sizeof(int) * 3);
     }
 
-    Snd_OLP_Size = (int*)malloc(sizeof(int) * numprocs);
-    Rcv_OLP_Size = (int*)malloc(sizeof(int) * numprocs);
+    Snd_OLP_Size = (int *)malloc(sizeof(int) * numprocs);
+    Rcv_OLP_Size = (int *)malloc(sizeof(int) * numprocs);
 
     /* initialize the temporal array storing the force contribution */
 
     for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
-        Gc_AN = F_M2G[Mc_AN];
+        Gc_AN           = F_M2G[Mc_AN];
         Gxyz[Gc_AN][41] = 0.0;
         Gxyz[Gc_AN][42] = 0.0;
         Gxyz[Gc_AN][43] = 0.0;
@@ -10885,51 +11371,51 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
     MPI_Barrier(mpi_comm_level1);
     dtime(&stime);
 
-    Hx0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hx0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hx0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hx0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hx0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hx0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hy0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hy0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hy0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hy0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hy0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hy0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hz0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hz0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hz0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hz0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hz0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hz0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hx1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hx1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hx1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hx1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hx1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hx1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hy1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hy1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hy1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hy1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hy1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hy1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
-    Hz1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+    Hz1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
     for (i = 0; i < 3; i++) {
-        Hz1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+        Hz1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
         for (j = 0; j < List_YOUSO[7]; j++) {
-            Hz1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+            Hz1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
         }
     }
 
@@ -10954,17 +11440,17 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
             if (0 < (F_Snd_Num[IDS] - F_Snd_Num_WK[IDS])) {
 
                 size1 = 0;
-                n = F_Snd_Num_WK[IDS];
+                n     = F_Snd_Num_WK[IDS];
 
                 Mc_AN = Snd_MAN[IDS][n];
                 Gc_AN = Snd_GAN[IDS][n];
-                Cwan = WhatSpecies[Gc_AN];
-                tno1 = Spe_Total_CNO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno1  = Spe_Total_CNO[Cwan];
 
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno2 = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno2  = Spe_Total_CNO[Hwan];
                     size1 += tno1 * tno2;
                 }
 
@@ -11007,22 +11493,22 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                 /* allocation of the array */
 
-                tmp_array = (double*)malloc(sizeof(double) * size1);
+                tmp_array = (double *)malloc(sizeof(double) * size1);
 
                 /* multidimentional array to the vector array */
 
                 num = 0;
-                n = F_Snd_Num_WK[IDS];
+                n   = F_Snd_Num_WK[IDS];
 
                 Mc_AN = Snd_MAN[IDS][n];
                 Gc_AN = Snd_GAN[IDS][n];
-                Cwan = WhatSpecies[Gc_AN];
-                tno1 = Spe_Total_CNO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno1  = Spe_Total_CNO[Cwan];
 
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno2 = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno2  = Spe_Total_CNO[Hwan];
 
                     for (i = 0; i < tno1; i++) {
                         for (j = 0; j < tno2; j++) {
@@ -11041,23 +11527,23 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
             if (0 < (F_Rcv_Num[IDR] - F_Rcv_Num_WK[IDR])) {
 
-                size2 = Rcv_OLP_Size[IDR];
-                tmp_array2 = (double*)malloc(sizeof(double) * size2);
+                size2      = Rcv_OLP_Size[IDR];
+                tmp_array2 = (double *)malloc(sizeof(double) * size2);
                 MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
 
                 /* store */
 
-                num = 0;
-                n = F_Rcv_Num_WK[IDR];
+                num            = 0;
+                n              = F_Rcv_Num_WK[IDR];
                 Original_Mc_AN = F_TopMAN[IDR] + n;
 
                 Gc_AN = Rcv_GAN[IDR][n];
-                Cwan = WhatSpecies[Gc_AN];
-                tno1 = Spe_Total_CNO[Cwan];
+                Cwan  = WhatSpecies[Gc_AN];
+                tno1  = Spe_Total_CNO[Cwan];
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    tno2 = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    tno2  = Spe_Total_CNO[Hwan];
 
                     for (i = 0; i < tno1; i++) {
                         for (j = 0; j < tno2; j++) {
@@ -11083,26 +11569,26 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
                     dEz = 0.0;
 
                     Gc_AN = M2G[Mc_AN];
-                    Cwan = WhatSpecies[Gc_AN];
-                    fan = FNAN[Gc_AN];
+                    Cwan  = WhatSpecies[Gc_AN];
+                    fan   = FNAN[Gc_AN];
 
-                    h_AN = 0;
+                    h_AN  = 0;
                     Gh_AN = natn[Gc_AN][h_AN];
                     Mh_AN = F_G2M[Gh_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    ian = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    ian   = Spe_Total_CNO[Hwan];
 
-                    n = F_Rcv_Num_WK[IDR];
+                    n  = F_Rcv_Num_WK[IDR];
                     jg = Rcv_GAN[IDR][n];
 
                     for (j0 = 0; j0 <= fan; j0++) {
 
-                        jg0 = natn[Gc_AN][j0];
+                        jg0    = natn[Gc_AN][j0];
                         Mj_AN0 = F_G2M[jg0];
 
                         po2 = 0;
                         if (Original_Mc_AN == Mj_AN0) {
-                            po2 = 1;
+                            po2  = 1;
                             q_AN = j0;
                         }
 
@@ -11110,9 +11596,9 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                             Gq_AN = natn[Gc_AN][q_AN];
                             Mq_AN = F_G2M[Gq_AN];
-                            Qwan = WhatSpecies[Gq_AN];
-                            jan = Spe_Total_CNO[Qwan];
-                            kl = RMI1[Mc_AN][h_AN][q_AN];
+                            Qwan  = WhatSpecies[Gq_AN];
+                            jan   = Spe_Total_CNO[Qwan];
+                            kl    = RMI1[Mc_AN][h_AN][q_AN];
 
                             dHCH(0, Mc_AN, h_AN, q_AN, OLP_CH, Hx0, Hy0, Hz0);
 
@@ -11138,7 +11624,9 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                             /* collinear spin polarized or non-colliear without SO and LDA+U */
 
-                            else if (SpinP_switch == 1 || (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
+                            else if (SpinP_switch == 1 ||
+                                     (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 &&
+                                      Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
 
                                 if (q_AN == h_AN)
                                     pref = 1.0;
@@ -11148,71 +11636,76 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
                                 for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {
                                     for (j = 0; j < Spe_Total_CNO[Qwan]; j++) {
 
-                                        dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r);
-                                        dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r);
-                                        dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r);
+                                        dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r +
+                                                       CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r);
+                                        dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r +
+                                                       CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r);
+                                        dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r +
+                                                       CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r);
                                     }
                                 }
                             }
 
                             /* spin non-collinear with spin-orbit coupling or with LDA+U */
 
-                            else if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
+                            else if (SpinP_switch == 3 &&
+                                     (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) ||
+                                      1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
 
                                 if (q_AN == h_AN) {
 
                                     for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {
                                         for (j = 0; j < Spe_Total_CNO[Qwan]; j++) {
 
-                                            dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
+                                            dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
 
-                                            dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
+                                            dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
 
-                                            dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
+                                            dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
                                         }
                                     }
                                 }
 
                                 else {
 
-                                    for (i = 0; i < Spe_Total_CNO[Hwan]; i++) { /* Hwan */
+                                    for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {     /* Hwan */
                                         for (j = 0; j < Spe_Total_CNO[Qwan]; j++) { /* Qwan  */
 
-                                            dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
+                                            dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
 
-                                            dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
+                                            dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
 
-                                            dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r
-                                                - iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i
-                                                + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r
-                                                - iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i
-                                                + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r
-                                                - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
+                                            dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r -
+                                                   iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i +
+                                                   CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r -
+                                                   iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i +
+                                                   2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r -
+                                                   2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
 
                                         } /* j */
                                     } /* i */
@@ -11221,29 +11714,29 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                                     kl1 = RMI1[Mc_AN][q_AN][h_AN];
 
-                                    for (i = 0; i < Spe_Total_CNO[Qwan]; i++) { /* Qwan */
+                                    for (i = 0; i < Spe_Total_CNO[Qwan]; i++) {     /* Qwan */
                                         for (j = 0; j < Spe_Total_CNO[Hwan]; j++) { /* Hwan */
 
-                                            dEx += CDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].r
-                                                - iDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].i
-                                                + CDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].r
-                                                - iDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].i
-                                                + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hx1[2][i][j].r
-                                                - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hx1[2][i][j].i;
+                                            dEx += CDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].r -
+                                                   iDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].i +
+                                                   CDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].r -
+                                                   iDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].i +
+                                                   2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hx1[2][i][j].r -
+                                                   2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hx1[2][i][j].i;
 
-                                            dEy += CDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].r
-                                                - iDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].i
-                                                + CDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].r
-                                                - iDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].i
-                                                + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hy1[2][i][j].r
-                                                - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hy1[2][i][j].i;
+                                            dEy += CDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].r -
+                                                   iDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].i +
+                                                   CDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].r -
+                                                   iDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].i +
+                                                   2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hy1[2][i][j].r -
+                                                   2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hy1[2][i][j].i;
 
-                                            dEz += CDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].r
-                                                - iDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].i
-                                                + CDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].r
-                                                - iDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].i
-                                                + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hz1[2][i][j].r
-                                                - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hz1[2][i][j].i;
+                                            dEz += CDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].r -
+                                                   iDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].i +
+                                                   CDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].r -
+                                                   iDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].i +
+                                                   2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hz1[2][i][j].r -
+                                                   2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hz1[2][i][j].i;
 
                                         } /* j */
                                     } /* i */
@@ -11363,8 +11856,8 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
         Gc_AN = M2G[Mc_AN];
 
         if (2 <= level_stdout) {
-            printf("<Force>  force(HCH1) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                myid, Mc_AN, Gc_AN, Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
+            printf("<Force>  force(HCH1) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                   Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
             fflush(stdout);
         }
     }
@@ -11381,62 +11874,66 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
     dtime(&stime);
 
-#pragma omp parallel shared(time_per_atom, Gxyz, CDM0, SpinP_switch, SO_switch, Hub_U_switch, F_U_flag, Constraint_NCS_switch, Zeeman_NCS_switch, Zeeman_NCO_switch, OLP_CH, RMI1, FNAN, Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO, F_NL_flag) private(Hx0, Hy0, Hz0, Hx1, Hy1, Hz1, OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, kl1, i, j, kk, pref)
+#pragma omp parallel shared(time_per_atom, Gxyz, CDM0, SpinP_switch, SO_switch, Hub_U_switch, F_U_flag,                \
+                                Constraint_NCS_switch, Zeeman_NCS_switch, Zeeman_NCO_switch, OLP_CH, RMI1, FNAN,       \
+                                Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO, F_NL_flag)         \
+    private(Hx0, Hy0, Hz0, Hx1, Hy1, Hz1, OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN,  \
+                h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, kl1, i, j, kk, pref)
     {
 
         /* allocation of array */
 
-        Hx0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hx0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hx0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hx0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hx0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hx0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hy0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hy0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hy0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hy0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hy0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hy0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hz0 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hz0 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hz0[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hz0[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hz0[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hz0[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hx1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hx1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hx1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hx1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hx1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hx1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hy1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hy1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hy1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hy1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hy1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hy1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
-        Hz1 = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+        Hz1 = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
         for (i = 0; i < 3; i++) {
-            Hz1[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+            Hz1[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
             for (j = 0; j < List_YOUSO[7]; j++) {
-                Hz1[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                Hz1[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
             }
         }
 
         /* get info. on OpenMP */
 
-        OMPID = omp_get_thread_num();
+        OMPID  = omp_get_thread_num();
         Nthrds = omp_get_num_threads();
         Nprocs = omp_get_num_procs();
 
@@ -11449,11 +11946,11 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
             dEz = 0.0;
 
             Gc_AN = M2G[Mc_AN];
-            h_AN = 0;
+            h_AN  = 0;
             Gh_AN = natn[Gc_AN][h_AN];
             Mh_AN = F_G2M[Gh_AN];
-            Hwan = WhatSpecies[Gh_AN];
-            ian = Spe_Total_CNO[Hwan];
+            Hwan  = WhatSpecies[Gh_AN];
+            ian   = Spe_Total_CNO[Hwan];
 
             for (q_AN = 0; q_AN <= FNAN[Gc_AN]; q_AN++) {
 
@@ -11463,8 +11960,8 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
                 if (Mq_AN <= Matomnum) {
 
                     Qwan = WhatSpecies[Gq_AN];
-                    jan = Spe_Total_CNO[Qwan];
-                    kl = RMI1[Mc_AN][h_AN][q_AN];
+                    jan  = Spe_Total_CNO[Qwan];
+                    kl   = RMI1[Mc_AN][h_AN][q_AN];
 
                     dHCH(0, Mc_AN, h_AN, q_AN, OLP_CH, Hx0, Hy0, Hz0);
 
@@ -11487,7 +11984,9 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                     /* collinear spin polarized or non-colliear without SO and LDA+U */
 
-                    else if (SpinP_switch == 1 || (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
+                    else if (SpinP_switch == 1 ||
+                             (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 &&
+                              Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
 
                         if (q_AN == h_AN)
                             pref = 1.0;
@@ -11497,71 +11996,76 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
                         for (i = 0; i < ian; i++) {
                             for (j = 0; j < jan; j++) {
 
-                                dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r);
-                                dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r);
-                                dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r);
+                                dEx += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r +
+                                               CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r);
+                                dEy += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r +
+                                               CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r);
+                                dEz += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r +
+                                               CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r);
                             }
                         }
                     }
 
                     /* spin non-collinear with spin-orbit coupling or with LDA+U */
 
-                    else if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
+                    else if (SpinP_switch == 3 &&
+                             (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch ||
+                              Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
 
                         if (q_AN == h_AN) {
 
                             for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {
                                 for (j = 0; j < Spe_Total_CNO[Qwan]; j++) {
 
-                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
+                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
 
-                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
+                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
 
-                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
+                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
                                 }
                             }
                         }
 
                         else {
 
-                            for (i = 0; i < Spe_Total_CNO[Hwan]; i++) { /* Hwan */
+                            for (i = 0; i < Spe_Total_CNO[Hwan]; i++) {     /* Hwan */
                                 for (j = 0; j < Spe_Total_CNO[Qwan]; j++) { /* Qwan  */
 
-                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
+                                    dEx += CDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hx0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hx0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx0[2][i][j].i;
 
-                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
+                                    dEy += CDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hy0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hy0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy0[2][i][j].i;
 
-                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r
-                                        - iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i
-                                        + CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r
-                                        - iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i
-                                        + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r
-                                        - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
+                                    dEz += CDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].r -
+                                           iDM0[0][Mh_AN][kl][i][j] * Hz0[0][i][j].i +
+                                           CDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].r -
+                                           iDM0[1][Mh_AN][kl][i][j] * Hz0[1][i][j].i +
+                                           2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz0[2][i][j].r -
+                                           2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz0[2][i][j].i;
 
                                 } /* j */
                             } /* i */
@@ -11570,29 +12074,29 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                             kl1 = RMI1[Mc_AN][q_AN][h_AN];
 
-                            for (i = 0; i < Spe_Total_CNO[Qwan]; i++) { /* Qwan */
+                            for (i = 0; i < Spe_Total_CNO[Qwan]; i++) {     /* Qwan */
                                 for (j = 0; j < Spe_Total_CNO[Hwan]; j++) { /* Hwan */
 
-                                    dEx += CDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].r
-                                        - iDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].i
-                                        + CDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].r
-                                        - iDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].i
-                                        + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hx1[2][i][j].r
-                                        - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hx1[2][i][j].i;
+                                    dEx += CDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].r -
+                                           iDM0[0][Mq_AN][kl1][i][j] * Hx1[0][i][j].i +
+                                           CDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].r -
+                                           iDM0[1][Mq_AN][kl1][i][j] * Hx1[1][i][j].i +
+                                           2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hx1[2][i][j].r -
+                                           2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hx1[2][i][j].i;
 
-                                    dEy += CDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].r
-                                        - iDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].i
-                                        + CDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].r
-                                        - iDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].i
-                                        + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hy1[2][i][j].r
-                                        - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hy1[2][i][j].i;
+                                    dEy += CDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].r -
+                                           iDM0[0][Mq_AN][kl1][i][j] * Hy1[0][i][j].i +
+                                           CDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].r -
+                                           iDM0[1][Mq_AN][kl1][i][j] * Hy1[1][i][j].i +
+                                           2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hy1[2][i][j].r -
+                                           2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hy1[2][i][j].i;
 
-                                    dEz += CDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].r
-                                        - iDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].i
-                                        + CDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].r
-                                        - iDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].i
-                                        + 2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hz1[2][i][j].r
-                                        - 2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hz1[2][i][j].i;
+                                    dEz += CDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].r -
+                                           iDM0[0][Mq_AN][kl1][i][j] * Hz1[0][i][j].i +
+                                           CDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].r -
+                                           iDM0[1][Mq_AN][kl1][i][j] * Hz1[1][i][j].i +
+                                           2.0 * CDM0[2][Mq_AN][kl1][i][j] * Hz1[2][i][j].r -
+                                           2.0 * CDM0[3][Mq_AN][kl1][i][j] * Hz1[2][i][j].i;
 
                                 } /* j */
                             } /* i */
@@ -11677,8 +12181,8 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
         Gc_AN = M2G[Mc_AN];
 
         if (2 <= level_stdout) {
-            printf("<Force>  force(HCH2) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                myid, Mc_AN, Gc_AN, Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
+            printf("<Force>  force(HCH2) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                   Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
             fflush(stdout);
         }
     }
@@ -11712,7 +12216,7 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
             IDS = (myid + ID) % numprocs;
             IDR = (myid - ID + numprocs) % numprocs;
 
-            i = Indicator[IDS];
+            i  = Indicator[IDS];
             po = 0;
 
             Gh_AN = Pro_Snd_GAtom[IDS][i];
@@ -11736,15 +12240,15 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
                 size1 = 0;
                 for (q = Indicator[IDS]; q <= (Indicator[IDS] + SA_num - 1); q++) {
 
-                    Sc_AN = Pro_Snd_MAtom[IDS][q];
+                    Sc_AN  = Pro_Snd_MAtom[IDS][q];
                     GSc_AN = F_M2G[Sc_AN];
                     Sc_wan = WhatSpecies[GSc_AN];
-                    tno1 = Spe_Total_CNO[Sc_wan];
+                    tno1   = Spe_Total_CNO[Sc_wan];
 
-                    Sh_AN = Pro_Snd_LAtom[IDS][q];
+                    Sh_AN  = Pro_Snd_LAtom[IDS][q];
                     GSh_AN = natn[GSc_AN][Sh_AN];
                     Sh_wan = WhatSpecies[GSh_AN];
-                    tno2 = Spe_Total_CNO[Sh_wan];
+                    tno2   = Spe_Total_CNO[Sh_wan];
 
                     size1 += 4 * tno1 * tno2;
                     size1 += 3;
@@ -11754,7 +12258,7 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
             else {
                 SA_num = 0;
-                size1 = 0;
+                size1  = 0;
             }
 
             S_array[IDS][0] = Gh_AN;
@@ -11794,7 +12298,7 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                 /* allocate tmp_array */
 
-                tmp_array = (double*)malloc(sizeof(double) * size1);
+                tmp_array = (double *)malloc(sizeof(double) * size1);
 
                 /* multidimentional array to vector array */
 
@@ -11802,15 +12306,15 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                 for (q = Indicator[IDS]; q <= (Indicator[IDS] + SA_num - 1); q++) {
 
-                    Sc_AN = Pro_Snd_MAtom[IDS][q];
+                    Sc_AN  = Pro_Snd_MAtom[IDS][q];
                     GSc_AN = F_M2G[Sc_AN];
                     Sc_wan = WhatSpecies[GSc_AN];
-                    tno1 = Spe_Total_CNO[Sc_wan];
+                    tno1   = Spe_Total_CNO[Sc_wan];
 
-                    Sh_AN = Pro_Snd_LAtom[IDS][q];
+                    Sh_AN  = Pro_Snd_LAtom[IDS][q];
                     GSh_AN = natn[GSc_AN][Sh_AN];
                     Sh_wan = WhatSpecies[GSh_AN];
-                    tno2 = Spe_Total_CNO[Sh_wan];
+                    tno2   = Spe_Total_CNO[Sh_wan];
                     Sh_AN2 = Pro_Snd_LAtom2[IDS][q];
 
                     tmp_array[num] = (double)Sc_AN;
@@ -11848,8 +12352,8 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
             if (R_comm_flag == 1) {
 
-                size2 = R_array[IDR][2];
-                tmp_array2 = (double*)malloc(sizeof(double) * size2);
+                size2      = R_array[IDR][2];
+                tmp_array2 = (double *)malloc(sizeof(double) * size2);
 
                 if (ID != 0) {
                     MPI_Recv(&tmp_array2[0], size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
@@ -11873,11 +12377,11 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                     GSc_AN = natn[Gc_AN][Sh_AN2];
                     Sc_wan = WhatSpecies[GSc_AN];
-                    tno1 = Spe_Total_CNO[Sc_wan];
+                    tno1   = Spe_Total_CNO[Sc_wan];
 
                     GSh_AN = natn[GSc_AN][Sh_AN];
                     Sh_wan = WhatSpecies[GSh_AN];
-                    tno2 = Spe_Total_CNO[Sh_wan];
+                    tno2   = Spe_Total_CNO[Sh_wan];
 
                     for (kk = 0; kk <= 3; kk++) {
                         for (i = 0; i < tno1; i++) {
@@ -11911,9 +12415,9 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
             }
 
             /* allocation of arrays */
-            dEx_threads = (double*)malloc(sizeof(double) * Nthrds0);
-            dEy_threads = (double*)malloc(sizeof(double) * Nthrds0);
-            dEz_threads = (double*)malloc(sizeof(double) * Nthrds0);
+            dEx_threads = (double *)malloc(sizeof(double) * Nthrds0);
+            dEy_threads = (double *)malloc(sizeof(double) * Nthrds0);
+            dEz_threads = (double *)malloc(sizeof(double) * Nthrds0);
 
             for (Nloop = 0; Nloop < Nthrds0; Nloop++) {
                 dEx_threads[Nloop] = 0.0;
@@ -11923,14 +12427,16 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
             /* one-dimensionalize the h_AN and q_AN loops */
 
-            OneD2h_AN = (int*)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
-            OneD2q_AN = (int*)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
+            OneD2h_AN = (int *)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
+            OneD2q_AN = (int *)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
 
             ODNloop = 0;
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
-                if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)
-                    || (Solver == 5 || Solver == 8 || Solver == 11))
+                if (SpinP_switch == 3 &&
+                        (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch ||
+                         Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) ||
+                    (Solver == 5 || Solver == 8 || Solver == 11))
                     start_q_AN = 0;
                 else
                     start_q_AN = h_AN;
@@ -11947,38 +12453,43 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
                 }
             }
 
-#pragma omp parallel shared(ODNloop, OneD2h_AN, OneD2q_AN, Mc_AN, Gc_AN, dEx_threads, dEy_threads, dEz_threads, CDM0, SpinP_switch, SO_switch, Hub_U_switch, Constraint_NCS_switch, Zeeman_NCS_switch, Zeeman_NCO_switch, OLP_CH, RMI1, Spe_Total_CNO, WhatSpecies, F_G2M, natn, FNAN, List_YOUSO, Solver, F_NL_flag, F_U_flag) private(OMPID, Nthrds, Nprocs, Hx, Hy, Hz, i, j, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, km, Nloop, pref)
+#pragma omp parallel shared(ODNloop, OneD2h_AN, OneD2q_AN, Mc_AN, Gc_AN, dEx_threads, dEy_threads, dEz_threads, CDM0,  \
+                                SpinP_switch, SO_switch, Hub_U_switch, Constraint_NCS_switch, Zeeman_NCS_switch,       \
+                                Zeeman_NCO_switch, OLP_CH, RMI1, Spe_Total_CNO, WhatSpecies, F_G2M, natn, FNAN,        \
+                                List_YOUSO, Solver, F_NL_flag, F_U_flag)                                               \
+    private(OMPID, Nthrds, Nprocs, Hx, Hy, Hz, i, j, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, \
+                km, Nloop, pref)
             {
 
                 /* allocation of arrays */
 
-                Hx = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+                Hx = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
                 for (i = 0; i < 3; i++) {
-                    Hx[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+                    Hx[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
                     for (j = 0; j < List_YOUSO[7]; j++) {
-                        Hx[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                        Hx[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
                     }
                 }
 
-                Hy = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+                Hy = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
                 for (i = 0; i < 3; i++) {
-                    Hy[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+                    Hy[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
                     for (j = 0; j < List_YOUSO[7]; j++) {
-                        Hy[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                        Hy[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
                     }
                 }
 
-                Hz = (dcomplex***)malloc(sizeof(dcomplex**) * 3);
+                Hz = (dcomplex ***)malloc(sizeof(dcomplex **) * 3);
                 for (i = 0; i < 3; i++) {
-                    Hz[i] = (dcomplex**)malloc(sizeof(dcomplex*) * List_YOUSO[7]);
+                    Hz[i] = (dcomplex **)malloc(sizeof(dcomplex *) * List_YOUSO[7]);
                     for (j = 0; j < List_YOUSO[7]; j++) {
-                        Hz[i][j] = (dcomplex*)malloc(sizeof(dcomplex) * List_YOUSO[7]);
+                        Hz[i][j] = (dcomplex *)malloc(sizeof(dcomplex) * List_YOUSO[7]);
                     }
                 }
 
                 /* get info. on OpenMP */
 
-                OMPID = omp_get_thread_num();
+                OMPID  = omp_get_thread_num();
                 Nthrds = omp_get_num_threads();
                 Nprocs = omp_get_num_procs();
 
@@ -11993,17 +12504,17 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                     Gh_AN = natn[Gc_AN][h_AN];
                     Mh_AN = F_G2M[Gh_AN];
-                    Hwan = WhatSpecies[Gh_AN];
-                    ian = Spe_Total_CNO[Hwan];
+                    Hwan  = WhatSpecies[Gh_AN];
+                    ian   = Spe_Total_CNO[Hwan];
 
                     /* set informations on q_AN */
 
                     Gq_AN = natn[Gc_AN][q_AN];
                     Mq_AN = F_G2M[Gq_AN];
-                    Qwan = WhatSpecies[Gq_AN];
-                    jan = Spe_Total_CNO[Qwan];
-                    kl = RMI1[Mc_AN][h_AN][q_AN];
-                    km = RMI1[Mc_AN][q_AN][h_AN];
+                    Qwan  = WhatSpecies[Gq_AN];
+                    jan   = Spe_Total_CNO[Qwan];
+                    kl    = RMI1[Mc_AN][h_AN][q_AN];
+                    km    = RMI1[Mc_AN][q_AN][h_AN];
 
                     if (0 <= kl) {
 
@@ -12036,7 +12547,9 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
 
                         /* collinear spin polarized or non-colliear without SO and LDA+U */
 
-                        else if (SpinP_switch == 1 || (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
+                        else if (SpinP_switch == 1 ||
+                                 (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 &&
+                                  Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0)) {
 
                             if (Solver == 5 || Solver == 8 || Solver == 11) {
                                 pref = 1.0;
@@ -12050,27 +12563,47 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
                             for (i = 0; i < ian; i++) {
                                 for (j = 0; j < jan; j++) {
 
-                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r);
-                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r);
-                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r + CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r);
+                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r);
+                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r);
+                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r);
                                 }
                             }
                         }
 
                         /* spin non-collinear with spin-orbit coupling or with LDA+U */
 
-                        else if (SpinP_switch == 3 && (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
+                        else if (SpinP_switch == 3 &&
+                                 (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1) ||
+                                  1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1)) {
 
                             pref = 1.0;
 
                             for (i = 0; i < ian; i++) {
                                 for (j = 0; j < jan; j++) {
 
-                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r - iDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].i + CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r - iDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].i + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx[2][i][j].r - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx[2][i][j].i);
+                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].r -
+                                                                  iDM0[0][Mh_AN][kl][i][j] * Hx[0][i][j].i +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].r -
+                                                                  iDM0[1][Mh_AN][kl][i][j] * Hx[1][i][j].i +
+                                                                  2.0 * CDM0[2][Mh_AN][kl][i][j] * Hx[2][i][j].r -
+                                                                  2.0 * CDM0[3][Mh_AN][kl][i][j] * Hx[2][i][j].i);
 
-                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r - iDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].i + CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r - iDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].i + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy[2][i][j].r - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy[2][i][j].i);
+                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].r -
+                                                                  iDM0[0][Mh_AN][kl][i][j] * Hy[0][i][j].i +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].r -
+                                                                  iDM0[1][Mh_AN][kl][i][j] * Hy[1][i][j].i +
+                                                                  2.0 * CDM0[2][Mh_AN][kl][i][j] * Hy[2][i][j].r -
+                                                                  2.0 * CDM0[3][Mh_AN][kl][i][j] * Hy[2][i][j].i);
 
-                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r - iDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].i + CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r - iDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].i + 2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz[2][i][j].r - 2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz[2][i][j].i);
+                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].r -
+                                                                  iDM0[0][Mh_AN][kl][i][j] * Hz[0][i][j].i +
+                                                                  CDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].r -
+                                                                  iDM0[1][Mh_AN][kl][i][j] * Hz[1][i][j].i +
+                                                                  2.0 * CDM0[2][Mh_AN][kl][i][j] * Hz[2][i][j].r -
+                                                                  2.0 * CDM0[3][Mh_AN][kl][i][j] * Hz[2][i][j].i);
                                 }
                             }
                         }
@@ -12127,8 +12660,8 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
             }
 
             if (2 <= level_stdout) {
-                printf("<Force>  force(HCH3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                    myid, Mc_AN, Gc_AN, dEx, dEy, dEz);
+                printf("<Force>  force(HCH3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN,
+                       Gc_AN, dEx, dEy, dEz);
                 fflush(stdout);
             }
 
@@ -12157,8 +12690,8 @@ void Force_CoreHole(double***** CDM0, double***** iDM0)
         Gc_AN = M2G[Mc_AN];
 
         if (2 <= level_stdout) {
-            printf("<Force>  force(HCH) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
-                myid, Mc_AN, Gc_AN, Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
+            printf("<Force>  force(HCH) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n", myid, Mc_AN, Gc_AN,
+                   Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
             fflush(stdout);
         }
 

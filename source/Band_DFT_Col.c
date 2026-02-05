@@ -10,6 +10,8 @@
 
 ***********************************************************************/
 
+#include "set_cuda_default_device_from_local_rank.h"
+#include "set_openacc_device_from_local_rank.h"
 #include "lapack_prototypes.h"
 #include "mpi.h"
 #include "openmx_common.h"
@@ -489,7 +491,7 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
         all_knum = 0;
     }
 
-    // Set the device to be used by OpenACC
+    // Set the device to be used by OpenACC and CUDA
     if (scf_eigen_lib_flag == CuSOLVER) {
         // int rank;
         // if (all_knum != 1) {
@@ -498,9 +500,11 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
         //     rank = myid2;
         // }
 
+        // CUDA
+        set_cuda_default_device_from_local_rank(MPI_CommWD2[myworld2]);
+
         // OpenACC
-        int local_numdevices = acc_get_num_devices(acc_device_nvidia);
-        acc_set_device_num(myid0 % local_numdevices, acc_device_nvidia);
+        set_openacc_nvidia_device_from_local_rank(MPI_CommWD2[myworld2]);
     }
 
     /***********************************************

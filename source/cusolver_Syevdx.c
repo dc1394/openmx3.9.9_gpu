@@ -48,8 +48,11 @@
  */
 
 #include "openmx_common.h"
+#include "set_cuda_default_device_from_local_rank.h"
+#include "set_openacc_device_from_local_rank.h"
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
+#include <mpi.h>
 #include <openacc.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -62,12 +65,7 @@ int cusolver_Syevdx(double * A, double * W, int m, int MaxN)
 
     cusolverDnHandle_t cusolverH = NULL;
     cudaStream_t       stream    = NULL;
-    int                deviceCount;
-    wait_cudafunc(cudaGetDeviceCount(&deviceCount));
-
-    int rank;
-    MPI_Comm_rank(mpi_comm_level1, &rank);
-    wait_cudafunc(cudaSetDevice(rank % deviceCount));
+    set_cuda_default_device_from_local_rank();
 
     double * d_A = NULL;
     double * d_W = NULL;
@@ -142,16 +140,10 @@ int cusolver_Syevdx(double * A, double * W, int m, int MaxN)
 
 int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
 {
-    int32_t deviceCount;
-    wait_cudafunc(cudaGetDeviceCount(&deviceCount));
-
-    int32_t rank;
-    MPI_Comm_rank(mpi_comm_level1, &rank);
-    wait_cudafunc(cudaSetDevice(rank % deviceCount));
+    //et_cuda_default_device_from_local_rank();
 
     // OpenACC
-    int local_numdevices = acc_get_num_devices(acc_device_nvidia);
-    acc_set_device_num(rank % local_numdevices, acc_device_nvidia);
+    //set_openacc_nvidia_device_from_local_rank();
 
     // printf("OK %s:%d\n", __FILE__, __LINE__);
     // double *d_A = NULL;
@@ -258,16 +250,12 @@ int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
 
 int cusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN)
 {
-    const int lda = m;
+    int const lda = m;
 
     cusolverDnHandle_t cusolverH = NULL;
     cudaStream_t       stream    = NULL;
-    int                deviceCount;
-    wait_cudafunc(cudaGetDeviceCount(&deviceCount));
 
-    int rank;
-    MPI_Comm_rank(mpi_comm_level1, &rank);
-    wait_cudafunc(cudaSetDevice(rank % deviceCount));
+    set_cuda_default_device_from_local_rank();
 
     cuDoubleComplex * d_A    = NULL;
     double *          d_W    = NULL;
@@ -341,16 +329,10 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
 
     cusolverDnHandle_t * cusolverH = NULL;
     cudaStream_t *       stream    = NULL;
-    int                  deviceCount;
-    wait_cudafunc(cudaGetDeviceCount(&deviceCount));
-
-    int rank;
-    MPI_Comm_rank(mpi_comm_level1, &rank);
-    wait_cudafunc(cudaSetDevice((rank % deviceCount)));
+    //set_cuda_default_device_from_local_rank();
 
     // OpenACC
-    int local_numdevices = acc_get_num_devices(acc_device_nvidia);
-    acc_set_device_num(rank % local_numdevices, acc_device_nvidia);
+    //set_openacc_nvidia_device_from_local_rank();
 
     // cuDoubleComplex* d_A = NULL;
     // double* d_W = NULL;
