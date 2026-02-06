@@ -594,6 +594,14 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
     MPI_Barrier(mpi_comm_level1);
     MPI_Allreduce(&My_TZ, &TZ, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank(mpi_comm_level1);
+
+        // OpenACC
+        set_openacc_nvidia_device_from_local_rank(mpi_comm_level1);
+    }
+
     /****************************************************
         Setting of Hamiltonian and overlap matrices
 
@@ -604,7 +612,12 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
     int mysize = Matomnum > 0 ? 1 : 0;
     MPI_Allreduce(MPI_IN_PLACE, &mysize, 1, MPI_INT, MPI_SUM, mpi_comm_level1);
 
-    // #pragma omp parallel shared(OLP_eigen_cut, List_YOUSO, Etime_atom, time_per_atom, time3, Residues, EVal, time2, time1, S12, level_stdout, SpinP_switch, Hks, OLP0, SCF_iter, RMI1, S_G2M, Spe_Total_CNO, natn, FNAN, SNAN, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Gc_AN, wan, Anum, i, j, MP, Gi, wanA, NUM, NUM1, n2, spin, S_DC, H_DC, ko, M1, C, ig, ian, ih, kl, jg, jan, Bnum, m, n, stime, P_min, l, i1, j1, etime, tmp1, tmp2, sum1, sum2, sum3, sum4, j1s, sum, tno1, h_AN, Gh_AN, wanB, tno2)
+// #pragma omp parallel shared(OLP_eigen_cut, List_YOUSO, Etime_atom, time_per_atom, time3, Residues, EVal, time2, time1, \
+//                                 S12, level_stdout, SpinP_switch, Hks, OLP0, SCF_iter, RMI1, S_G2M, Spe_Total_CNO,      \
+//                                 natn, FNAN, SNAN, WhatSpecies, M2G, Matomnum)                                          \
+//     private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Gc_AN, wan, Anum, i, j, MP, Gi, wanA, NUM, NUM1, n2, spin, S_DC, \
+//                 H_DC, ko, M1, C, ig, ian, ih, kl, jg, jan, Bnum, m, n, stime, P_min, l, i1, j1, etime, tmp1, tmp2,     \
+//                 sum1, sum2, sum3, sum4, j1s, sum, tno1, h_AN, Gh_AN, wanB, tno2)
     {
 
         /* get info. on OpenMP */
@@ -1483,7 +1496,7 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
             }
         }
 
-        ////#pragma omp parallel shared(FNAN, time_per_atom, EDM, CDM, Residues, natn, max_x, Beta, ChemP, EVal, Msize, Spe_Total_CNO, WhatSpecies, M2G, SpinP_switch, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, spin, Stime_atom, Gc_AN, wanA, tno1, i1, x, FermiF, h_AN, Gh_AN, wanB, tno2, i, j, tmp1, Etime_atom)
+        //#pragma omp parallel shared(FNAN, time_per_atom, EDM, CDM, Residues, natn, max_x, Beta, ChemP, EVal, Msize, Spe_Total_CNO, WhatSpecies, M2G, SpinP_switch, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, spin, Stime_atom, Gc_AN, wanA, tno1, i1, x, FermiF, h_AN, Gh_AN, wanB, tno2, i, j, tmp1, Etime_atom)
         {
             /* get info. on OpenMP */
 
@@ -2826,11 +2839,11 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                 */
 
                 /* C to H (transposition) */
-#pragma acc data create(H_DC[ : n2][ : n2])
-#pragma acc data copyin(S_DC[ : NUM + 1][ : NUM + 1])
-#pragma acc data copy(C[ : n2][ : n2])
+#pragma acc data             create(H_DC[ : n2][ : n2])
+#pragma acc data             copyin(S_DC[ : NUM + 1][ : NUM + 1])
+#pragma acc data             copy(C[ : n2][ : n2])
                 {
-#pragma acc kernels
+            #pragma acc kernels
 #pragma acc loop independent collapse(2)
                     for (i1 = 1; i1 <= NUM1; i1++) {
                         for (j1 = 1; j1 <= NUM1; j1++) {

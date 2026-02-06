@@ -9,10 +9,11 @@
      16/Feb./2019  Released by T.Ozaki
 
 ***********************************************************************/
-
 #include "lapack_prototypes.h"
 #include "mpi.h"
 #include "openmx_common.h"
+#include "set_cuda_default_device_from_local_rank.h"
+#include "set_openacc_device_from_local_rank.h"
 #include "tran_variables.h"
 #include <assert.h>
 #include <math.h>
@@ -166,10 +167,6 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
     MPI_Barrier(mpi_comm_level1);
 
     Num_Comm_World1 = 1;
-
-    // OpenACC
-    int local_numdevices = acc_get_num_devices(acc_device_nvidia);
-    acc_set_device_num(myid0 % local_numdevices, acc_device_nvidia);
 
     /***********************************************
          for pallalel calculations in myworld1
@@ -467,6 +464,14 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
     MPI_Allreduce(&num_kloop0, &all_knum, 1, MPI_INT, MPI_PROD, mpi_comm_level1);
     MPI_Allreduce(&num_kloop0, &max_num_kloop0, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
+
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank(MPI_CommWD2[myworld2]);
+
+        // OpenACC
+        set_openacc_nvidia_device_from_local_rank(MPI_CommWD2[myworld2]);
+    }
 
     if (all_knum != 1 && scf_eigen_lib_flag == CuSOLVER) {
 #pragma acc enter data create(Cs[0 : n * n], Ss[0 : n * n], Hs[0 : n * n])

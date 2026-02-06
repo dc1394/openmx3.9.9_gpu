@@ -118,6 +118,11 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
     MPI_Comm_size(mpi_comm_level1, &numprocs0);
     MPI_Comm_rank(mpi_comm_level1, &myid0);
 
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank(mpi_comm_level1);
+    }
+
     /* for time check */
 
     dtime(&TStime);

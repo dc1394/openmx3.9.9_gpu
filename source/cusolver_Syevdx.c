@@ -50,6 +50,7 @@
 #include "openmx_common.h"
 #include "set_cuda_default_device_from_local_rank.h"
 #include "set_openacc_device_from_local_rank.h"
+#include <assert.h>
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
 #include <mpi.h>
@@ -65,7 +66,6 @@ int cusolver_Syevdx(double * A, double * W, int m, int MaxN)
 
     cusolverDnHandle_t cusolverH = NULL;
     cudaStream_t       stream    = NULL;
-    set_cuda_default_device_from_local_rank();
 
     double * d_A = NULL;
     double * d_W = NULL;
@@ -195,9 +195,9 @@ int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
                                                    1L, (long int)(MaxN), &h_meig, CUDA_R_64F, W, CUDA_R_64F,
                                                    &workspaceInBytesOnDevice, &workspaceInBytesOnHost));
 
-        long long memorysize = get_gpu_total_memory_in_bytes();
-        long long datasize   = (long long)sizeof(double) * (long long)m * (long long)m +
-                             (long long)sizeof(double) * (long long)(m + 1) + (long long)workspaceInBytesOnDevice;
+        int64_t memorysize = get_gpu_total_memory_in_bytes();
+        int64_t datasize   = (int64_t)sizeof(double) * (int64_t)m * (int64_t)m +
+                             (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
 
         if (memorysize < datasize) {
             printf("There's not enough memory on the device (GPU) to continue processing!");
@@ -254,8 +254,6 @@ int cusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN)
 
     cusolverDnHandle_t cusolverH = NULL;
     cudaStream_t       stream    = NULL;
-
-    set_cuda_default_device_from_local_rank();
 
     cuDoubleComplex * d_A    = NULL;
     double *          d_W    = NULL;
@@ -380,9 +378,9 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
                                                    1L, (long int)(MaxN), &h_meig, CUDA_R_64F, W, CUDA_C_64F,
                                                    &workspaceInBytesOnDevice, &workspaceInBytesOnHost));
 
-        long long memorysize = get_gpu_total_memory_in_bytes();
-        long long datasize   = (long long)sizeof(dcomplex) * (long long)m * (long long)m +
-                             (long long)sizeof(double) * (long long)(m + 1) + (long long)workspaceInBytesOnDevice;
+        int64_t memorysize = get_gpu_total_memory_in_bytes();
+        int64_t datasize   = (int64_t)sizeof(dcomplex) * (int64_t)m * (int64_t)m +
+                             (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
 
         if (memorysize < datasize) {
             printf("There's not enough memory on the device (GPU) to continue processing!");
@@ -441,7 +439,7 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
  * total memory (yyy) with sscanf.
  *
  * Returns:
- *   - A positive long long value representing the total memory (in bytes).
+ *   - A positive int64_t value representing the total memory (in bytes).
  *   - -1 if no memory info could be found or if an error occurs.
  */
 int64_t get_gpu_total_memory_in_bytes()
@@ -456,6 +454,7 @@ int64_t get_gpu_total_memory_in_bytes()
     // メモリ情報を取得
     size_t freeMem  = 0;
     size_t totalMem = 0;
+    assert(sizeof(size_t) == sizeof(int64_t));
     wait_cudafunc(cudaMemGetInfo(&freeMem, &totalMem));
 
     return (int64_t)totalMem;

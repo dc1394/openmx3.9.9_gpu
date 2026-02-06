@@ -88,9 +88,13 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     MPI_Barrier(mpi_comm_level1);
     dtime(&TStime);
 
-    // OpenACC
-    int local_numdevices = acc_get_num_devices(acc_device_nvidia);
-    acc_set_device_num(myid % local_numdevices, acc_device_nvidia);
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank(mpi_comm_level1);
+
+        // OpenACC
+        set_openacc_nvidia_device_from_local_rank(mpi_comm_level1);
+    }
 
     /* ***************************************************
              calculation of the array size

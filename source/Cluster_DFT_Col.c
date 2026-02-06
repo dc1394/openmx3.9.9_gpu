@@ -123,9 +123,13 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
     MPI_Comm_size(MPI_CommWD1[myworld1], &numprocs1);
     MPI_Comm_rank(MPI_CommWD1[myworld1], &myid1);
 
-    // OpenACC
-    int local_numdevices = acc_get_num_devices(acc_device_nvidia);
-    acc_set_device_num(myid0 % local_numdevices, acc_device_nvidia);
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank(MPI_CommWD1[myworld1]);
+
+        // OpenACC
+        set_openacc_nvidia_device_from_local_rank(MPI_CommWD1[myworld1]);
+    }
 
     /****************************************************
              calculation of the array size
@@ -262,6 +266,13 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
             if (SCF_iter == 1 && !second_time) {
 #pragma acc enter data create(ko[0 : SpinP_switch + 1][0 : n + 1])
                 Eigen_cusolver_x_openacc2(Ss, ko[0], n, n);
+
+// #pragma acc update self(Ss[0 : n * n])
+//             for (int i = 0; i < n * n; i++) {
+//                 printf("%.7f ", Ss[i]);
+//             }
+//             puts("");
+
 
                 /* minus eigenvalues to 1.0e-10 */
 #pragma acc kernels
@@ -884,7 +895,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
         Cblacs_barrier(ictxt1, "A");
         F77_NAME(pdgemm, PDGEMM)("T", "T", &n, &n, &n, &alpha, Cs, &ONE, &ONE, descC, Ss, &ONE, &ONE, descS, &beta, Hs,
                                  &ONE, &ONE, descH);
-        
+
         /* MPI communications of Hs */
 
         for (ID = 0; ID < numprocs1; ID++) {

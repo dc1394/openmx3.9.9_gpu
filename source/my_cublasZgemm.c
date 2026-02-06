@@ -6,10 +6,6 @@
 
 void my_cublasZgemm(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, dcomplex const * A, dcomplex const * B, dcomplex * C)
 {
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    cudacall(cudaSetDevice(rank % getDeviceCount()));
-
     cublasHandle_t handle;
     cudacall(cublasCreate(&handle));
 
@@ -36,14 +32,6 @@ void my_cublasZgemm(cublasOperation_t transa, cublasOperation_t transb, int m, i
 
 void my_cublasZgemm_openacc(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, dcomplex const * A, dcomplex const * B, dcomplex* C)
 {
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    cudacall(cudaSetDevice(rank % getDeviceCount()));
-
-    // OpenACC
-    int local_numdevices = acc_get_num_devices(acc_device_nvidia);
-    acc_set_device_num(rank % local_numdevices, acc_device_nvidia);
-
     cublasHandle_t handle;
     cudacall(cublasCreate(&handle));
 

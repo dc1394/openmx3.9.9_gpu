@@ -4517,7 +4517,6 @@ void Force_HNL(double ***** CDM0, double ***** iDM0)
                 }
             }
 
-// comment out April 28th, 2023 H. Kawai
 #pragma omp parallel shared(ODNloop, OneD2h_AN, OneD2q_AN, Mc_AN, Gc_AN, dEx_threads, dEy_threads, dEz_threads, CDM0,  \
                                 SpinP_switch, SO_switch, Hub_U_switch, Constraint_NCS_switch, Zeeman_NCS_switch,       \
                                 Zeeman_NCO_switch, DS_NL, RMI1, Spe_Total_CNO, WhatSpecies, F_G2M, natn, FNAN,         \
@@ -5762,7 +5761,6 @@ void Force4B(double ***** CDM0)
         if (Mc_AN <= Matomnum) {
 
 /* get Nthrds0 */
-// comment out April 25th, 2023 H. Kawai
 #pragma omp parallel shared(Nthrds0)
             {
                 Nthrds0 = omp_get_num_threads();
@@ -5804,7 +5802,6 @@ void Force4B(double ***** CDM0)
                 }
             }
 
-// comment out April 25th, 2023 H. Kawai
 #pragma omp parallel shared(ODNloop, OneD2h_AN, OneD2q_AN, Mc_AN, Gc_AN, dEx_threads, dEy_threads, dEz_threads, CDM0,  \
                                 SpinP_switch, CntHVNA2, HVNA2, DS_VNA, Cnt_switch, RMI1, Spe_Total_CNO, WhatSpecies,   \
                                 F_G2M, natn, FNAN, List_YOUSO, Solver)                                                 \

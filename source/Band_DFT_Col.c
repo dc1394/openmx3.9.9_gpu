@@ -21,7 +21,6 @@
 #include <openacc.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
 
 #define measure_time 0
@@ -234,22 +233,22 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
 
     ReEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
     for (i = 0; i < List_YOUSO[7]; i++) {
-        ReEVec0[i] = (double *)malloc(sizeof(double *) * (MaxN + 1));
+        ReEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
     }
 
     ImEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
     for (i = 0; i < List_YOUSO[7]; i++) {
-        ImEVec0[i] = (double *)malloc(sizeof(double *) * (MaxN + 1));
+        ImEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
     }
 
     ReEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
     for (i = 0; i < List_YOUSO[7]; i++) {
-        ReEVec1[i] = (double *)malloc(sizeof(double *) * (MaxN + 1));
+        ReEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
     }
 
     ImEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
     for (i = 0; i < List_YOUSO[7]; i++) {
-        ImEVec1[i] = (double *)malloc(sizeof(double *) * (MaxN + 1));
+        ImEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
     }
 
     /***********************************************
@@ -493,13 +492,6 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
 
     // Set the device to be used by OpenACC and CUDA
     if (scf_eigen_lib_flag == CuSOLVER) {
-        // int rank;
-        // if (all_knum != 1) {
-        //     rank = myid0;
-        // } else {
-        //     rank = myid2;
-        // }
-
         // CUDA
         set_cuda_default_device_from_local_rank(MPI_CommWD2[myworld2]);
 
@@ -551,7 +543,10 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
     // }
 
     if (all_knum != 1 && scf_eigen_lib_flag == CuSOLVER) {
-#pragma acc enter data create(Ss[0 : na_rows * na_cols], Hs[0 : na_rows * na_cols], Cs[0 : na_rows * na_cols])
+        assert(n == na_cols);
+        assert(n == na_rows);
+
+#pragma acc enter data create(Ss[0 : n * n], Hs[0 : n * n], Cs[0 : n * n])
 #pragma acc enter data create(ko[0 : n + 1])
     }
 
@@ -2317,9 +2312,12 @@ diagonalize1:
                       1/sqrt(ko) * U^t * H * U * 1/sqrt(ko)
                 ****************************************************/
 
+                assert(n == na_rows_max);
+                assert(n == na_cols_max);
+
 #pragma acc kernels
 #pragma acc loop independent
-                for (i = 0; i < na_rows_max * na_cols_max; i++) {
+                for (i = 0; i < n * n; i++) {
                     Cs[i].r = 0.0;
                     Cs[i].i = 0.0;
                 }
@@ -3333,7 +3331,7 @@ diagonalize1:
     ****************************************************/
 
     if (all_knum != 1 && scf_eigen_lib_flag == CuSOLVER) {
-#pragma acc exit data delete(Ss[0 : na_rows * na_cols], Hs[0 : na_rows * na_cols], Cs[0 : na_rows * na_cols],          \
+#pragma acc exit data delete(Ss[0 : n * n], Hs[0 : n * n], Cs[0 : n * n],          \
                              ko[0 : n + 1])
     }
 
