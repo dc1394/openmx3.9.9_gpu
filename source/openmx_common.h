@@ -2626,38 +2626,39 @@ int       MD_applied_pressure_flag[3];
 int       Number_of_Electrons_Species_flag;
 double *  Number_of_Electrons_Species;
 
-double   Grid_Origin[4];
-double   dipole_moment[4][4];
-double   TempPara[30][3], PrePara[30][3];
-double   MD_TimeStep, ChemP, Beta;
-double   CN_Error, E_Temp, Original_E_Temp, FCR, BCR, LNO_Occ_Cutoff, orderN_LNO_Buffer;
-double   GP, GT, T, Weight, Cell_Volume, Uele, Uele2, Ukc, Uvdw, Uch;
-double   Uele_OS0, Uele_OS1, Uele_IS0, Uele_IS1, Uxc0, Uxc1;
-double   UH0, UH1, UH2, Ucore, Uhub, Ucs, Uef, Ukin, Unl, Una, Uzs, Uzo, UvdW;
-double   Ucc, Ucoh, Uatom, Udc, Utot, Uxc, Given_Total_Charge, Calc_Total_Charge;
-double   Min_Mixing_weight, Max_Mixing_weight, Max_Mixing_weight2, Mixing_weight;
-double   Kerker_factor, Criterion_MP_Special_Kpt;
-double   Gdiis_Mixing, system_charge, VNA_reduce_ratio, Total_Num_Electrons;
-double   Total_SpinS, Total_SpinSx, Total_SpinSy, Total_SpinSz;
-double   Total_OrbitalMoment, Total_OrbitalMomentx;
-double   Total_OrbitalMomenty, Total_OrbitalMomentz;
-double   Total_SpinAngle0, Total_SpinAngle1;
-double   Total_OrbitalMomentAngle0, Total_OrbitalMomentAngle1;
-double   ScaleSize, Pin[4][4], Ptot[4][4];
-double   LastBoxCenterX, LastBoxCenterY, LastBoxCenterZ;
-double   Vol, Vol1, Vol2, Vol3, W;
-double   SCF_Criterion, NormRD[5], BestNormRD, History_Uele[5];
-double   PAO_Nkmax, Grid_Ecut, Finite_Elements_Ecut, rcut_FEB;
-double   orbitalOpt_criterion, MD_Opt_criterion, orbitalOpt_SD_step;
-double   MD_EvsLattice_Step;
-double   Restart_Spin_Angle_Theta, Restart_Spin_Angle_Phi;
-int      MD_EvsLattice_flag[3];
-int      MD_OutABC;
+double Grid_Origin[4];
+double dipole_moment[4][4];
+double TempPara[30][3], PrePara[30][3];
+double MD_TimeStep, ChemP, Beta;
+double CN_Error, E_Temp, Original_E_Temp, FCR, BCR, LNO_Occ_Cutoff, orderN_LNO_Buffer;
+double GP, GT, T, Weight, Cell_Volume, Uele, Uele2, Ukc, Uvdw, Uch;
+double Uele_OS0, Uele_OS1, Uele_IS0, Uele_IS1, Uxc0, Uxc1;
+double UH0, UH1, UH2, Ucore, Uhub, Ucs, Uef, Ukin, Unl, Una, Uzs, Uzo, UvdW;
+double Ucc, Ucoh, Uatom, Udc, Utot, Uxc, Given_Total_Charge, Calc_Total_Charge;
+double Min_Mixing_weight, Max_Mixing_weight, Max_Mixing_weight2, Mixing_weight;
+double Kerker_factor, Criterion_MP_Special_Kpt;
+double Gdiis_Mixing, system_charge, VNA_reduce_ratio, Total_Num_Electrons;
+double Total_SpinS, Total_SpinSx, Total_SpinSy, Total_SpinSz;
+double Total_OrbitalMoment, Total_OrbitalMomentx;
+double Total_OrbitalMomenty, Total_OrbitalMomentz;
+double Total_SpinAngle0, Total_SpinAngle1;
+double Total_OrbitalMomentAngle0, Total_OrbitalMomentAngle1;
+double ScaleSize, Pin[4][4], Ptot[4][4];
+double LastBoxCenterX, LastBoxCenterY, LastBoxCenterZ;
+double Vol, Vol1, Vol2, Vol3, W;
+double SCF_Criterion, NormRD[5], BestNormRD, History_Uele[5];
+double PAO_Nkmax, Grid_Ecut, Finite_Elements_Ecut, rcut_FEB;
+double orbitalOpt_criterion, MD_Opt_criterion, orbitalOpt_SD_step;
+double MD_EvsLattice_Step;
+double Restart_Spin_Angle_Theta, Restart_Spin_Angle_Phi;
+int    MD_EvsLattice_flag[3];
+int    MD_OutABC;
 // add by H.Kawai (February 2024)
-int      SCF_Gpu_Num;
-typedef enum {
-    ELPA1 = 1,
-    ELPA2 = 2,
+int SCF_Gpu_Num;
+typedef enum
+{
+    ELPA1    = 1,
+    ELPA2    = 2,
     CuSOLVER = 3
 } SCF_Eigen_Lib;
 double   X_Center_Coordinate, Y_Center_Coordinate, Z_Center_Coordinate;
@@ -2997,7 +2998,8 @@ void Overlap_Cluster_Ss(double **** OLP0, double * Ss, int * MP, MPI_Comm * MPI_
 void Set_ContMat_Cluster_LNO(double **** OLP0, double ***** nh, double *** S, double *** H, int * MP);
 
 void Hamiltonian_Cluster(double **** RH, double ** H, int * MP);
-void Hamiltonian_Cluster_Hs(double **** RH, double * Hs, int * MP, int spin, MPI_Comm * MPI_CommWD1, int myworld1, int n);
+void Hamiltonian_Cluster_Hs(double **** RH, double * Hs, int * MP, int spin, MPI_Comm * MPI_CommWD1, int myworld1,
+                            int n);
 void Hamiltonian_Cluster_NC_Hs2(double * rHs11, double * rHs22, double * rHs12, double * iHs11, double * iHs22,
                                 double * iHs12, dcomplex * Hs2);
 void Hamiltonian_Band_NC_Hs2(dcomplex * Hs11, dcomplex * Hs22, dcomplex * Hs12, dcomplex * Hs2, MPI_Comm mpi_commWD);
@@ -3047,24 +3049,24 @@ double Divide_Conquer_LNO(char * mode, int MD_iter, int SCF_iter, int SucceedRea
 
 // add by H.Kawai (February 2024)
 #define GPU_CPU_SWITCH_NUM 1000
-#define WAITTIME (10.0 * 1.0E-6)
+#define WAITTIME           (10.0 * 1.0E-6)
 
 #define cudacall(call)                                                                                                 \
-    do {                                                                                                               \
+    {                                                                                                                  \
         cudaError_t err = (call);                                                                                      \
         if (cudaSuccess != err) {                                                                                      \
             fprintf(stderr, "CUDA Error:\nFile = %s\nLine = %d\nReason = %d\n", __FILE__, __LINE__, err);              \
             cudaDeviceReset();                                                                                         \
             exit(EXIT_FAILURE);                                                                                        \
         }                                                                                                              \
-    } while (0)
+    }
 
 #define wait_cudafunc(call)                                                                                            \
     while (true) {                                                                                                     \
         if (cudaSuccess == call) {                                                                                     \
             break;                                                                                                     \
         }                                                                                                              \
-        double wait_time    = drand48() * WAITTIME;                                            \
+        double wait_time    = drand48() * WAITTIME;                                                                    \
         double start_time   = MPI_Wtime();                                                                             \
         double current_time = start_time;                                                                              \
         while ((current_time - start_time) < wait_time) {                                                              \
@@ -3238,16 +3240,15 @@ double DFT(int MD_iter, int Cnt_Now);
 double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko, double ***** nh, double **** CntOLP,
                        double ***** CDM, double ***** EDM, double Eele0[2], double Eele1[2], int myworld1,
                        int * NPROCS_ID1, int * Comm_World1, int * NPROCS_WD1, int * Comm_World_StartID1,
-                       MPI_Comm * MPI_CommWD1, int * MP, int * is2, int * ie2, double * Ss, double * Cs,
-                       double * Hs, double * CDM1, double * EDM1, double * PDM1, int size_H1, int * SP_NZeros,
-                       int * SP_Atoms, double ** EVec1, double * Work1);
+                       MPI_Comm * MPI_CommWD1, int * MP, int * is2, int * ie2, double * Ss, double * Cs, double * Hs,
+                       double * CDM1, double * EDM1, double * PDM1, int size_H1, int * SP_NZeros, int * SP_Atoms,
+                       double ** EVec1, double * Work1);
 
 double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * ko, double ***** nh, double ***** ImNL,
                           double **** CntOLP, double ***** CDM, double ***** EDM, double Eele0[2], double Eele1[2],
-                          int * MP, int * is2, int * ie2, double * Ss, double * Cs, double * rHs11,
-                          double * rHs12, double * rHs22, double * iHs11, double * iHs12, double * iHs22,
-                          dcomplex * Ss2, dcomplex * Hs2, dcomplex * Cs2, double * DM1, int size_H1,
-                          dcomplex * EVec1, double * Work1);
+                          int * MP, int * is2, int * ie2, double * Ss, double * Cs, double * rHs11, double * rHs12,
+                          double * rHs22, double * iHs11, double * iHs12, double * iHs22, dcomplex * Ss2,
+                          dcomplex * Hs2, dcomplex * Cs2, double * DM1, int size_H1, dcomplex * EVec1, double * Work1);
 
 double Calc_DM_Cluster_non_collinear_ScaLAPACK(int calc_flag, int myid, int numprocs, int size_H1, int * is2, int * ie2,
                                                int * MP, int n, int n2, double ***** CDM, double ***** iDM0,
@@ -3266,22 +3267,22 @@ double Cluster_DFT_ON2(char * mode, int SCF_iter, int SpinP_switch, double *****
 double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_switch, double ***** nh,
                     double ***** ImNL, double **** CntOLP, double ***** CDM, double ***** EDM, double Eele0[2],
                     double Eele1[2], int * MP, int * order_GA, double * ko, double * koS, double *** EIGEN, double * H1,
-                    double * S1, double * CDM1, double * EDM1, dcomplex ** EVec1, dcomplex * Ss,
-                    dcomplex * Cs, dcomplex * Hs, int *** k_op, int * T_k_op, int ** T_k_ID, double * T_KGrids1,
-                    double * T_KGrids2, double * T_KGrids3, int myworld1, int * NPROCS_ID1, int * Comm_World1,
-                    int * NPROCS_WD1, int * Comm_World_StartID1, MPI_Comm * MPI_CommWD1, int myworld2, int * NPROCS_ID2,
-                    int * NPROCS_WD2, int * Comm_World2, int * Comm_World_StartID2, MPI_Comm * MPI_CommWD2);
+                    double * S1, double * CDM1, double * EDM1, dcomplex ** EVec1, dcomplex * Ss, dcomplex * Cs,
+                    dcomplex * Hs, int *** k_op, int * T_k_op, int ** T_k_ID, double * T_KGrids1, double * T_KGrids2,
+                    double * T_KGrids3, int myworld1, int * NPROCS_ID1, int * Comm_World1, int * NPROCS_WD1,
+                    int * Comm_World_StartID1, MPI_Comm * MPI_CommWD1, int myworld2, int * NPROCS_ID2, int * NPROCS_WD2,
+                    int * Comm_World2, int * Comm_World_StartID2, MPI_Comm * MPI_CommWD2);
 
 double Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_switch, double ***** nh,
                        double ***** ImNL, double **** CntOLP, double ***** CDM, double ***** EDM, double Eele0[2],
                        double Eele1[2], int * MP, int * order_GA, double * ko, double * koS, double *** EIGEN,
                        double * H1, double * S1, dcomplex * rHs11, dcomplex * rHs22, dcomplex * rHs12, dcomplex * iHs11,
-                       dcomplex * iHs22, dcomplex * iHs12, dcomplex ** EVec1, dcomplex * Ss,
-                       dcomplex * Cs, dcomplex * Hs, dcomplex * Ss2, dcomplex * Cs2, dcomplex * Hs2,
-                       int *** k_op, int * T_k_op, int ** T_k_ID, double * T_KGrids1, double * T_KGrids2,
-                       double * T_KGrids3, int myworld1, int * NPROCS_ID1, int * Comm_World1, int * NPROCS_WD1,
-                       int * Comm_World_StartID1, MPI_Comm * MPI_CommWD1, int myworld2, int * NPROCS_ID2,
-                       int * NPROCS_WD2, int * Comm_World2, int * Comm_World_StartID2, MPI_Comm * MPI_CommWD2);
+                       dcomplex * iHs22, dcomplex * iHs12, dcomplex ** EVec1, dcomplex * Ss, dcomplex * Cs,
+                       dcomplex * Hs, dcomplex * Ss2, dcomplex * Cs2, dcomplex * Hs2, int *** k_op, int * T_k_op,
+                       int ** T_k_ID, double * T_KGrids1, double * T_KGrids2, double * T_KGrids3, int myworld1,
+                       int * NPROCS_ID1, int * Comm_World1, int * NPROCS_WD1, int * Comm_World_StartID1,
+                       MPI_Comm * MPI_CommWD1, int myworld2, int * NPROCS_ID2, int * NPROCS_WD2, int * Comm_World2,
+                       int * Comm_World_StartID2, MPI_Comm * MPI_CommWD2);
 
 /*
   For generalized Bloch Theorem

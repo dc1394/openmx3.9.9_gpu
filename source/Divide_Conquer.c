@@ -11,6 +11,8 @@
 ***********************************************************************/
 
 #include "openmx_common.h"
+#include "set_cuda_default_device_from_local_rank.h"
+#include "set_openacc_device_from_local_rank.h"
 #include <assert.h>
 #include <math.h>
 #include <mpi.h>
@@ -105,9 +107,14 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
 
-    // OpenACC
-    int local_numdevices = acc_get_num_devices(acc_device_nvidia);
-    acc_set_device_num(myid % local_numdevices, acc_device_nvidia);
+    // Set the device to be used by CUDA and OpenACC
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank(mpi_comm_level1);
+
+        // OpenACC
+        set_openacc_nvidia_device_from_local_rank(mpi_comm_level1);
+    }
 
     dtime(&TStime);
 
@@ -612,12 +619,12 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
     int mysize = Matomnum > 0 ? 1 : 0;
     MPI_Allreduce(MPI_IN_PLACE, &mysize, 1, MPI_INT, MPI_SUM, mpi_comm_level1);
 
-// #pragma omp parallel shared(OLP_eigen_cut, List_YOUSO, Etime_atom, time_per_atom, time3, Residues, EVal, time2, time1, \
-//                                 S12, level_stdout, SpinP_switch, Hks, OLP0, SCF_iter, RMI1, S_G2M, Spe_Total_CNO,      \
-//                                 natn, FNAN, SNAN, WhatSpecies, M2G, Matomnum)                                          \
-//     private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Gc_AN, wan, Anum, i, j, MP, Gi, wanA, NUM, NUM1, n2, spin, S_DC, \
-//                 H_DC, ko, M1, C, ig, ian, ih, kl, jg, jan, Bnum, m, n, stime, P_min, l, i1, j1, etime, tmp1, tmp2,     \
-//                 sum1, sum2, sum3, sum4, j1s, sum, tno1, h_AN, Gh_AN, wanB, tno2)
+    // #pragma omp parallel shared(OLP_eigen_cut, List_YOUSO, Etime_atom, time_per_atom, time3, Residues, EVal, time2, time1, \
+    //                                 S12, level_stdout, SpinP_switch, Hks, OLP0, SCF_iter, RMI1, S_G2M, Spe_Total_CNO,      \
+    //                                 natn, FNAN, SNAN, WhatSpecies, M2G, Matomnum)                                          \
+    //     private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Gc_AN, wan, Anum, i, j, MP, Gi, wanA, NUM, NUM1, n2, spin, S_DC, \
+    //                 H_DC, ko, M1, C, ig, ian, ih, kl, jg, jan, Bnum, m, n, stime, P_min, l, i1, j1, etime, tmp1, tmp2,     \
+    //                 sum1, sum2, sum3, sum4, j1s, sum, tno1, h_AN, Gh_AN, wanB, tno2)
     {
 
         /* get info. on OpenMP */
@@ -1720,9 +1727,14 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
 
-    // OpenACC
-    int numdevices = acc_get_num_devices(acc_device_nvidia);
-    acc_set_device_num(myid % numdevices, acc_device_nvidia);
+    // Set the device to be used by CUDA and OpenACC
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank(mpi_comm_level1);
+
+        // OpenACC
+        set_openacc_nvidia_device_from_local_rank(mpi_comm_level1);
+    }
 
     dtime(&TStime);
 

@@ -12,6 +12,8 @@
 
 #include "mpi.h"
 #include "openmx_common.h"
+#include "set_cuda_default_device_from_local_rank.h"
+#include "set_openacc_device_from_local_rank.h"
 #include <assert.h>
 #include <math.h>
 #include <omp.h>
@@ -448,7 +450,7 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                 iHs12[i] = 0.0;
             }
             my_cublasDgemm_openacc(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, iHs12);
-            
+
             /* S^t x iHs22 x S */
 
 #pragma acc enter data copyin(iHs22[0 : n * n])

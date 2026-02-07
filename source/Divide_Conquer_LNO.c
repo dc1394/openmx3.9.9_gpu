@@ -10,8 +10,8 @@
      21/Feb./2018  Released by T. Ozaki
 
 ***********************************************************************/
-
 #include "openmx_common.h"
+#include "set_cuda_default_device_from_local_rank.h"
 #include <math.h>
 #include <mpi.h>
 #include <omp.h>
@@ -118,10 +118,10 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
     MPI_Comm_size(mpi_comm_level1, &numprocs0);
     MPI_Comm_rank(mpi_comm_level1, &myid0);
 
-    if (scf_eigen_lib_flag == CuSOLVER) {
-        // CUDA
-        set_cuda_default_device_from_local_rank(mpi_comm_level1);
-    }
+    // if (scf_eigen_lib_flag == CuSOLVER) {
+    //     // CUDA
+    //     set_cuda_default_device_from_local_rank(mpi_comm_level1);
+    // }
 
     /* for time check */
 
@@ -215,6 +215,11 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
 
         Eigen_MPI_flag = 0;
         Spin_MPI_flag  = 0;
+    }
+
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank(MPI_CommWD2_DCLNO[myworld2_DCLNO]);
     }
 
     if (Eigen_MPI_flag == 1) {
@@ -2449,6 +2454,11 @@ static double DC_NonCol(char * mode, int MD_iter, int SCF_iter, int SucceedReadi
 
     if (Eigen_MPI_flag == 1) {
         MPI_Bcast(&Max_Msize, 1, MPI_INT, 0, MPI_CommWD1_DCLNO[myworld1_DCLNO]);
+    }
+
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank(MPI_CommWD2_DCLNO[myworld2_DCLNO]);
     }
 
     if (BLAS_allocate_flag == 1 && LNO_recalc_flag == 1) {

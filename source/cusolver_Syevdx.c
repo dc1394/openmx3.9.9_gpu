@@ -50,31 +50,29 @@
 #include "openmx_common.h"
 #include "set_cuda_default_device_from_local_rank.h"
 #include "set_openacc_device_from_local_rank.h"
+#include "utility.h"
 #include <assert.h>
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
-#include <mpi.h>
 #include <openacc.h>
 #include <stdint.h>
 #include <stdio.h>
 
-static int64_t get_gpu_total_memory_in_bytes();
-
-int cusolver_Syevdx(double * A, double * W, int m, int MaxN)
+int32_t cusolver_Syevdx(double * A, double * W, int32_t m, int32_t MaxN)
 {
-    const int lda = m;
+    int32_t const lda = m;
 
     cusolverDnHandle_t cusolverH = NULL;
     cudaStream_t       stream    = NULL;
 
-    double * d_A = NULL;
-    double * d_W = NULL;
-    double   vl;
-    double   vu;
-    int64_t  h_meig = 0;
-    int *    d_info = NULL;
+    double *  d_A = NULL;
+    double *  d_W = NULL;
+    double    vl;
+    double    vu;
+    int64_t   h_meig = 0;
+    int32_t * d_info = NULL;
 
-    int info = 0;
+    int32_t info = 0;
 
     size_t workspaceInBytesOnDevice = 0;    /* size of workspace */
     void * d_work                   = NULL; /* device workspace */
@@ -89,7 +87,7 @@ int cusolver_Syevdx(double * A, double * W, int m, int MaxN)
 
     wait_cudafunc(cudaMalloc((void **)(&d_A), sizeof(double) * lda * m));
     wait_cudafunc(cudaMalloc((void **)(&d_W), sizeof(double) * m));
-    wait_cudafunc(cudaMalloc((void **)(&d_info), sizeof(int)));
+    wait_cudafunc(cudaMalloc((void **)(&d_info), sizeof(int32_t)));
 
     wait_cudafunc(cudaMemcpyAsync(d_A, A, sizeof(double) * lda * m, cudaMemcpyHostToDevice, stream));
 
@@ -104,8 +102,17 @@ int cusolver_Syevdx(double * A, double * W, int m, int MaxN)
     }
 
     wait_cudafunc(cusolverDnXsyevdx_bufferSize(cusolverH, NULL, jobz, range, uplo, m, CUDA_R_64F, d_A, lda, &vl, &vu,
-                                               1L, (long int)(MaxN), &h_meig, CUDA_R_64F, d_W, CUDA_R_64F,
+                                               1L, MaxN, &h_meig, CUDA_R_64F, d_W, CUDA_R_64F,
                                                &workspaceInBytesOnDevice, &workspaceInBytesOnHost));
+
+    int64_t const memorysize = get_gpu_total_memory_in_bytes();
+    int64_t const datasize   = (int64_t)sizeof(double) * (int64_t)lda * (int64_t)m +
+                             (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
+
+    if (memorysize < datasize) {
+        fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
+        exit(1);
+    }
 
     wait_cudafunc(cudaMalloc((void **)(&d_work), workspaceInBytesOnDevice));
     h_work = malloc(workspaceInBytesOnHost);
@@ -115,13 +122,13 @@ int cusolver_Syevdx(double * A, double * W, int m, int MaxN)
     }
 
     // step 4: compute spectrum
-    wait_cudafunc(cusolverDnXsyevdx(cusolverH, NULL, jobz, range, uplo, m, CUDA_R_64F, d_A, lda, &vl, &vu, 1L,
-                                    (long int)(MaxN), &h_meig, CUDA_R_64F, d_W, CUDA_R_64F, d_work,
-                                    workspaceInBytesOnDevice, h_work, workspaceInBytesOnHost, d_info));
+    wait_cudafunc(cusolverDnXsyevdx(cusolverH, NULL, jobz, range, uplo, m, CUDA_R_64F, d_A, lda, &vl, &vu, 1L, MaxN,
+                                    &h_meig, CUDA_R_64F, d_W, CUDA_R_64F, d_work, workspaceInBytesOnDevice, h_work,
+                                    workspaceInBytesOnHost, d_info));
 
     wait_cudafunc(cudaMemcpyAsync(A, d_A, sizeof(double) * lda * m, cudaMemcpyDeviceToHost, stream));
     wait_cudafunc(cudaMemcpyAsync(W, d_W, sizeof(double) * m, cudaMemcpyDeviceToHost, stream));
-    wait_cudafunc(cudaMemcpyAsync(&info, d_info, sizeof(int), cudaMemcpyDeviceToHost, stream));
+    wait_cudafunc(cudaMemcpyAsync(&info, d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, stream));
 
     wait_cudafunc(cudaStreamSynchronize(stream));
     /* free resources */
@@ -138,18 +145,8 @@ int cusolver_Syevdx(double * A, double * W, int m, int MaxN)
     return info;
 }
 
-int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
+int32_t cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
 {
-    //et_cuda_default_device_from_local_rank();
-
-    // OpenACC
-    //set_openacc_nvidia_device_from_local_rank();
-
-    // printf("OK %s:%d\n", __FILE__, __LINE__);
-    // double *d_A = NULL;
-    // double *d_W = NULL;
-    // int* d_info = NULL;
-
     int32_t * pinfo = (int32_t *)malloc(sizeof(int32_t));
 
     // printf("OK %s:%d\n", __FILE__, __LINE__);
@@ -161,7 +158,7 @@ int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
 #pragma acc host_data use_device(A, W, pinfo)
     {
         cusolverDnHandle_t cusolverH = NULL;
-        // printf("OK %s:%d\n", __FILE__, __LINE__);
+
         wait_cudafunc(cusolverDnCreate(&cusolverH));
 
         cudaStream_t stream = NULL;
@@ -171,7 +168,7 @@ int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
         // printf("OK %s:%d\n", __FILE__, __LINE__);
         //  wait_cudafunc(cudaMalloc((void **)(&d_A), sizeof(double) * lda * m));
         //  wait_cudafunc(cudaMalloc((void **)(&d_W), sizeof(double) * m));
-        // wait_cudafunc(cudaMalloc((void **)(&d_info), sizeof(int)));
+        // wait_cudafunc(cudaMalloc((void **)(&d_info), sizeof(int32_t)));
 
         // printf("OK %s:%d\n", __FILE__, __LINE__);
         //  wait_cudafunc(cudaMemcpyAsync(d_A, A, sizeof(double) * lda * m, cudaMemcpyHostToDevice,
@@ -190,23 +187,21 @@ int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
         size_t workspaceInBytesOnDevice = 0; /* size of workspace */
         size_t workspaceInBytesOnHost   = 0; /* size of workspace */
 
-        // printf("OK %s:%d\n", __FILE__, __LINE__);
         wait_cudafunc(cusolverDnXsyevdx_bufferSize(cusolverH, NULL, jobz, range, uplo, m, CUDA_R_64F, A, lda, &vl, &vu,
-                                                   1L, (long int)(MaxN), &h_meig, CUDA_R_64F, W, CUDA_R_64F,
+                                                   1L, MaxN, &h_meig, CUDA_R_64F, W, CUDA_R_64F,
                                                    &workspaceInBytesOnDevice, &workspaceInBytesOnHost));
 
-        int64_t memorysize = get_gpu_total_memory_in_bytes();
-        int64_t datasize   = (int64_t)sizeof(double) * (int64_t)m * (int64_t)m +
-                             (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
+        int64_t const memorysize = get_gpu_total_memory_in_bytes();
+        int64_t const datasize   = (int64_t)sizeof(double) * (int64_t)m * (int64_t)m +
+                                 (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
 
         if (memorysize < datasize) {
-            printf("There's not enough memory on the device (GPU) to continue processing!");
+            fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
             exit(1);
         }
 
         void * d_work = NULL; /* device workspace */
 
-        // printf("OK %s:%d\n", __FILE__, __LINE__);
         wait_cudafunc(cudaMalloc((void **)(&d_work), workspaceInBytesOnDevice));
 
         void * h_work = NULL; /* host workspace for */
@@ -217,17 +212,16 @@ int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
             exit(1);
         }
 
-        // printf("OK %s:%d\n", __FILE__, __LINE__);
         //  step 4: compute spectrum
-        wait_cudafunc(cusolverDnXsyevdx(cusolverH, NULL, jobz, range, uplo, m, CUDA_R_64F, A, lda, &vl, &vu, 1L,
-                                        (long int)(MaxN), &h_meig, CUDA_R_64F, W, CUDA_R_64F, d_work,
-                                        workspaceInBytesOnDevice, h_work, workspaceInBytesOnHost, pinfo));
+        wait_cudafunc(cusolverDnXsyevdx(cusolverH, NULL, jobz, range, uplo, m, CUDA_R_64F, A, lda, &vl, &vu, 1L, MaxN,
+                                        &h_meig, CUDA_R_64F, W, CUDA_R_64F, d_work, workspaceInBytesOnDevice, h_work,
+                                        workspaceInBytesOnHost, pinfo));
 
         // wait_cudafunc(cudaMemcpyAsync(A, d_A, sizeof(double) * lda * m, cudaMemcpyDeviceToHost,
         //                            stream));
         // wait_cudafunc(cudaMemcpyAsync(W, d_W, sizeof(double) * m, cudaMemcpyDeviceToHost,
         //                            stream));
-        // wait_cudafunc(cudaMemcpyAsync(&pinfo, d_info, sizeof(int), cudaMemcpyDeviceToHost, stream));
+        // wait_cudafunc(cudaMemcpyAsync(&pinfo, d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, stream));
         ////printf("OK %s:%d\n", __FILE__, __LINE__);
         wait_cudafunc(cudaStreamSynchronize(stream));
         /* free resources */
@@ -236,9 +230,8 @@ int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
         // wait_cudafunc(cudaFree(d_info));
         wait_cudafunc(cudaFree(d_work));
         free(h_work);
-        // printf("OK %s:%d\n", __FILE__, __LINE__);
+
         wait_cudafunc(cusolverDnDestroy(cusolverH));
-        // printf("OK %s:%d\n", __FILE__, __LINE__);
         wait_cudafunc(cudaStreamDestroy(stream));
     }
 
@@ -248,9 +241,9 @@ int cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
     return info;
 }
 
-int cusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN)
+int32_t cusolver_Syevdx_Complex(dcomplex * A, double * W, int32_t m, int32_t MaxN)
 {
-    int const lda = m;
+    int32_t const lda = m;
 
     cusolverDnHandle_t cusolverH = NULL;
     cudaStream_t       stream    = NULL;
@@ -260,9 +253,9 @@ int cusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN)
     double            vl     = 0.0;
     double            vu     = 0.0;
     int64_t           h_meig = 0;
-    int *             d_info = NULL;
+    int32_t *         d_info = NULL;
 
-    int info = 0;
+    int32_t info = 0;
 
     size_t workspaceInBytesOnDevice = 0;    /* size of workspace */
     void * d_work                   = NULL; /* device workspace */
@@ -277,7 +270,7 @@ int cusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN)
 
     wait_cudafunc(cudaMalloc((void **)(&d_A), sizeof(cuDoubleComplex) * lda * m));
     wait_cudafunc(cudaMalloc((void **)(&d_W), sizeof(double) * m));
-    wait_cudafunc(cudaMalloc((void **)(&d_info), sizeof(int)));
+    wait_cudafunc(cudaMalloc((void **)(&d_info), sizeof(int32_t)));
 
     wait_cudafunc(cudaMemcpyAsync(d_A, A, sizeof(cuDoubleComplex) * lda * m, cudaMemcpyHostToDevice, stream));
 
@@ -287,8 +280,11 @@ int cusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN)
     cusolverEigRange_t range = CUSOLVER_EIG_RANGE_I;
 
     wait_cudafunc(cusolverDnXsyevdx_bufferSize(cusolverH, NULL, jobz, range, uplo, m, CUDA_C_64F, d_A, lda, &vl, &vu,
-                                               1L, (long int)(MaxN), &h_meig, CUDA_R_64F, d_W, CUDA_C_64F,
+                                               1L, MaxN, &h_meig, CUDA_R_64F, d_W, CUDA_C_64F,
                                                &workspaceInBytesOnDevice, &workspaceInBytesOnHost));
+    int64_t const memorysize = get_gpu_total_memory_in_bytes();
+    int64_t const datasize   = (int64_t)sizeof(dcomplex) * (int64_t)lda * (int64_t)m +
+                             (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
 
     wait_cudafunc(cudaMalloc((void **)(&d_work), workspaceInBytesOnDevice));
     h_work = malloc(workspaceInBytesOnHost);
@@ -298,13 +294,13 @@ int cusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN)
     }
 
     // step 4: compute spectrum
-    wait_cudafunc(cusolverDnXsyevdx(cusolverH, NULL, jobz, range, uplo, m, CUDA_C_64F, d_A, lda, &vl, &vu, 1L,
-                                    (long int)(MaxN), &h_meig, CUDA_R_64F, d_W, CUDA_C_64F, d_work,
-                                    workspaceInBytesOnDevice, h_work, workspaceInBytesOnHost, d_info));
+    wait_cudafunc(cusolverDnXsyevdx(cusolverH, NULL, jobz, range, uplo, m, CUDA_C_64F, d_A, lda, &vl, &vu, 1L, MaxN,
+                                    &h_meig, CUDA_R_64F, d_W, CUDA_C_64F, d_work, workspaceInBytesOnDevice, h_work,
+                                    workspaceInBytesOnHost, d_info));
 
     wait_cudafunc(cudaMemcpyAsync(A, d_A, sizeof(cuDoubleComplex) * lda * m, cudaMemcpyDeviceToHost, stream));
     wait_cudafunc(cudaMemcpyAsync(W, d_W, sizeof(double) * m, cudaMemcpyDeviceToHost, stream));
-    wait_cudafunc(cudaMemcpyAsync(&info, d_info, sizeof(int), cudaMemcpyDeviceToHost, stream));
+    wait_cudafunc(cudaMemcpyAsync(&info, d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, stream));
 
     wait_cudafunc(cudaStreamSynchronize(stream));
     /* free resources */
@@ -321,9 +317,9 @@ int cusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN)
     return info;
 }
 
-int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
+int32_t cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int32_t m, int32_t MaxN)
 {
-    const int lda = m;
+    int32_t const lda = m;
 
     cusolverDnHandle_t * cusolverH = NULL;
     cudaStream_t *       stream    = NULL;
@@ -337,10 +333,10 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
     double  vl     = 0.0;
     double  vu     = 0.0;
     int64_t h_meig = 0;
-    // int* d_info = NULL;
+    // int32_t* d_info = NULL;
 
-    int *pinfo, info;
-    pinfo = (int *)malloc(sizeof(int));
+    int32_t *pinfo, info;
+    pinfo = (int32_t *)malloc(sizeof(int32_t));
 
     size_t workspaceInBytesOnDevice = 0;    /* size of workspace */
     void * d_work                   = NULL; /* device workspace */
@@ -359,15 +355,15 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
 
         // wait_cudafunc(cudaMallocAsync((void**)(&d_A), sizeof(cuDoubleComplex) * lda * m, stream));
         // wait_cudafunc(cudaMallocAsync((void**)(&d_W), sizeof(double) * m, stream));
-        // wait_cudafunc(cudaMallocAsync((void**)(&d_info), sizeof(int), stream));
+        // wait_cudafunc(cudaMallocAsync((void**)(&d_info), sizeof(int32_t), stream));
 
         // wait_cudafunc(cudaMemcpyAsync(d_A, A, sizeof(cuDoubleComplex) * lda * m, cudaMemcpyHostToDevice,
         // stream));
 
         // step 3: query working space of syevd
-        cusolverEigMode_t  jobz = CUSOLVER_EIG_MODE_VECTOR;  // compute eigenvalues and eigenvectors.
-        cublasFillMode_t   uplo = CUBLAS_FILL_MODE_LOWER;
-        cusolverEigRange_t range;
+        cusolverEigMode_t const jobz = CUSOLVER_EIG_MODE_VECTOR;  // compute eigenvalues and eigenvectors.
+        cublasFillMode_t const  uplo = CUBLAS_FILL_MODE_LOWER;
+        cusolverEigRange_t      range;
         if (m == MaxN) {
             range = CUSOLVER_EIG_RANGE_ALL;
         } else {
@@ -375,15 +371,15 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
         }
 
         wait_cudafunc(cusolverDnXsyevdx_bufferSize(cusolverH, NULL, jobz, range, uplo, m, CUDA_C_64F, A, lda, &vl, &vu,
-                                                   1L, (long int)(MaxN), &h_meig, CUDA_R_64F, W, CUDA_C_64F,
+                                                   1L, MaxN, &h_meig, CUDA_R_64F, W, CUDA_C_64F,
                                                    &workspaceInBytesOnDevice, &workspaceInBytesOnHost));
 
-        int64_t memorysize = get_gpu_total_memory_in_bytes();
-        int64_t datasize   = (int64_t)sizeof(dcomplex) * (int64_t)m * (int64_t)m +
-                             (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
+        int64_t const memorysize = get_gpu_total_memory_in_bytes();
+        int64_t const datasize   = (int64_t)sizeof(dcomplex) * (int64_t)m * (int64_t)m +
+                                 (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
 
         if (memorysize < datasize) {
-            printf("There's not enough memory on the device (GPU) to continue processing!");
+            fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
             exit(1);
         }
 
@@ -396,9 +392,9 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
         }
 
         // step 4: compute spectrum
-        wait_cudafunc(cusolverDnXsyevdx(cusolverH, NULL, jobz, range, uplo, m, CUDA_C_64F, A, lda, &vl, &vu, 1L,
-                                        (long int)(MaxN), &h_meig, CUDA_R_64F, W, CUDA_C_64F, d_work,
-                                        workspaceInBytesOnDevice, h_work, workspaceInBytesOnHost, pinfo));
+        wait_cudafunc(cusolverDnXsyevdx(cusolverH, NULL, jobz, range, uplo, m, CUDA_C_64F, A, lda, &vl, &vu, 1L, MaxN,
+                                        &h_meig, CUDA_R_64F, W, CUDA_C_64F, d_work, workspaceInBytesOnDevice, h_work,
+                                        workspaceInBytesOnHost, pinfo));
 
         // wait_cudafunc(cudaMemcpyAsync(A, d_A, sizeof(cuDoubleComplex) * lda * m, cudaMemcpyDeviceToHost,
         //     stream));
@@ -406,7 +402,7 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
         // wait_cudafunc(cudaMemcpyAsync(W, d_W, sizeof(double) * m, cudaMemcpyDeviceToHost,
         //     stream));
 
-        // wait_cudafunc(cudaMemcpyAsync(&info, d_info, sizeof(int), cudaMemcpyDeviceToHost, stream));
+        // wait_cudafunc(cudaMemcpyAsync(&info, d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, stream));
 
         /* free resources */
         // wait_cudafunc(cudaFreeAsync(d_A, stream));
@@ -427,35 +423,4 @@ int cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN)
     free(pinfo);
 
     return info;
-}
-
-/*
- * This function retrieves the total memory of "GPU 0" from nvidia-smi output
- * in an MPI environment. It uses popen("nvidia-smi") to capture the output
- * and writes it to a temporary file named with the MPI rank.
- *
- * Then it scans each line to find a pattern "xxxMiB / yyyMiB". Specifically,
- * it looks for the substring "MiB /", and from that point, it parses the
- * total memory (yyy) with sscanf.
- *
- * Returns:
- *   - A positive int64_t value representing the total memory (in bytes).
- *   - -1 if no memory info could be found or if an error occurs.
- */
-int64_t get_gpu_total_memory_in_bytes()
-{
-    int32_t deviceCount;
-    wait_cudafunc(cudaGetDeviceCount(&deviceCount));
-
-    int32_t rank;
-    MPI_Comm_rank(mpi_comm_level1, &rank);
-    wait_cudafunc(cudaSetDevice(rank % deviceCount));
-
-    // メモリ情報を取得
-    size_t freeMem  = 0;
-    size_t totalMem = 0;
-    assert(sizeof(size_t) == sizeof(int64_t));
-    wait_cudafunc(cudaMemGetInfo(&freeMem, &totalMem));
-
-    return (int64_t)totalMem;
 }

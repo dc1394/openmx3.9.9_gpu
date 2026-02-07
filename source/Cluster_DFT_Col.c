@@ -11,6 +11,8 @@
 
 #include "mpi.h"
 #include "openmx_common.h"
+#include "set_cuda_default_device_from_local_rank.h"
+#include "set_openacc_device_from_local_rank.h"
 #include <assert.h>
 #include <math.h>
 #include <omp.h>
@@ -267,12 +269,11 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
 #pragma acc enter data create(ko[0 : SpinP_switch + 1][0 : n + 1])
                 Eigen_cusolver_x_openacc2(Ss, ko[0], n, n);
 
-// #pragma acc update self(Ss[0 : n * n])
-//             for (int i = 0; i < n * n; i++) {
-//                 printf("%.7f ", Ss[i]);
-//             }
-//             puts("");
-
+                // #pragma acc update self(Ss[0 : n * n])
+                //             for (int i = 0; i < n * n; i++) {
+                //                 printf("%.7f ", Ss[i]);
+                //             }
+                //             puts("");
 
                 /* minus eigenvalues to 1.0e-10 */
 #pragma acc kernels

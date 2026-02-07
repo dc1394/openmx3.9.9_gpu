@@ -89,7 +89,7 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o init.o LU_inverse.o 
           Make_InputFile_with_FinalCoord.o Output_Energy_Decomposition.o \
           Divide_Conquer.o Divide_Conquer_LNO.o my_cublasDgemm.o my_cublasZgemm.o Krylov.o \
           Divide_Conquer_Dosout.o EGAC_DFT.o LNO.o \
-          Eigen_lapack.o cusolver_Syevd.o cusolver_Syevdx.o set_cuda_default_device_from_local_rank.o set_openacc_device_from_local_rank.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
+          Eigen_lapack.o cusolver_Syevd.o cusolver_Syevdx.o set_cuda_default_device_from_local_rank.o set_openacc_device_from_local_rank.o utility.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
           Eigen_PReHH.o BroadCast_ReMatrix.o \
           Eigen_PHH.o BroadCast_ComplexMatrix.o \
           lapack_dstedc1.o lapack_dstedc2.o lapack_dstedc3.o\
@@ -427,8 +427,10 @@ cusolver_Syevdx.o: cusolver_Syevdx.c openmx_common.h
 	$(CC) -c cusolver_Syevdx.c
 set_cuda_default_device_from_local_rank.o: set_cuda_default_device_from_local_rank.c openmx_common.h
 	$(CC) -c set_cuda_default_device_from_local_rank.c
-set_openacc_device_from_local_rank.o: set_openacc_device_from_local_rank.c
+set_openacc_device_from_local_rank.o: set_openacc_device_from_local_rank.c openmx_common.h
 	$(CC) -c set_openacc_device_from_local_rank.c
+utility.o: utility.c openmx_common.h
+	$(CC) -c utility.c
 Eigen_lapack2.o: Eigen_lapack2.c openmx_common.h lapack_prototypes.h
 	$(CC) -c Eigen_lapack2.c
 Eigen_lapack3.o: Eigen_lapack3.c openmx_common.h lapack_prototypes.h
