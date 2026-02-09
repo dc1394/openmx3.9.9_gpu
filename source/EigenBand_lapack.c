@@ -21,7 +21,7 @@ void EigenBand_lapack(dcomplex** A, double* W, int N0, int MaxN, int ev_flag)
     else            Eigen_zheevx(A,W,N0,MaxN,ev_flag);
     */
 
-    if (scf_eigen_lib_flag == CuSOLVER) {
+    if (scf_eigen_lib_flag == CuSOLVER && N0 >= GPU_CPU_SWITCH_NUM){
         info = cusolver_zheevx(A, W, N0, MaxN, ev_flag);
     } else {
         info = Eigen_zheevx(A, W, N0, MaxN, ev_flag);
