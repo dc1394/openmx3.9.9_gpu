@@ -3333,6 +3333,7 @@ void   Eigen_lapack(double ** a, double * ko, int n, int EVmax);
 void   Eigen_lapack_openacc(double ** a, double * ko, int n, int EVmax);
 void   Eigen_cusolver_d(double ** a, double * ko, int n, int EVmax);
 void   Eigen_cusolver_x_openacc2(double * a, double * ko, int n0, int EVmax);
+void   Eigen_cusolver_x_complex_openacc(dcomplex ** a, double * ko, int n0, int EVmax);
 int    cusolver_Syevd(double * A, double * W, int m);
 int    cusolver_Syevdx(double * A, double * W, int m, int MaxN);
 int    cusolver_Syevdx_openacc(double * A, double * W, int m, int MaxN);

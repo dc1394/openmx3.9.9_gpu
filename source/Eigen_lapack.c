@@ -35,7 +35,7 @@ void Eigen_lapack(double ** a, double * ko, int n, int EVmax)
     if (scf_eigen_lib_flag == ELPA1 || scf_eigen_lib_flag == ELPA2 || n < GPU_CPU_SWITCH_NUM) {
         solver_flag = 0;
     } else {
-        solver_flag = 3;
+         solver_flag = 3;
     }
     int       i, j, k, po, okay_flag, iterN;
     double    sum;

@@ -61,6 +61,87 @@ void EigenBand_lapack_openacc(dcomplex* A, double* W, int N0, int MaxN)
     */
 }
 
+void Eigen_cusolver_x_complex_openacc(dcomplex ** a, double * ko, int n0, int EVmax)
+{
+    /*
+      F77_NAME(dsyevx,DSYEVX)()
+
+      input:  n;
+      input:  a[n][n];  matrix A
+      output: a[n][n];  eigevectors
+      output: ko[n];    eigenvalues
+    */
+
+    int       info;
+    int const n = n0;
+
+    dcomplex* A = (dcomplex*)malloc(sizeof(dcomplex) * n * n);
+
+#pragma acc data present(a[0 : n][0 : n], ko[0 : n])
+#pragma acc data create(A[0 : n * n])
+    {
+#pragma acc kernels
+#pragma acc loop independent
+        for (int i = 0; i < n; i++) {
+#pragma acc loop independent
+            for (int j = 0; j < n; j++) {
+                A[i * n + j].r = a[i + 1][j + 1].r;
+                A[i * n + j].i = a[i + 1][j + 1].i;
+            }
+        }
+
+#if 0
+  printf("A=\n");
+  for (i=0;i<n;i++) {
+    for (j=0;j<n;j++) {
+       printf("%f ",A[i*n+j]);
+    }
+    printf("\n");
+  }
+  fflush(stdout);
+#endif
+
+        info = cusolver_Syevdx_Complex_openacc(A, ko, n, EVmax);
+
+        /* store eigenvectors */
+#pragma acc kernels
+#pragma acc loop independent
+        for (int i = 0; i < EVmax; i++) {
+#pragma acc loop independent
+            for (int j = 0; j < n; j++) {
+                /*  a[i+1][j+1]= Z[i*n+j]; */
+                a[j + 1][i + 1].r = A[i * n + j].r;
+                a[j + 1][i + 1].i = A[i * n + j].i;
+            }
+        }
+
+        //printf("OK %s:%d\n", __FILE__, __LINE__);
+
+        /* shift ko by 1 */
+#pragma acc kernels
+#pragma acc loop seq
+        for (int i = EVmax; i >= 1; i--) {
+            ko[i] = ko[i - 1];
+        }
+    }
+
+    //printf("OK %s:%d\n", __FILE__, __LINE__);
+
+    /*
+    if (INFO>0) {
+      printf("\n%s: error in dsyevx_, info=%d\n\n",name,INFO);
+    }
+    */
+
+    if (info < 0) {
+        printf("cusolverDnXsyevdx: info=%d\n", info);
+        exit(10);
+    }
+
+    free(A);
+}
+
+
 #pragma optimization_level 1
 void Eigen_HH(dcomplex** ac, double* ko, int n, int EVmax, int ev_flag)
 {

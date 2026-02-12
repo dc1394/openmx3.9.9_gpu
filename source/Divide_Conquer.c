@@ -2684,8 +2684,8 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                 /* transpose S */
 
 #pragma acc data copyin(H_DC[ : n2][ : n2])
-#pragma acc data copy(S_DC[ : NUM + 1][ : NUM + 1])
-#pragma acc data copyout(C[ : n2][ : n2])
+#pragma acc data copyin(S_DC[ : NUM + 1][ : NUM + 1])
+#pragma acc data copy(C[ : n2][ : n2], ko[ : n2])
                 {
 #pragma acc kernels
 #pragma acc loop independent
@@ -2787,11 +2787,10 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                             C[j1 - (P_min - 1)][i1 - (P_min - 1)].i = H_DC[i1][j1].i;
                         }
                     }
-                }
 
-                if (Gc_AN == 1) {
+                    if (Gc_AN == 1) {
 
-                    /*
+                        /*
                 printf("C.r\n");
                 for (i=1; i<=NUM*2; i++){
                     for (j=1; j<=NUM*2; j++){
@@ -2807,7 +2806,7 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                 }
                     */
 
-                    /*
+                        /*
                 printf("C.r\n");
                 for (i=1; i<=NUM*2; i++){
                     for (j=1; j<=NUM*2; j++){
@@ -2824,22 +2823,23 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                     printf("\n");
                 }
                     */
-                }
+                    }
 
-                /***********************************************
+                    /***********************************************
                  diagonalize the trasformed Hamiltonian matrix
                 ************************************************/
 
-                // dtime(&timeD);
-                // printf("timeC = %.3f\n", timeD - timeC);
+                    // dtime(&timeD);
+                    // printf("timeC = %.3f\n", timeD - timeC);
 
-                NUM1 = 2 * NUM - (P_min - 1);
-                EigenBand_lapack(C, ko, NUM1, NUM1, 1);
+                    NUM1 = 2 * NUM - (P_min - 1);
 
-                // dtime(&timeE);
-                // printf("timeD = %.3f\n", timeE - timeD);
+                    Eigen_cusolver_x_complex_openacc(C, ko, NUM1, NUM1);
 
-                /*
+                    // dtime(&timeE);
+                    // printf("timeD = %.3f\n", timeE - timeD);
+
+                    /*
             if (Gc_AN==1){
                 for (l=1; l<=NUM1; l++){
                 printf("ABC10 myid=%2d l=%2d ko=%15.12f\n",myid,l,ko[l]);fflush(stdout);
@@ -2850,12 +2850,9 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
             exit(0);
                 */
 
-                /* C to H (transposition) */
-#pragma acc data             create(H_DC[ : n2][ : n2])
-#pragma acc data             copyin(S_DC[ : NUM + 1][ : NUM + 1])
-#pragma acc data             copy(C[ : n2][ : n2])
-                {
-            #pragma acc kernels
+                    /* C to H (transposition) */
+
+#pragma acc kernels
 #pragma acc loop independent collapse(2)
                     for (i1 = 1; i1 <= NUM1; i1++) {
                         for (j1 = 1; j1 <= NUM1; j1++) {
