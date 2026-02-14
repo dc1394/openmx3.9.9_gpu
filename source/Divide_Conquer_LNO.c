@@ -1286,14 +1286,9 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
         tmp2 = 0.0;
 
         if (0 < BN) {
-            if (scf_eigen_lib_flag == CuSOLVER) {
-                my_cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, BM, BN, BK, &BLAS_H[spin * NUM * NUM],
-                               &BLAS_OLP[spin * NUM * NUM + (ns - 1) * NUM], &BLAS_C[(ns - 1) * NUM]);
-            } else {
-                F77_NAME(dgemm, DGEMM)
-                ("N", "N", &BM, &BN, &BK, &tmp1, &BLAS_H[spin * NUM * NUM], &BM,
-                 &BLAS_OLP[spin * NUM * NUM + (ns - 1) * NUM], &BK, &tmp2, &BLAS_C[(ns - 1) * NUM], &BM);
-            }
+            F77_NAME(dgemm, DGEMM)
+            ("N", "N", &BM, &BN, &BK, &tmp1, &BLAS_H[spin * NUM * NUM], &BM,
+            &BLAS_OLP[spin * NUM * NUM + (ns - 1) * NUM], &BK, &tmp2, &BLAS_C[(ns - 1) * NUM], &BM);
         }
 
         /* ko^{-1/2} * U^+ H * U * ko^{-1/2} */
@@ -1310,14 +1305,9 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
         tmp2 = 0.0;
 
         if (0 < BN) {
-            if (scf_eigen_lib_flag == CuSOLVER) {
-                my_cublasDgemm(CUBLAS_OP_C, CUBLAS_OP_N, BM, BN, BK, &BLAS_OLP[spin * NUM * NUM],
-                               &BLAS_C[(ns - 1) * NUM], &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM]);
-            } else {
-                F77_NAME(dgemm, DGEMM)
-                ("C", "N", &BM, &BN, &BK, &tmp1, &BLAS_OLP[spin * NUM * NUM], &BM, &BLAS_C[(ns - 1) * NUM], &BK, &tmp2,
-                 &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BM);
-            }
+            F77_NAME(dgemm, DGEMM)
+            ("C", "N", &BM, &BN, &BK, &tmp1, &BLAS_OLP[spin * NUM * NUM], &BM, &BLAS_C[(ns - 1) * NUM], &BK, &tmp2,
+            &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BM);
         }
 
         for (j1 = ns; j1 <= ne; j1++) {
@@ -1421,15 +1411,9 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
         tmp2 = 0.0;
 
         if (0 < BN) {
-            if (scf_eigen_lib_flag == CuSOLVER) {
-                my_cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, BM, BN, BK, &BLAS_OLP[spin * NUM * NUM],
-                               &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BLAS_C[(ns - 1) * NUM]);
-
-            } else {
-                F77_NAME(dgemm, DGEMM)
-                ("N", "N", &BM, &BN, &BK, &tmp1, &BLAS_OLP[spin * NUM * NUM], &BM,
-                 &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BK, &tmp2, &BLAS_C[(ns - 1) * NUM], &BM);
-            }
+            F77_NAME(dgemm, DGEMM)
+            ("N", "N", &BM, &BN, &BK, &tmp1, &BLAS_OLP[spin * NUM * NUM], &BM,
+            &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BK, &tmp2, &BLAS_C[(ns - 1) * NUM], &BM);
         }
 
         for (j1 = ns; j1 <= ne; j1++) {

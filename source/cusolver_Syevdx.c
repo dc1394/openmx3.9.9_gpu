@@ -149,8 +149,6 @@ int32_t cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
 {
     int32_t * pinfo = (int32_t *)malloc(sizeof(int32_t));
 
-    // printf("OK %s:%d\n", __FILE__, __LINE__);
-
     /* step 1: create cusolver handle, bind a stream */
 #pragma acc data      copy(pinfo[0 : 1])
 #pragma acc data      present(A[0 : m * m])
@@ -165,12 +163,10 @@ int32_t cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
         wait_cudafunc(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
         wait_cudafunc(cusolverDnSetStream(cusolverH, stream));
 
-        // printf("OK %s:%d\n", __FILE__, __LINE__);
         //  wait_cudafunc(cudaMalloc((void **)(&d_A), sizeof(double) * lda * m));
         //  wait_cudafunc(cudaMalloc((void **)(&d_W), sizeof(double) * m));
         // wait_cudafunc(cudaMalloc((void **)(&d_info), sizeof(int32_t)));
 
-        // printf("OK %s:%d\n", __FILE__, __LINE__);
         //  wait_cudafunc(cudaMemcpyAsync(d_A, A, sizeof(double) * lda * m, cudaMemcpyHostToDevice,
         //                             stream));
 
@@ -222,7 +218,6 @@ int32_t cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
         // wait_cudafunc(cudaMemcpyAsync(W, d_W, sizeof(double) * m, cudaMemcpyDeviceToHost,
         //                            stream));
         // wait_cudafunc(cudaMemcpyAsync(&pinfo, d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, stream));
-        ////printf("OK %s:%d\n", __FILE__, __LINE__);
         wait_cudafunc(cudaStreamSynchronize(stream));
         /* free resources */
         // wait_cudafunc(cudaFree(d_A));
