@@ -20,8 +20,7 @@
 #include <time.h>
 
 #define measure_time 0
-// #define _BENCHMARK 0
-//#define GPU_CPU_SWITCH_NUM 1
+#define GPU_CPU_SWITCH_NUM2 1800
 
 static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingDMfile, double ***** Hks,
                      double **** OLP0, double ***** CDM, double ***** EDM, double Eele0[2], double Eele1[2]);
@@ -1286,9 +1285,14 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
         tmp2 = 0.0;
 
         if (0 < BN) {
-            F77_NAME(dgemm, DGEMM)
-            ("N", "N", &BM, &BN, &BK, &tmp1, &BLAS_H[spin * NUM * NUM], &BM,
-            &BLAS_OLP[spin * NUM * NUM + (ns - 1) * NUM], &BK, &tmp2, &BLAS_C[(ns - 1) * NUM], &BM);
+            if (scf_eigen_lib_flag == CuSOLVER && NUM >= GPU_CPU_SWITCH_NUM2) {
+                my_cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, BM, BN, BK, &BLAS_H[spin * NUM * NUM],
+                               &BLAS_OLP[spin * NUM * NUM + (ns - 1) * NUM], &BLAS_C[(ns - 1) * NUM]);
+            } else {
+                F77_NAME(dgemm, DGEMM)
+                ("N", "N", &BM, &BN, &BK, &tmp1, &BLAS_H[spin * NUM * NUM], &BM,
+                 &BLAS_OLP[spin * NUM * NUM + (ns - 1) * NUM], &BK, &tmp2, &BLAS_C[(ns - 1) * NUM], &BM);
+            }
         }
 
         /* ko^{-1/2} * U^+ H * U * ko^{-1/2} */
@@ -1305,9 +1309,14 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
         tmp2 = 0.0;
 
         if (0 < BN) {
-            F77_NAME(dgemm, DGEMM)
-            ("C", "N", &BM, &BN, &BK, &tmp1, &BLAS_OLP[spin * NUM * NUM], &BM, &BLAS_C[(ns - 1) * NUM], &BK, &tmp2,
-            &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BM);
+            if (scf_eigen_lib_flag == CuSOLVER && NUM >= GPU_CPU_SWITCH_NUM2) {
+                my_cublasDgemm(CUBLAS_OP_C, CUBLAS_OP_N, BM, BN, BK, &BLAS_OLP[spin * NUM * NUM],
+                               &BLAS_C[(ns - 1) * NUM], &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM]);
+            } else {
+                F77_NAME(dgemm, DGEMM)
+                ("C", "N", &BM, &BN, &BK, &tmp1, &BLAS_OLP[spin * NUM * NUM], &BM, &BLAS_C[(ns - 1) * NUM], &BK, &tmp2,
+                 &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BM);
+            }
         }
 
         for (j1 = ns; j1 <= ne; j1++) {
@@ -1411,9 +1420,15 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
         tmp2 = 0.0;
 
         if (0 < BN) {
-            F77_NAME(dgemm, DGEMM)
-            ("N", "N", &BM, &BN, &BK, &tmp1, &BLAS_OLP[spin * NUM * NUM], &BM,
-            &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BK, &tmp2, &BLAS_C[(ns - 1) * NUM], &BM);
+            if (scf_eigen_lib_flag == CuSOLVER && NUM >= GPU_CPU_SWITCH_NUM2) {
+                my_cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, BM, BN, BK, &BLAS_OLP[spin * NUM * NUM],
+                               &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BLAS_C[(ns - 1) * NUM]);
+
+            } else {
+                F77_NAME(dgemm, DGEMM)
+                ("N", "N", &BM, &BN, &BK, &tmp1, &BLAS_OLP[spin * NUM * NUM], &BM,
+                 &BLAS_H[spin * NUM * NUM + (ns - 1) * NUM], &BK, &tmp2, &BLAS_C[(ns - 1) * NUM], &BM);
+            }
         }
 
         for (j1 = ns; j1 <= ne; j1++) {

@@ -254,7 +254,7 @@ void Calc_MatrixElements_dVH_Vxc_VNA(int Cnt_kind)
     if (measure_time)
         dtime(&time1);
 
-#pragma omp parallel
+//#pragma omp parallel
     {
         int     Nloop, spin, Mc_AN, h_AN, Gh_AN, Mh_AN, Hwan, NOLG;
         int     Gc_AN, Cwan, NO0, NO1, spin0 = -1, Mc_AN0 = 0;
@@ -303,7 +303,7 @@ void Calc_MatrixElements_dVH_Vxc_VNA(int Cnt_kind)
 
         /* starting of one-dimensionalized loop */
 
-#pragma omp for schedule(static, 1) /* guided */       /* AITUNE */
+//#pragma omp for schedule(static, 1) /* guided */       /* AITUNE */
         for (Nloop = 0; Nloop < OneD_Nloop; Nloop++) { /* AITUNE */
 
             int Mc_AN = OneD2Mc_AN[Nloop];
