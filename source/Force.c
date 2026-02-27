@@ -20,6 +20,10 @@
 
 #define measure_time 0
 
+#define NVHPC_VERSION ( __NVCOMPILER_MAJOR__ * 10000 \
+                       + __NVCOMPILER_MINOR__ * 100   \
+                       + __NVCOMPILER_PATCHLEVEL__ )
+
 static void dH_U_full(int Mc_AN, int h_AN, int q_AN,
     double***** OLP, double**** v_eff,
     double*** Hx, double*** Hy, double*** Hz);
@@ -1499,7 +1503,9 @@ double Force(double***** H0,
         Fz[Mc_AN] = 0.0;
     }
     // comment out June 2nd, 2023 H. Kawai
-    // #pragma omp parallel shared(Dis,time_per_atom,Fx,Fy,Fz,CntOLP,OLP,Cnt_switch,EDM,SpinP_switch,Spe_Total_CNO,natn,FNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,dum,dx,dy,dz)
+#if NVHPC_VERSION >= 250000
+    #pragma omp parallel shared(Dis,time_per_atom,Fx,Fy,Fz,CntOLP,OLP,Cnt_switch,EDM,SpinP_switch,Spe_Total_CNO,natn,FNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,dum,dx,dy,dz)
+#endif
     {
 
         /* get info. on OpenMP */
@@ -4509,7 +4515,10 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
             /* get Nthrds0 */
             // comment out May 20th, 2023 H. Kawai
-            // #pragma omp parallel shared(Nthrds0)
+            // 
+#if NVHPC_VERSION >= 250000
+            #pragma omp parallel shared(Nthrds0)
+#endif
             {
                 Nthrds0 = omp_get_num_threads();
             }
@@ -4552,7 +4561,9 @@ void Force_HNL(double***** CDM0, double***** iDM0)
             }
 
             // comment out April 28th, 2023 H. Kawai
-            // #pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,dEx_threads,dEy_threads,dEz_threads,CDM0,SpinP_switch,SO_switch,Hub_U_switch,Constraint_NCS_switch,Zeeman_NCS_switch,Zeeman_NCO_switch,DS_NL,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver,F_NL_flag,F_U_flag) private(OMPID,Nthrds,Nprocs,Hx,Hy,Hz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,km,Nloop,pref)
+#if NVHPC_VERSION >= 250000
+            #pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,dEx_threads,dEy_threads,dEz_threads,CDM0,SpinP_switch,SO_switch,Hub_U_switch,Constraint_NCS_switch,Zeeman_NCS_switch,Zeeman_NCO_switch,DS_NL,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver,F_NL_flag,F_U_flag) private(OMPID,Nthrds,Nprocs,Hx,Hy,Hz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,km,Nloop,pref)
+#endif
             {
 
                 /* allocation of arrays */
@@ -5766,7 +5777,9 @@ void Force4B(double***** CDM0)
 
             /* get Nthrds0 */
             // comment out April 25th, 2023 H. Kawai
-            // #pragma omp parallel shared(Nthrds0)
+#if NVHPC_VERSION >= 250000
+            #pragma omp parallel shared(Nthrds0)
+#endif
             {
                 Nthrds0 = omp_get_num_threads();
             }
@@ -5808,7 +5821,9 @@ void Force4B(double***** CDM0)
             }
 
             // comment out April 25th, 2023 H. Kawai
-            // #pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,dEx_threads,dEy_threads,dEz_threads,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,Cnt_switch,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver) private(OMPID,Nthrds,Nprocs,HVNAx,HVNAy,HVNAz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop,pref)
+#if NVHPC_VERSION >= 250000
+            #pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,dEx_threads,dEy_threads,dEz_threads,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,Cnt_switch,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver) private(OMPID,Nthrds,Nprocs,HVNAx,HVNAy,HVNAz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop,pref)
+#endif
             {
 
                 /* allocation of arrays */
