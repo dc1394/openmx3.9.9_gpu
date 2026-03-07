@@ -109,10 +109,10 @@ int32_t cusolver_Syevdx(double * A, double * W, int32_t m, int32_t MaxN)
     int64_t const datasize   = (int64_t)sizeof(double) * (int64_t)lda * (int64_t)m +
                              (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
 
-    if (memorysize < datasize) {
-        fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
-        exit(1);
-    }
+    // if (memorysize < datasize) {
+    //     fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
+    //     exit(1);
+    // }
 
     wait_cudafunc(cudaMalloc((void **)(&d_work), workspaceInBytesOnDevice));
     h_work = malloc(workspaceInBytesOnHost);
@@ -191,10 +191,10 @@ int32_t cusolver_Syevdx_openacc(double * A, double * W, int32_t m, int32_t MaxN)
         int64_t const datasize   = (int64_t)sizeof(double) * (int64_t)m * (int64_t)m +
                                  (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
 
-        if (memorysize < datasize) {
-            fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
-            exit(1);
-        }
+        // if (memorysize < datasize) {
+        //     fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
+        //     exit(1);
+        // }
 
         void * d_work = NULL; /* device workspace */
 
@@ -373,10 +373,10 @@ int32_t cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int32_t m, int
         int64_t const datasize   = (int64_t)sizeof(dcomplex) * (int64_t)m * (int64_t)m +
                                  (int64_t)sizeof(double) * (int64_t)(m + 1) + (int64_t)workspaceInBytesOnDevice;
 
-        if (memorysize < datasize) {
-            fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
-            exit(1);
-        }
+        // if (memorysize < datasize) {
+        //     fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
+        //     exit(1);
+        // }
 
         wait_cudafunc(cudaMallocAsync((void **)(&d_work), workspaceInBytesOnDevice, stream));
 
