@@ -1,11 +1,11 @@
 #include "set_openacc_device_from_local_rank.h"
 
-int set_openacc_device_from_local_rank(MPI_Comm comm, acc_device_t devtype)
+int set_openacc_device_from_local_rank(acc_device_t devtype)
 {
-    // ノード内 communicator を作って local rank を得る
+    // MPI_COMM_WORLD 内でノード共有 communicator を作り、ノード内 local rank を得る。
+    // この関数は MPI_COMM_WORLD 上の全 rank が collective に呼ぶ前提。
     MPI_Comm shmcomm;
-    MPI_Comm_split_type(comm, MPI_COMM_TYPE_SHARED,
-                        0, MPI_INFO_NULL, &shmcomm);
+    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &shmcomm);
 
     int local_rank = 0;
     MPI_Comm_rank(shmcomm, &local_rank);
@@ -26,7 +26,7 @@ int set_openacc_device_from_local_rank(MPI_Comm comm, acc_device_t devtype)
 }
 
 /* 便利ラッパ（NVIDIA 固定で良ければ） */
-int set_openacc_nvidia_device_from_local_rank(MPI_Comm comm)
+int set_openacc_nvidia_device_from_local_rank(void)
 {
-    return set_openacc_device_from_local_rank(comm, acc_device_nvidia);
+    return set_openacc_device_from_local_rank(acc_device_nvidia);
 }

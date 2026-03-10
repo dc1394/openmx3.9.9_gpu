@@ -467,10 +467,10 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
     if (scf_eigen_lib_flag == CuSOLVER) {
         // CUDA
-        set_cuda_default_device_from_local_rank(MPI_CommWD2[myworld2]);
+        set_cuda_default_device_from_local_rank();
 
         // OpenACC
-        set_openacc_nvidia_device_from_local_rank(MPI_CommWD2[myworld2]);
+        set_openacc_nvidia_device_from_local_rank();
     }
 
     if (all_knum != 1 && scf_eigen_lib_flag == CuSOLVER) {

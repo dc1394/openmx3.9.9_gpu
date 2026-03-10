@@ -127,10 +127,10 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
 
     if (scf_eigen_lib_flag == CuSOLVER) {
         // CUDA
-        set_cuda_default_device_from_local_rank(MPI_CommWD1[myworld1]);
+        set_cuda_default_device_from_local_rank();
 
         // OpenACC
-        set_openacc_nvidia_device_from_local_rank(MPI_CommWD1[myworld1]);
+        set_openacc_nvidia_device_from_local_rank();
     }
 
     /****************************************************

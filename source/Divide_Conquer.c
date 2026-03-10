@@ -110,10 +110,10 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
     // Set the device to be used by CUDA and OpenACC
     if (scf_eigen_lib_flag == CuSOLVER) {
         // CUDA
-        set_cuda_default_device_from_local_rank(mpi_comm_level1);
+        set_cuda_default_device_from_local_rank();
 
         // OpenACC
-        set_openacc_nvidia_device_from_local_rank(mpi_comm_level1);
+        set_openacc_nvidia_device_from_local_rank();
     }
 
     dtime(&TStime);
@@ -603,10 +603,10 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
 
     if (scf_eigen_lib_flag == CuSOLVER) {
         // CUDA
-        set_cuda_default_device_from_local_rank(mpi_comm_level1);
+        set_cuda_default_device_from_local_rank();
 
         // OpenACC
-        set_openacc_nvidia_device_from_local_rank(mpi_comm_level1);
+        set_openacc_nvidia_device_from_local_rank();
     }
 
     /****************************************************
@@ -1730,10 +1730,10 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
     // Set the device to be used by CUDA and OpenACC
     if (scf_eigen_lib_flag == CuSOLVER) {
         // CUDA
-        set_cuda_default_device_from_local_rank(mpi_comm_level1);
+        set_cuda_default_device_from_local_rank();
 
         // OpenACC
-        set_openacc_nvidia_device_from_local_rank(mpi_comm_level1);
+        set_openacc_nvidia_device_from_local_rank();
     }
 
     dtime(&TStime);

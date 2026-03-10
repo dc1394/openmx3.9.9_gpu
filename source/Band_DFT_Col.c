@@ -38,7 +38,8 @@ void elpa_solve_evp_complex_2stage_double_impl_(int * n, int * MaxN, dcomplex * 
                                                 int * mpi_comm_rows_int, int * mpi_comm_cols_int, int * mpiworld);
 
 static void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, double * S1, double * H1,
-                                double k1, double k2, double k3, dcomplex * Cs, dcomplex * Hs, int n, int myid2);
+                                double k1, double k2, double k3, dcomplex * Cs, dcomplex * Hs, int n,
+                                int owns_global_dense_rank);
 
 static double get_max_value(double localValue);
 
@@ -130,6 +131,7 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
     int *   index_Snd_i, *index_Snd_j, *index_Rcv_i, *index_Rcv_j;
     double *EVec_Snd, *EVec_Rcv;
     double *TmpEIGEN, **ReEVec0, **ImEVec0, **ReEVec1, **ImEVec1;
+    int     owns_global_dense_rank;
 
     /* for time */
     dtime(&TStime);
@@ -228,28 +230,11 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
     My_NZeros = (int *)malloc(sizeof(int) * numprocs0);
     SP_NZeros = (int *)malloc(sizeof(int) * numprocs0);
     SP_Atoms  = (int *)malloc(sizeof(int) * numprocs0);
-
-    TmpEIGEN = (double *)malloc(sizeof(double) * (MaxN + 1));
-
-    ReEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-    for (i = 0; i < List_YOUSO[7]; i++) {
-        ReEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-    }
-
-    ImEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-    for (i = 0; i < List_YOUSO[7]; i++) {
-        ImEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-    }
-
-    ReEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-    for (i = 0; i < List_YOUSO[7]; i++) {
-        ReEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-    }
-
-    ImEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-    for (i = 0; i < List_YOUSO[7]; i++) {
-        ImEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-    }
+    TmpEIGEN  = NULL;
+    ReEVec0   = NULL;
+    ImEVec0   = NULL;
+    ReEVec1   = NULL;
+    ImEVec1   = NULL;
 
     /***********************************************
                 k-points by regular mesh
@@ -490,13 +475,15 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
         all_knum = 0;
     }
 
+    owns_global_dense_rank = (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && my_prow == 0 && my_pcol == 0);
+
     // Set the device to be used by OpenACC and CUDA
     if (scf_eigen_lib_flag == CuSOLVER) {
         // CUDA
-        set_cuda_default_device_from_local_rank(MPI_CommWD2[myworld2]);
+        set_cuda_default_device_from_local_rank();
 
         // OpenACC
-        set_openacc_nvidia_device_from_local_rank(MPI_CommWD2[myworld2]);
+        set_openacc_nvidia_device_from_local_rank();
     }
 
     /***********************************************
@@ -681,6 +668,30 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
 
     } /* if (all_knum==1) */
 
+    if (all_knum != 1) {
+        TmpEIGEN = (double *)malloc(sizeof(double) * (MaxN + 1));
+
+        ReEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
+        for (i = 0; i < List_YOUSO[7]; i++) {
+            ReEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
+        }
+
+        ImEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
+        for (i = 0; i < List_YOUSO[7]; i++) {
+            ImEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
+        }
+
+        ReEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
+        for (i = 0; i < List_YOUSO[7]; i++) {
+            ReEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
+        }
+
+        ImEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
+        for (i = 0; i < List_YOUSO[7]; i++) {
+            ImEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
+        }
+    }
+
     /****************************************************
        PrintMemory
     ****************************************************/
@@ -784,7 +795,8 @@ diagonalize1:
 
             // #pragma acc kernels
             // #pragma acc loop independent
-            Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Ss, Hs, n, myid2);
+            Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Ss, Hs, n,
+                                owns_global_dense_rank);
 
 #pragma acc update device(Ss[0 : n * n], Hs[0 : n * n])
 
@@ -936,7 +948,8 @@ diagonalize1:
                     dtime(&starttimesh);
                 }
 
-                Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Ss, Hs, n, myid2);
+                Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Ss, Hs, n,
+                                    owns_global_dense_rank);
                 if (measure_time) {
                     dtime(&endtimesh);
 
@@ -957,7 +970,7 @@ diagonalize1:
                     MPI_Barrier(mpi_comm_level1);
                 }
 
-                if (myid2 == 0) {
+                if (owns_global_dense_rank) {
                     if (measure_time)
                         dtime(&Stime);
 
@@ -1167,7 +1180,8 @@ diagonalize1:
 
                 /* make S and H */
 
-                Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Cs, Hs, n, myid2);
+                Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Cs, Hs, n,
+                                    owns_global_dense_rank);
 
                 if (measure_time) {
                     dtime(&endtime);
@@ -1501,7 +1515,7 @@ diagonalize1:
             if (measure_time) {
                 dtime(&Etime);
                 time5 += Etime - Stime;
-                if (scf_eigen_lib_flag == ELPA2 || scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
+                if (scf_eigen_lib_flag == ELPA2 || (scf_eigen_lib_flag == CuSOLVER && owns_global_dense_rank)) {
                     part2_5 += Etime - Stime;
                     if (SCF_iter != 1) {
                         part2_5sum += part2_5;
@@ -1614,7 +1628,11 @@ diagonalize1:
 
         /* set ChemP */
 
-        ChemP = 0.5 * (ChemP_XANES[0] + ChemP_XANES[1]);
+        if (SpinP_switch == 0) {
+            ChemP = ChemP_XANES[0];
+        } else {
+            ChemP = 0.5 * (ChemP_XANES[0] + ChemP_XANES[1]);
+        }
 
     } /* end of if (xanes_calc==1) */
 
@@ -1870,30 +1888,30 @@ diagonalize1:
         /* ---------- ヒープ確保（一回だけ）----------------------------- */
         const size_t vec_bytes = (size_t)max_tno * nk * sizeof(double);
 
-        double * buf_Re0  = (double *)malloc(vec_bytes);
-        double * buf_Im0  = (double *)malloc(vec_bytes);
-        double * buf_Re1  = (double *)malloc(vec_bytes);
-        double * buf_Im1  = (double *)malloc(vec_bytes);
-        double * TmpEIGEN = (double *)malloc((size_t)nk * sizeof(double));
+        double * buf_Re0        = (double *)malloc(vec_bytes);
+        double * buf_Im0        = (double *)malloc(vec_bytes);
+        double * buf_Re1        = (double *)malloc(vec_bytes);
+        double * buf_Im1        = (double *)malloc(vec_bytes);
+        double * TmpEIGEN_local = (double *)malloc((size_t)nk * sizeof(double));
 
         /* 行ポインタを作る（配列の配列に相当） */
-        double ** ReEVec0 = (double **)malloc((size_t)max_tno * sizeof(double *));
-        double ** ImEVec0 = (double **)malloc((size_t)max_tno * sizeof(double *));
-        double ** ReEVec1 = (double **)malloc((size_t)max_tno * sizeof(double *));
-        double ** ImEVec1 = (double **)malloc((size_t)max_tno * sizeof(double *));
+        double ** ReEVec0_local = (double **)malloc((size_t)max_tno * sizeof(double *));
+        double ** ImEVec0_local = (double **)malloc((size_t)max_tno * sizeof(double *));
+        double ** ReEVec1_local = (double **)malloc((size_t)max_tno * sizeof(double *));
+        double ** ImEVec1_local = (double **)malloc((size_t)max_tno * sizeof(double *));
 
         for (int i = 0; i < max_tno; ++i) {
-            ReEVec0[i] = buf_Re0 + (size_t)i * nk;
-            ImEVec0[i] = buf_Im0 + (size_t)i * nk;
-            ReEVec1[i] = buf_Re1 + (size_t)i * nk;
-            ImEVec1[i] = buf_Im1 + (size_t)i * nk;
+            ReEVec0_local[i] = buf_Re0 + (size_t)i * nk;
+            ImEVec0_local[i] = buf_Im0 + (size_t)i * nk;
+            ReEVec1_local[i] = buf_Re1 + (size_t)i * nk;
+            ImEVec1_local[i] = buf_Im1 + (size_t)i * nk;
         }
 
         /* ---------- Eigen 値をローカルへ -------------------------------- */
         {
             const double * src = &EIGEN[spin][kloop][kmin];
             for (int k = 0; k < nk; ++k)
-                TmpEIGEN[k] = src[k];
+                TmpEIGEN_local[k] = src[k];
         }
 
         const int stride = ie2[myid2] - is2[myid2] + 1;
@@ -1909,8 +1927,8 @@ diagonalize1:
             for (int i = 0; i < tnoA; ++i) {
                 const size_t     base = (size_t)(Anum + i - 1) * stride - is2[myid2] + kmin;
                 const dcomplex * v    = &EVec1[spin][base];
-                double * restrict r   = ReEVec0[i];
-                double * restrict im  = ImEVec0[i];
+                double * restrict r   = ReEVec0_local[i];
+                double * restrict im  = ImEVec0_local[i];
                 for (int k = 0; k < nk; ++k) {
                     r[k]  = v[k].r;
                     im[k] = v[k].i;
@@ -1937,8 +1955,8 @@ diagonalize1:
                 for (int j = 0; j < tnoB; ++j) {
                     const size_t     base = (size_t)(Bnum + j - 1) * stride - is2[myid2] + kmin;
                     const dcomplex * v    = &EVec1[spin][base];
-                    double * restrict r   = ReEVec1[j];
-                    double * restrict im  = ImEVec1[j];
+                    double * restrict r   = ReEVec1_local[j];
+                    double * restrict im  = ImEVec1_local[j];
                     for (int k = 0; k < nk; ++k) {
                         r[k]  = v[k].r;
                         im[k] = v[k].i;
@@ -1947,12 +1965,12 @@ diagonalize1:
 
                 /*================ (i,j) 内側ループ ======================*/
                 for (int i = 0; i < tnoA; ++i) {
-                    const double * restrict r0  = ReEVec0[i];
-                    const double * restrict im0 = ImEVec0[i];
+                    const double * restrict r0  = ReEVec0_local[i];
+                    const double * restrict im0 = ImEVec0_local[i];
 
                     for (int j = 0; j < tnoB; ++j, ++p) {
-                        const double * restrict r1  = ReEVec1[j];
-                        const double * restrict im1 = ImEVec1[j];
+                        const double * restrict r1  = ReEVec1_local[j];
+                        const double * restrict im1 = ImEVec1_local[j];
 
                         double d1 = 0.0, d2 = 0.0, d3 = 0.0, d4 = 0.0;
                         int    k = 0;
@@ -1965,8 +1983,8 @@ diagonalize1:
         double imA = r0[idx] * im1[idx] - im0[idx] * r1[idx];                                                          \
         d1 += reA;                                                                                                     \
         d2 += imA;                                                                                                     \
-        d3 += reA * TmpEIGEN[idx];                                                                                     \
-        d4 += imA * TmpEIGEN[idx];                                                                                     \
+        d3 += reA * TmpEIGEN_local[idx];                                                                               \
+        d4 += imA * TmpEIGEN_local[idx];                                                                               \
     } while (0)
                             KSTEP(k);
                             KSTEP(k + 1);
@@ -1979,8 +1997,8 @@ diagonalize1:
                             double imA = r0[k] * im1[k] - im0[k] * r1[k];
                             d1 += reA;
                             d2 += imA;
-                            d3 += reA * TmpEIGEN[k];
-                            d4 += imA * TmpEIGEN[k];
+                            d3 += reA * TmpEIGEN_local[k];
+                            d4 += imA * TmpEIGEN_local[k];
                         }
 
                         CDM1[p] += co * d1 - si * d2;
@@ -1994,11 +2012,11 @@ diagonalize1:
         free(buf_Im0);
         free(buf_Re1);
         free(buf_Im1);
-        free(ReEVec0);
-        free(ImEVec0);
-        free(ReEVec1);
-        free(ImEVec1);
-        free(TmpEIGEN);
+        free(ReEVec0_local);
+        free(ImEVec0_local);
+        free(ReEVec1_local);
+        free(ImEVec1_local);
+        free(TmpEIGEN_local);
 
         if (measure_time) {
             dtime(&Etime0);
@@ -2249,7 +2267,8 @@ diagonalize1:
 
                 /* make S and H */
 
-                Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Ss, Hs, n, myid2);
+                Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Ss, Hs, n,
+                                    owns_global_dense_rank);
 
 #pragma acc update device(Hs[0 : n * n], Ss[0 : n * n])
 
@@ -2638,7 +2657,8 @@ diagonalize1:
 
                 /* make S and H */
 
-                Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Cs, Hs, n, myid2);
+                Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Cs, Hs, n,
+                                    owns_global_dense_rank);
 
                 // #pragma acc update device(Hs[0 : na_rows * na_cols], Cs[0 : na_rows * na_cols])
 
@@ -3316,7 +3336,6 @@ diagonalize1:
             fclose(fp_EV);
         } else {
             printf("Failure of saving the EV file.\n");
-            fclose(fp_EV);
         }
     }
 
@@ -3357,27 +3376,29 @@ diagonalize1:
     free(SP_NZeros);
     free(My_NZeros);
 
-    free(TmpEIGEN);
+    if (all_knum != 1) {
+        free(TmpEIGEN);
 
-    for (i = 0; i < List_YOUSO[7]; i++) {
-        free(ReEVec0[i]);
-    }
-    free(ReEVec0);
+        for (i = 0; i < List_YOUSO[7]; i++) {
+            free(ReEVec0[i]);
+        }
+        free(ReEVec0);
 
-    for (i = 0; i < List_YOUSO[7]; i++) {
-        free(ImEVec0[i]);
-    }
-    free(ImEVec0);
+        for (i = 0; i < List_YOUSO[7]; i++) {
+            free(ImEVec0[i]);
+        }
+        free(ImEVec0);
 
-    for (i = 0; i < List_YOUSO[7]; i++) {
-        free(ReEVec1[i]);
-    }
-    free(ReEVec1);
+        for (i = 0; i < List_YOUSO[7]; i++) {
+            free(ReEVec1[i]);
+        }
+        free(ReEVec1);
 
-    for (i = 0; i < List_YOUSO[7]; i++) {
-        free(ImEVec1[i]);
+        for (i = 0; i < List_YOUSO[7]; i++) {
+            free(ImEVec1[i]);
+        }
+        free(ImEVec1);
     }
-    free(ImEVec1);
 
     /* for PrintMemory and allocation */
     firsttime = 0;
@@ -3505,12 +3526,12 @@ diagonalize1:
 }
 
 void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, double * S1, double * H1, double k1,
-                         double k2, double k3, dcomplex * Cs, dcomplex * Hs, int n, int myid2)
+                         double k2, double k3, dcomplex * Cs, dcomplex * Hs, int n, int owns_global_dense_rank)
 {
     /* make S and H */
 
     if (SCF_iter == 1 || all_knum != 1) {
-        if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && myid2 == 0) {
+        if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank) {
             for (int i = 0; i < n * n; i++) {
                 Cs[i].r = 0.0;
                 Cs[i].i = 0.0;
@@ -3526,7 +3547,7 @@ void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, d
         }
     }
 
-    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && myid2 == 0) {
+    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank) {
         for (int i = 0; i < n * n; i++) {
             Hs[i].r = 0.0;
             Hs[i].i = 0.0;
@@ -3542,7 +3563,7 @@ void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, d
     }
 
     int k = 0;
-    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && myid2 == 0) {
+    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank) {
         if (SCF_iter == 1) {
             for (int AN = 1; AN <= atomnum; AN++) {
                 int GA_AN = order_GA[AN];
