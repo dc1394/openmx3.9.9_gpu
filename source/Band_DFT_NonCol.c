@@ -25,7 +25,7 @@
 #define measure_time 0
 
 static void Construct_Band_Ms(int cpx_flag, double **** Mat, double * M1, double * M2, dcomplex * Ms, int * MP,
-                              double k1, double k2, double k3, int all_knum, int n, int myid2);
+                              double k1, double k2, double k3, int all_knum, int n, int owns_global_dense_rank);
 
 static double Calc_DM_Band_non_collinear(int calc_flag, int store_flag, int myid0, int myid2, int size_H1, int * is2,
                                          int * ie2, int * MP, int n, int n2, int MaxN, double k1, double k2, double k3,
@@ -92,6 +92,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
     int AN, Rn, size_H1;
     int parallel_mode;
+    int owns_global_dense_rank;
     int numprocs0, myid0;
     int ID, ID0, ID1;
     int numprocs1, myid1;
@@ -465,6 +466,8 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
     MPI_Allreduce(&num_kloop0, &all_knum, 1, MPI_INT, MPI_PROD, mpi_comm_level1);
     MPI_Allreduce(&num_kloop0, &max_num_kloop0, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
 
+    owns_global_dense_rank = (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && my_prow2 == 0 && my_pcol2 == 0);
+
     if (scf_eigen_lib_flag == CuSOLVER) {
         // CUDA
         set_cuda_default_device_from_local_rank();
@@ -653,6 +656,10 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
                 k1    = T_KGrids1[kloop];
                 k2    = T_KGrids2[kloop];
                 k3    = T_KGrids3[kloop];
+            } else {
+                k1 = 0.0;
+                k2 = 0.0;
+                k3 = 0.0;
             }
 
             if (measure_time)
@@ -662,7 +669,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
                 /* make Cs */
 
-                Construct_Band_Ms(0, CntOLP, H1, S1, Cs, MP, k1, k2, k3, all_knum, n, myid2);
+                Construct_Band_Ms(0, CntOLP, H1, S1, Cs, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
 #pragma acc update device(Cs[0 : n * n])
 
@@ -839,14 +846,14 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
                 /* set rHs and iHs */
 
-                Construct_Band_Ms(0, nh[0], H1, S1, rHs11, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(0, nh[1], H1, S1, rHs22, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(0, nh[2], H1, S1, rHs12, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(1, nh[3], H1, S1, iHs12, MP, k1, k2, k3, all_knum, n, myid2);
+                Construct_Band_Ms(0, nh[0], H1, S1, rHs11, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(0, nh[1], H1, S1, rHs22, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(0, nh[2], H1, S1, rHs12, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(1, nh[3], H1, S1, iHs12, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
-                Construct_Band_Ms(1, ImNL[0], H1, S1, iHs11, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(1, ImNL[1], H1, S1, iHs22, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(1, ImNL[2], H1, S1, Cs, MP, k1, k2, k3, all_knum, n, myid2);
+                Construct_Band_Ms(1, ImNL[0], H1, S1, iHs11, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(1, ImNL[1], H1, S1, iHs22, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(1, ImNL[2], H1, S1, Cs, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
                 if (measure_time) {
                     dtime(&Etime);
@@ -1123,6 +1130,10 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
                 k1    = T_KGrids1[kloop];
                 k2    = T_KGrids2[kloop];
                 k3    = T_KGrids3[kloop];
+            } else {
+                k1 = 0.0;
+                k2 = 0.0;
+                k3 = 0.0;
             }
 
             if (measure_time)
@@ -1133,7 +1144,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
                     dtime(&starttime);
 
                 if (SCF_iter == 1 || all_knum != 1) {
-                    Construct_Band_Ms(0, CntOLP, H1, S1, Ss, MP, k1, k2, k3, all_knum, n, myid2);
+                    Construct_Band_Ms(0, CntOLP, H1, S1, Ss, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
                 }
 
                 if (measure_time) {
@@ -1149,21 +1160,21 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
                 if (measure_time)
                     dtime(&starttime);
 
-                Construct_Band_Ms(0, nh[0], H1, S1, rHs11, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(0, nh[1], H1, S1, rHs22, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(0, nh[2], H1, S1, rHs12, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(1, nh[3], H1, S1, iHs12, MP, k1, k2, k3, all_knum, n, myid2);
+                Construct_Band_Ms(0, nh[0], H1, S1, rHs11, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(0, nh[1], H1, S1, rHs22, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(0, nh[2], H1, S1, rHs12, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(1, nh[3], H1, S1, iHs12, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
-                Construct_Band_Ms(1, ImNL[0], H1, S1, iHs11, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(1, ImNL[1], H1, S1, iHs22, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(1, ImNL[2], H1, S1, Cs, MP, k1, k2, k3, all_knum, n, myid2);
+                Construct_Band_Ms(1, ImNL[0], H1, S1, iHs11, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(1, ImNL[1], H1, S1, iHs22, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(1, ImNL[2], H1, S1, Cs, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
                 if (measure_time) {
                     dtime(&endtime);
                     part2 += endtime - starttime;
                 }
 
-                if (myid2 == 0) {
+                if (owns_global_dense_rank) {
                     if (measure_time)
                         dtime(&starttime);
 
@@ -1914,7 +1925,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
             if (measure_time) {
                 dtime(&endtime);
 
-                if (scf_eigen_lib_flag == ELPA2 || scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
+                if (scf_eigen_lib_flag == ELPA2 || (scf_eigen_lib_flag == CuSOLVER && owns_global_dense_rank)) {
                     part36 += endtime - starttime;
 
                     if (SCF_iter != 1) {
@@ -2221,6 +2232,10 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
                         k1    = T_KGrids1[kloop];
                         k2    = T_KGrids2[kloop];
                         k3    = T_KGrids3[kloop];
+                    } else {
+                        k1 = 0.0;
+                        k2 = 0.0;
+                        k3 = 0.0;
                     }
 
                     if (measure_time)
@@ -2228,7 +2243,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
                     /* make Cs */
 
-                    Construct_Band_Ms(0, CntOLP, H1, S1, Cs, MP, k1, k2, k3, all_knum, n, myid2);
+                    Construct_Band_Ms(0, CntOLP, H1, S1, Cs, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
 #pragma acc update device(Cs[0 : n * n])
 
@@ -2405,14 +2420,14 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
                     /* set rHs and iHs */
 
-                    Construct_Band_Ms(0, nh[0], H1, S1, rHs11, MP, k1, k2, k3, all_knum, n, myid2);
-                    Construct_Band_Ms(0, nh[1], H1, S1, rHs22, MP, k1, k2, k3, all_knum, n, myid2);
-                    Construct_Band_Ms(0, nh[2], H1, S1, rHs12, MP, k1, k2, k3, all_knum, n, myid2);
-                    Construct_Band_Ms(1, nh[3], H1, S1, iHs12, MP, k1, k2, k3, all_knum, n, myid2);
+                    Construct_Band_Ms(0, nh[0], H1, S1, rHs11, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                    Construct_Band_Ms(0, nh[1], H1, S1, rHs22, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                    Construct_Band_Ms(0, nh[2], H1, S1, rHs12, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                    Construct_Band_Ms(1, nh[3], H1, S1, iHs12, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
-                    Construct_Band_Ms(1, ImNL[0], H1, S1, iHs11, MP, k1, k2, k3, all_knum, n, myid2);
-                    Construct_Band_Ms(1, ImNL[1], H1, S1, iHs22, MP, k1, k2, k3, all_knum, n, myid2);
-                    Construct_Band_Ms(1, ImNL[2], H1, S1, Cs, MP, k1, k2, k3, all_knum, n, myid2);
+                    Construct_Band_Ms(1, ImNL[0], H1, S1, iHs11, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                    Construct_Band_Ms(1, ImNL[1], H1, S1, iHs22, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                    Construct_Band_Ms(1, ImNL[2], H1, S1, Cs, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
                     if (kloop0 < num_kloop0) {
 
@@ -2805,6 +2820,10 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
                     k1    = T_KGrids1[kloop];
                     k2    = T_KGrids2[kloop];
                     k3    = T_KGrids3[kloop];
+                } else {
+                    k1 = 0.0;
+                    k2 = 0.0;
+                    k3 = 0.0;
                 }
 
                 if (measure_time)
@@ -2812,7 +2831,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
                 /* make Cs */
 
-                Construct_Band_Ms(0, CntOLP, H1, S1, Cs, MP, k1, k2, k3, all_knum, n, myid2);
+                Construct_Band_Ms(0, CntOLP, H1, S1, Cs, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
                 /* diagonalize Cs */
 
@@ -2916,14 +2935,14 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
                 /* set rHs and iHs */
 
-                Construct_Band_Ms(0, nh[0], H1, S1, rHs11, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(0, nh[1], H1, S1, rHs22, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(0, nh[2], H1, S1, rHs12, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(1, nh[3], H1, S1, iHs12, MP, k1, k2, k3, all_knum, n, myid2);
+                Construct_Band_Ms(0, nh[0], H1, S1, rHs11, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(0, nh[1], H1, S1, rHs22, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(0, nh[2], H1, S1, rHs12, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(1, nh[3], H1, S1, iHs12, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
-                Construct_Band_Ms(1, ImNL[0], H1, S1, iHs11, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(1, ImNL[1], H1, S1, iHs22, MP, k1, k2, k3, all_knum, n, myid2);
-                Construct_Band_Ms(1, ImNL[2], H1, S1, Cs, MP, k1, k2, k3, all_knum, n, myid2);
+                Construct_Band_Ms(1, ImNL[0], H1, S1, iHs11, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(1, ImNL[1], H1, S1, iHs22, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
+                Construct_Band_Ms(1, ImNL[2], H1, S1, Cs, MP, k1, k2, k3, all_knum, n, owns_global_dense_rank);
 
                 if (kloop0 < num_kloop0) {
 
@@ -3369,7 +3388,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
         fflush(stdout);
         printf("myid0=%2d time12=%9.4f\n", myid0, time12);
         fflush(stdout);
-        printf("myid0=%2d time13=%9.4f\n", myid0, time12);
+        printf("myid0=%2d time13=%9.4f\n", myid0, time13);
         fflush(stdout);
     }
 
@@ -3454,7 +3473,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 }
 
 void Construct_Band_Ms(int cpx_flag, double **** Mat, double * M1, double * M2, dcomplex * Ms, int * MP, double k1,
-                       double k2, double k3, int all_knum, int n, int myid2)
+                       double k2, double k3, int all_knum, int n, int owns_global_dense_rank)
 {
     static int  firsttime = 1;
     int         i, j, k;
@@ -3501,7 +3520,7 @@ void Construct_Band_Ms(int cpx_flag, double **** Mat, double * M1, double * M2, 
         PrintMemory("Band_DFT_NonCol: is2", sizeof(int) * numprocs, NULL);
         PrintMemory("Band_DFT_NonCol: order_GA", sizeof(int) * (atomnum + 2), NULL);
     }
-    firsttime = 1;
+    firsttime = 0;
 
     /* find my total number of non-zero elements in myid */
 
@@ -3616,7 +3635,7 @@ void Construct_Band_Ms(int cpx_flag, double **** Mat, double * M1, double * M2, 
 
     /* M2 -> Ms */
 
-    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && myid2 == 0) {
+    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank) {
         for (i = 0; i < n * n; i++) {
             Ms[i].r = 0.0;
             Ms[i].i = 0.0;
@@ -3629,7 +3648,7 @@ void Construct_Band_Ms(int cpx_flag, double **** Mat, double * M1, double * M2, 
         }
     }
 
-    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && myid2 == 0) {
+    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank) {
         double const twopi = 2.0 * PI;
 
         k = 0;
