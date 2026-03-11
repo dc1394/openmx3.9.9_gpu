@@ -1,5 +1,4 @@
 #include "openmx_common.h"
-#include "utility.h"
 #include <cuda_runtime.h>
 #include <openacc.h>
 #include <stdio.h>
@@ -9,14 +8,6 @@ void my_cublasDgemm(cublasOperation_t transa, cublasOperation_t transb, int m, i
 {
     cublasHandle_t handle;
     wait_cudafunc(cublasCreate(&handle));
-
-    int64_t memsize = get_gpu_total_memory_in_bytes();
-    int64_t datasize = (int64_t)(sizeof(double) * (int64_t)(m * k) + sizeof(double) * (int64_t)(n * k) +
-                                 sizeof(double) * (int64_t)(m * n));
-    if (memsize < datasize) {
-        fprintf(stderr, "There's not enough memory on the device (GPU) to continue processing!");
-        exit(1);
-    }
 
     double *d_A, *d_B, *d_C;
     wait_cudafunc(cudaMalloc((void **)&d_A, m * k * sizeof(double)));
