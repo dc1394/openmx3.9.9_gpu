@@ -23,11 +23,12 @@
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <time.h>
 
 #define measure_time 0
-#define GPU_CPU_SWITCH_NUM2 1800
+#define GPU_CPU_SWITCH_NUM2 800
 
 /* task-level threshold for proxy-to-GPU */
 #define DCLNO_GPU_PROXY_EIGEN_THRESHOLD_COL  (GPU_CPU_SWITCH_NUM2)
@@ -164,6 +165,192 @@ static void DCLNO_UnpackRealC(const double *buf, int num, double **C)
     }
 }
 
+static void DCLNO_CopyPackedEigvecsToC(const double *buf, int num, int num2, double **C)
+{
+    int i, j;
+
+    for (j = 1; j <= num2; j++) {
+        for (i = 1; i <= num; i++) {
+            C[j][i] = buf[(j - 1) * num + (i - 1)];
+        }
+    }
+}
+
+typedef struct {
+    int                initialized;
+    int                max_num;
+    size_t             d_work_bytes;
+    size_t             h_work_bytes;
+    cudaStream_t       stream;
+    cublasHandle_t     cublas;
+    cusolverDnHandle_t cusolver;
+    double *           d_S;
+    double *           d_H;
+    double *           d_tmp;
+    double *           d_W;
+    int32_t *          d_info;
+    void *             d_work;
+    void *             h_work;
+} DCLNO_CuSolverCtx;
+
+static DCLNO_CuSolverCtx DCLNO_cusolver_ctx = {0};
+
+static void DCLNO_CuSolver_Init(void)
+{
+    DCLNO_CuSolverCtx *ctx = &DCLNO_cusolver_ctx;
+
+    if (ctx->initialized) return;
+
+    wait_cudafunc(cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking));
+    wait_cudafunc(cublasCreate(&ctx->cublas));
+    wait_cudafunc(cusolverDnCreate(&ctx->cusolver));
+    wait_cudafunc(cublasSetStream(ctx->cublas, ctx->stream));
+    wait_cudafunc(cusolverDnSetStream(ctx->cusolver, ctx->stream));
+
+    ctx->initialized = 1;
+}
+
+static void DCLNO_CuSolver_EnsureMatrixCapacity(int num)
+{
+    DCLNO_CuSolverCtx *ctx = &DCLNO_cusolver_ctx;
+    size_t             matrix_bytes;
+
+    DCLNO_CuSolver_Init();
+
+    if (num <= ctx->max_num) return;
+
+    if (ctx->d_S    != NULL) wait_cudafunc(cudaFree(ctx->d_S));
+    if (ctx->d_H    != NULL) wait_cudafunc(cudaFree(ctx->d_H));
+    if (ctx->d_tmp  != NULL) wait_cudafunc(cudaFree(ctx->d_tmp));
+    if (ctx->d_W    != NULL) wait_cudafunc(cudaFree(ctx->d_W));
+    if (ctx->d_info != NULL) wait_cudafunc(cudaFree(ctx->d_info));
+
+    matrix_bytes = sizeof(double) * (size_t)num * (size_t)num;
+
+    wait_cudafunc(cudaMalloc((void**)&ctx->d_S, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void**)&ctx->d_H, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void**)&ctx->d_tmp, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void**)&ctx->d_W, sizeof(double) * (size_t)num));
+    wait_cudafunc(cudaMalloc((void**)&ctx->d_info, sizeof(int32_t)));
+
+    ctx->max_num = num;
+}
+
+static void DCLNO_CuSolver_EnsureWorkspace(int m, int maxn)
+{
+    DCLNO_CuSolverCtx *ctx = &DCLNO_cusolver_ctx;
+    cusolverEigMode_t  jobz = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t   uplo = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t range;
+    double             vl = 0.0;
+    double             vu = 0.0;
+    int64_t            h_meig = 0;
+    size_t             d_bytes = 0;
+    size_t             h_bytes = 0;
+
+    DCLNO_CuSolver_EnsureMatrixCapacity(m);
+
+    range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+
+    wait_cudafunc(cusolverDnXsyevdx_bufferSize(ctx->cusolver, NULL, jobz, range, uplo, m,
+                                               CUDA_R_64F, ctx->d_S, m, &vl, &vu, 1L, maxn,
+                                               &h_meig, CUDA_R_64F, ctx->d_W, CUDA_R_64F,
+                                               &d_bytes, &h_bytes));
+
+    if (d_bytes > ctx->d_work_bytes) {
+        if (ctx->d_work != NULL) wait_cudafunc(cudaFree(ctx->d_work));
+        wait_cudafunc(cudaMalloc((void**)&ctx->d_work, d_bytes));
+        ctx->d_work_bytes = d_bytes;
+    }
+
+    if (h_bytes > ctx->h_work_bytes) {
+        if (ctx->h_work != NULL) free(ctx->h_work);
+        ctx->h_work = malloc(h_bytes);
+        if (ctx->h_work == NULL) {
+            fprintf(stderr, "Failed to allocate host workspace for CuSOLVER.\n");
+            exit(1);
+        }
+        ctx->h_work_bytes = h_bytes;
+    }
+}
+
+static void DCLNO_CuSolver_Eigen(double *d_A, int m, int maxn, double *W)
+{
+    DCLNO_CuSolverCtx *ctx = &DCLNO_cusolver_ctx;
+    cusolverEigMode_t  jobz = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t   uplo = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t range;
+    double             vl = 0.0;
+    double             vu = 0.0;
+    int64_t            h_meig = 0;
+    int32_t            info = 0;
+
+    DCLNO_CuSolver_EnsureWorkspace(m, maxn);
+
+    range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+
+    wait_cudafunc(cusolverDnXsyevdx(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_R_64F,
+                                    d_A, m, &vl, &vu, 1L, maxn, &h_meig, CUDA_R_64F,
+                                    ctx->d_W, CUDA_R_64F, ctx->d_work, ctx->d_work_bytes,
+                                    ctx->h_work, ctx->h_work_bytes, ctx->d_info));
+
+    wait_cudafunc(cudaMemcpyAsync(W, ctx->d_W, sizeof(double) * (size_t)maxn,
+                                  cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(&info, ctx->d_info, sizeof(int32_t),
+                                  cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+
+    if (info != 0) {
+        fprintf(stderr, "cusolverDnXsyevdx failed in DC-LNO: info=%d\n", (int)info);
+        exit(10);
+    }
+}
+
+static void DCLNO_Solve_Col_CuSolver(int NUM, int NUM2, double *Smat, double *Hmat, double *ko)
+{
+    DCLNO_CuSolverCtx *ctx = &DCLNO_cusolver_ctx;
+    double             alpha = 1.0;
+    double             beta = 0.0;
+    size_t             full_bytes;
+    size_t             partial_bytes;
+    int                l;
+
+    full_bytes = sizeof(double) * (size_t)NUM * (size_t)NUM;
+    partial_bytes = sizeof(double) * (size_t)NUM * (size_t)NUM2;
+
+    DCLNO_CuSolver_EnsureMatrixCapacity(NUM);
+
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_S, Smat, full_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_H, Hmat, full_bytes, cudaMemcpyHostToDevice, ctx->stream));
+
+    DCLNO_CuSolver_Eigen(ctx->d_S, NUM, NUM, ko + 1);
+
+    for (l = 1; l <= NUM; l++) {
+        ko[l] = 1.0 / sqrt(fabs(ko[l]));
+    }
+
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_W, ko + 1, sizeof(double) * (size_t)NUM,
+                                  cudaMemcpyHostToDevice, ctx->stream));
+
+    wait_cudafunc(cublasDdgmm(ctx->cublas, CUBLAS_SIDE_RIGHT, NUM, NUM,
+                              ctx->d_S, NUM, ctx->d_W, 1, ctx->d_tmp, NUM));
+
+    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, NUM, NUM, NUM,
+                              &alpha, ctx->d_H, NUM, ctx->d_tmp, NUM, &beta, ctx->d_S, NUM));
+
+    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, NUM, NUM, NUM,
+                              &alpha, ctx->d_tmp, NUM, ctx->d_S, NUM, &beta, ctx->d_H, NUM));
+
+    DCLNO_CuSolver_Eigen(ctx->d_H, NUM, NUM2, ko + 1);
+
+    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, NUM, NUM2, NUM,
+                              &alpha, ctx->d_tmp, NUM, ctx->d_H, NUM, &beta, ctx->d_S, NUM));
+
+    wait_cudafunc(cudaMemcpyAsync(Hmat, ctx->d_S, partial_bytes,
+                                  cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+}
+
 /* ------------------------------------------------------------------ */
 /* local dense solve kernel (collinear)                               */
 /* ------------------------------------------------------------------ */
@@ -181,6 +368,12 @@ static void DCLNO_Solve_Col_Local(int use_gpu,
     double alpha, beta;
     int BM, BN, BK;
 
+    if (use_gpu) {
+        DCLNO_Solve_Col_CuSolver(NUM, NUM2, Smat, Hmat, ko);
+        DCLNO_CopyPackedEigvecsToC(Hmat, NUM, NUM2, C);
+        return;
+    }
+
     Tmp = (double*)malloc(sizeof(double)*NUM*NUM);
 
     /* diagonalize S */
@@ -190,12 +383,7 @@ static void DCLNO_Solve_Col_Local(int use_gpu,
         }
     }
 
-    if (use_gpu) {
-        Eigen_cusolver_d(C, ko, NUM, NUM);
-    }
-    else {
-        Eigen_lapack_d(C, ko, NUM, NUM);
-    }
+    Eigen_lapack_d(C, ko, NUM, NUM);
 
     for (l=1; l<=NUM; l++) ko[l] = 1.0/sqrt(fabs(ko[l]));
 
@@ -208,28 +396,16 @@ static void DCLNO_Solve_Col_Local(int use_gpu,
 
     /* Tmp = H * Smat */
     BM = NUM; BN = NUM; BK = NUM;
-    if (use_gpu) {
-        my_cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, BM, BN, BK,
-                       Hmat, Smat, Tmp);
-    }
-    else {
-        alpha = 1.0; beta = 0.0;
-        F77_NAME(dgemm,DGEMM)
-        ("N","N",&BM,&BN,&BK,&alpha,
-         Hmat,&BM,Smat,&BK,&beta,Tmp,&BM);
-    }
+    alpha = 1.0; beta = 0.0;
+    F77_NAME(dgemm,DGEMM)
+    ("N","N",&BM,&BN,&BK,&alpha,
+     Hmat,&BM,Smat,&BK,&beta,Tmp,&BM);
 
     /* Hmat = Smat^+ * Tmp */
-    if (use_gpu) {
-        my_cublasDgemm(CUBLAS_OP_C, CUBLAS_OP_N, BM, BN, BK,
-                       Smat, Tmp, Hmat);
-    }
-    else {
-        alpha = 1.0; beta = 0.0;
-        F77_NAME(dgemm,DGEMM)
-        ("C","N",&BM,&BN,&BK,&alpha,
-         Smat,&BM,Tmp,&BK,&beta,Hmat,&BM);
-    }
+    alpha = 1.0; beta = 0.0;
+    F77_NAME(dgemm,DGEMM)
+    ("C","N",&BM,&BN,&BK,&alpha,
+     Smat,&BM,Tmp,&BK,&beta,Hmat,&BM);
 
     /* diagonalize transformed H */
     for (i1=1; i1<=NUM; i1++) {
@@ -238,12 +414,7 @@ static void DCLNO_Solve_Col_Local(int use_gpu,
         }
     }
 
-    if (use_gpu) {
-        Eigen_cusolver_d(C, ko, NUM, NUM2);
-    }
-    else {
-        Eigen_lapack_d(C, ko, NUM, NUM2);
-    }
+    Eigen_lapack_d(C, ko, NUM, NUM2);
 
     /* Hmat (first NUM2 cols) <- transformed eigenvectors */
     for (i1=1; i1<=NUM; i1++) {
@@ -254,16 +425,10 @@ static void DCLNO_Solve_Col_Local(int use_gpu,
 
     /* Tmp(:,1:NUM2) = Smat * Hmat(:,1:NUM2) */
     BM = NUM; BN = NUM2; BK = NUM;
-    if (use_gpu) {
-        my_cublasDgemm(CUBLAS_OP_N, CUBLAS_OP_N, BM, BN, BK,
-                       Smat, Hmat, Tmp);
-    }
-    else {
-        alpha = 1.0; beta = 0.0;
-        F77_NAME(dgemm,DGEMM)
-        ("N","N",&BM,&BN,&BK,&alpha,
-         Smat,&BM,Hmat,&BK,&beta,Tmp,&BM);
-    }
+    alpha = 1.0; beta = 0.0;
+    F77_NAME(dgemm,DGEMM)
+    ("N","N",&BM,&BN,&BK,&alpha,
+     Smat,&BM,Hmat,&BK,&beta,Tmp,&BM);
 
     /* return C[eig_index][basis_index] */
     for (j1=1; j1<=NUM2; j1++) {
@@ -348,7 +513,8 @@ static void DCLNO_GPUProxy_Col_Service(int active,
 
         /* owner handles its own task first */
         if (active) {
-            DCLNO_Solve_Col_Local(1, NUM, NUM2, Smat, Hmat, C, ko);
+            DCLNO_Solve_Col_CuSolver(NUM, NUM2, Smat, Hmat, ko);
+            DCLNO_CopyPackedEigvecsToC(Hmat, NUM, NUM2, C);
         }
 
         /* then serve other ranks in the group */
@@ -360,32 +526,25 @@ static void DCLNO_GPUProxy_Col_Service(int active,
             if (!s_active) continue;
 
             {
-                double *Sbuf, *Hbuf, *Cbuf;
+                double *Sbuf, *Hbuf;
                 double *kbuf;
-                double **Ct;
 
                 MPI_Wait(&recv_Sreq[src], MPI_STATUS_IGNORE);
                 MPI_Wait(&recv_Hreq[src], MPI_STATUS_IGNORE);
 
                 Sbuf = recv_Sbuf[src];
                 Hbuf = recv_Hbuf[src];
-                Cbuf = (double*)malloc(sizeof(double)*s_num*s_num);
                 kbuf = (double*)malloc(sizeof(double)*(s_num+2));
-                Ct   = DCLNO_AllocRealMatrix1B(s_num);
 
-                DCLNO_Solve_Col_Local(1, s_num, s_num2, Sbuf, Hbuf, Ct, kbuf);
-
-                DCLNO_PackRealC(Ct, s_num, Cbuf);
+                DCLNO_Solve_Col_CuSolver(s_num, s_num2, Sbuf, Hbuf, kbuf);
 
                 MPI_Send(&kbuf[1], s_num2, MPI_DOUBLE, src,
                          DCLNO_PROXY_TAG_COL_EVAL, DCLNO_gpu_group_comm);
-                MPI_Send(Cbuf, s_num*s_num, MPI_DOUBLE, src,
+                MPI_Send(Hbuf, s_num*s_num2, MPI_DOUBLE, src,
                          DCLNO_PROXY_TAG_COL_CVEC, DCLNO_gpu_group_comm);
 
-                DCLNO_FreeRealMatrix1B(Ct, s_num);
                 free(Sbuf);
                 free(Hbuf);
-                free(Cbuf);
                 free(kbuf);
             }
         }
@@ -396,7 +555,7 @@ static void DCLNO_GPUProxy_Col_Service(int active,
         free(recv_Hreq);
     }
     else if (active) {
-        double *Cbuf = (double*)malloc(sizeof(double)*NUM*NUM);
+        double *Cbuf = (double*)malloc(sizeof(double)*(size_t)NUM*(size_t)NUM2);
 
         MPI_Send(Smat, NUM*NUM, MPI_DOUBLE, 0,
                  DCLNO_PROXY_TAG_COL_S, DCLNO_gpu_group_comm);
@@ -405,10 +564,10 @@ static void DCLNO_GPUProxy_Col_Service(int active,
 
         MPI_Recv(&ko[1], NUM2, MPI_DOUBLE, 0,
                  DCLNO_PROXY_TAG_COL_EVAL, DCLNO_gpu_group_comm, MPI_STATUS_IGNORE);
-        MPI_Recv(Cbuf, NUM*NUM, MPI_DOUBLE, 0,
+        MPI_Recv(Cbuf, NUM*NUM2, MPI_DOUBLE, 0,
                  DCLNO_PROXY_TAG_COL_CVEC, DCLNO_gpu_group_comm, MPI_STATUS_IGNORE);
 
-        DCLNO_UnpackRealC(Cbuf, NUM, C);
+        DCLNO_CopyPackedEigvecsToC(Cbuf, NUM, NUM2, C);
 
         free(Cbuf);
     }
@@ -490,6 +649,7 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
     MPI_Status      stat;
     MPI_Request     request;
     int             use_gpu_proxy;
+    int             gpu_group_max_msize;
     int             group_max_atoms, atom_slot;
     int             have_local_atom, use_gpu_task;
 
@@ -640,6 +800,15 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
     Rcv_S_Size = (int*)malloc(sizeof(int) * numprocs0);
 
     MP = (int*)malloc(sizeof(int) * List_YOUSO[2]);
+
+    gpu_group_max_msize = Max_Msize;
+    if (use_gpu_proxy) {
+        MPI_Allreduce(MPI_IN_PLACE, &gpu_group_max_msize, 1, MPI_INT, MPI_MAX, DCLNO_gpu_group_comm);
+        if (DCLNO_is_gpu_owner && gpu_group_max_msize >= DCLNO_GPU_PROXY_EIGEN_THRESHOLD_COL) {
+            DCLNO_CuSolver_EnsureMatrixCapacity(gpu_group_max_msize);
+            DCLNO_CuSolver_EnsureWorkspace(gpu_group_max_msize, gpu_group_max_msize);
+        }
+    }
 
     /****************************************************
       allocation of Residues
@@ -1224,7 +1393,14 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
 
                 if (measure_time) dtime(&stime);
 
-                if (!use_gpu_task) {
+                if (use_gpu_task && DCLNO_gpu_group_size == 1) {
+                    DCLNO_Solve_Col_CuSolver(NUM, NUM2,
+                                             &BLAS_OLP[spin * NUM * NUM],
+                                             &BLAS_H[spin * NUM * NUM],
+                                             ko);
+                    DCLNO_CopyPackedEigvecsToC(&BLAS_H[spin * NUM * NUM], NUM, NUM2, C);
+                }
+                else if (!use_gpu_task) {
                     DCLNO_Solve_Col_Local(0, NUM, NUM2,
                                           &BLAS_OLP[spin * NUM * NUM],
                                           &BLAS_H[spin * NUM * NUM],
@@ -1237,7 +1413,7 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
                 use_gpu_task = 0;
             }
 
-            if (use_gpu_proxy) {
+            if (use_gpu_proxy && DCLNO_gpu_group_size > 1) {
                 DCLNO_GPUProxy_Col_Service(use_gpu_task,
                                            NUM,
                                            NUM2,
