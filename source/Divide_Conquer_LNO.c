@@ -81,10 +81,71 @@ static MPI_Comm DCLNO_GPUProxy_BaseComm(void)
     return (mpi_comm_level1 != MPI_COMM_NULL) ? mpi_comm_level1 : MPI_COMM_WORLD;
 }
 
+static void DCLNO_AbortWithMessage(const char *message)
+{
+    fprintf(stderr, "%s\n", message);
+    fflush(stderr);
+    MPI_Abort(DCLNO_GPUProxy_BaseComm(), 1);
+}
+
+static size_t DCLNO_CheckedArrayBytes(size_t count, size_t elem_size, const char *label)
+{
+    if (count != 0 && elem_size > SIZE_MAX / count) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Allocation size overflow in Divide_Conquer_LNO.c: %s", label);
+        DCLNO_AbortWithMessage(msg);
+    }
+
+    return count * elem_size;
+}
+
+static size_t DCLNO_CheckedMulCount(size_t a, size_t b, const char *label)
+{
+    if (a != 0 && b > SIZE_MAX / a) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Dimension overflow in Divide_Conquer_LNO.c: %s", label);
+        DCLNO_AbortWithMessage(msg);
+    }
+
+    return a * b;
+}
+
+static void *DCLNO_MallocArray(size_t count, size_t elem_size, const char *label)
+{
+    size_t bytes = DCLNO_CheckedArrayBytes(count, elem_size, label);
+    void * ptr = malloc((bytes == 0) ? 1 : bytes);
+
+    if (ptr == NULL) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Out of memory in Divide_Conquer_LNO.c: %s (%zu bytes)", label, bytes);
+        DCLNO_AbortWithMessage(msg);
+    }
+
+    return ptr;
+}
+
+static void *DCLNO_CallocArray(size_t count, size_t elem_size, const char *label)
+{
+    void * ptr;
+
+    (void)DCLNO_CheckedArrayBytes(count, elem_size, label);
+    ptr = calloc((count == 0) ? 1 : count, (elem_size == 0) ? 1 : elem_size);
+
+    if (ptr == NULL) {
+        char msg[512];
+        size_t bytes = DCLNO_CheckedArrayBytes(count, elem_size, label);
+        snprintf(msg, sizeof(msg), "Out of memory in Divide_Conquer_LNO.c: %s (%zu bytes)", label, bytes);
+        DCLNO_AbortWithMessage(msg);
+    }
+
+    return ptr;
+}
+
 static void DCLNO_GPUProxy_Init(void)
 {
     MPI_Comm base_comm;
     int color;
+    cudaError_t cuda_err;
 
     if (DCLNO_gpu_proxy_initialized) return;
 
@@ -95,9 +156,11 @@ static void DCLNO_GPUProxy_Init(void)
     MPI_Comm_rank(DCLNO_node_comm, &DCLNO_node_rank);
     MPI_Comm_size(DCLNO_node_comm, &DCLNO_node_size);
 
-    cudaGetDeviceCount(&DCLNO_ngpu);
-    if (DCLNO_ngpu <= 0) {
-        fprintf(stderr, "DC-LNO GPU proxy: No CUDA device found on node.\n");
+    cuda_err = cudaGetDeviceCount(&DCLNO_ngpu);
+    if (cuda_err != cudaSuccess || DCLNO_ngpu <= 0) {
+        fprintf(stderr, "DC-LNO GPU proxy: failed to detect CUDA devices (err=%d, count=%d).\n",
+                (int)cuda_err, DCLNO_ngpu);
+        fflush(stderr);
         MPI_Abort(base_comm, 1);
     }
 
@@ -130,9 +193,9 @@ static void DCLNO_GPUProxy_Init(void)
 static double **DCLNO_AllocRealMatrix1B(int n)
 {
     int i;
-    double **a = (double**)malloc(sizeof(double*)*(n+1));
+    double **a = (double**)DCLNO_MallocArray((size_t)(n + 1), sizeof(double*), "real matrix row pointers");
     for (i=0; i<=n; i++) {
-        a[i] = (double*)malloc(sizeof(double)*(n+1));
+        a[i] = (double*)DCLNO_MallocArray((size_t)(n + 1), sizeof(double), "real matrix row");
     }
     return a;
 }
@@ -215,6 +278,10 @@ static void DCLNO_CuSolver_EnsureMatrixCapacity(int num)
     DCLNO_CuSolverCtx *ctx = &DCLNO_cusolver_ctx;
     size_t             matrix_bytes;
 
+    if (num <= 0) {
+        DCLNO_AbortWithMessage("Invalid matrix size in DCLNO_CuSolver_EnsureMatrixCapacity.");
+    }
+
     DCLNO_CuSolver_Init();
 
     if (num <= ctx->max_num) return;
@@ -225,12 +292,16 @@ static void DCLNO_CuSolver_EnsureMatrixCapacity(int num)
     if (ctx->d_W    != NULL) wait_cudafunc(cudaFree(ctx->d_W));
     if (ctx->d_info != NULL) wait_cudafunc(cudaFree(ctx->d_info));
 
-    matrix_bytes = sizeof(double) * (size_t)num * (size_t)num;
+    matrix_bytes = DCLNO_CheckedArrayBytes(DCLNO_CheckedMulCount((size_t)num, (size_t)num,
+                                                                 "CuSOLVER dense matrix dimensions"),
+                                           sizeof(double),
+                                           "CuSOLVER dense matrix buffer");
 
     wait_cudafunc(cudaMalloc((void**)&ctx->d_S, matrix_bytes));
     wait_cudafunc(cudaMalloc((void**)&ctx->d_H, matrix_bytes));
     wait_cudafunc(cudaMalloc((void**)&ctx->d_tmp, matrix_bytes));
-    wait_cudafunc(cudaMalloc((void**)&ctx->d_W, sizeof(double) * (size_t)num));
+    wait_cudafunc(cudaMalloc((void**)&ctx->d_W,
+                             DCLNO_CheckedArrayBytes((size_t)num, sizeof(double), "CuSOLVER eigenvalue buffer")));
     wait_cudafunc(cudaMalloc((void**)&ctx->d_info, sizeof(int32_t)));
 
     ctx->max_num = num;
@@ -248,6 +319,10 @@ static void DCLNO_CuSolver_EnsureWorkspace(int m, int maxn)
     size_t             d_bytes = 0;
     size_t             h_bytes = 0;
 
+    if (m <= 0 || maxn <= 0 || maxn > m) {
+        DCLNO_AbortWithMessage("Invalid eigensolver dimensions in DCLNO_CuSolver_EnsureWorkspace.");
+    }
+
     DCLNO_CuSolver_EnsureMatrixCapacity(m);
 
     range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
@@ -259,17 +334,21 @@ static void DCLNO_CuSolver_EnsureWorkspace(int m, int maxn)
 
     if (d_bytes > ctx->d_work_bytes) {
         if (ctx->d_work != NULL) wait_cudafunc(cudaFree(ctx->d_work));
-        wait_cudafunc(cudaMalloc((void**)&ctx->d_work, d_bytes));
+        ctx->d_work = NULL;
+        if (d_bytes > 0) {
+            wait_cudafunc(cudaMalloc((void**)&ctx->d_work, d_bytes));
+        }
         ctx->d_work_bytes = d_bytes;
     }
 
-    if (h_bytes > ctx->h_work_bytes) {
+    if (h_bytes == 0) {
         if (ctx->h_work != NULL) free(ctx->h_work);
-        ctx->h_work = malloc(h_bytes);
-        if (ctx->h_work == NULL) {
-            fprintf(stderr, "Failed to allocate host workspace for CuSOLVER.\n");
-            exit(1);
-        }
+        ctx->h_work = NULL;
+        ctx->h_work_bytes = 0;
+    }
+    else if (h_bytes > ctx->h_work_bytes) {
+        if (ctx->h_work != NULL) free(ctx->h_work);
+        ctx->h_work = DCLNO_MallocArray(h_bytes, 1, "CuSOLVER host workspace");
         ctx->h_work_bytes = h_bytes;
     }
 }
@@ -315,8 +394,18 @@ static void DCLNO_Solve_Col_CuSolver(int NUM, int NUM2, double *Smat, double *Hm
     size_t             partial_bytes;
     int                l;
 
-    full_bytes = sizeof(double) * (size_t)NUM * (size_t)NUM;
-    partial_bytes = sizeof(double) * (size_t)NUM * (size_t)NUM2;
+    if (NUM <= 0 || NUM2 <= 0 || NUM2 > NUM) {
+        DCLNO_AbortWithMessage("Invalid matrix dimensions in DCLNO_Solve_Col_CuSolver.");
+    }
+
+    full_bytes = DCLNO_CheckedArrayBytes(DCLNO_CheckedMulCount((size_t)NUM, (size_t)NUM,
+                                                               "CuSOLVER full matrix dimensions"),
+                                         sizeof(double),
+                                         "CuSOLVER full matrix copy");
+    partial_bytes = DCLNO_CheckedArrayBytes(DCLNO_CheckedMulCount((size_t)NUM, (size_t)NUM2,
+                                                                  "CuSOLVER eigenvector dimensions"),
+                                            sizeof(double),
+                                            "CuSOLVER partial eigenvector copy");
 
     DCLNO_CuSolver_EnsureMatrixCapacity(NUM);
 
@@ -329,7 +418,9 @@ static void DCLNO_Solve_Col_CuSolver(int NUM, int NUM2, double *Smat, double *Hm
         ko[l] = 1.0 / sqrt(fabs(ko[l]));
     }
 
-    wait_cudafunc(cudaMemcpyAsync(ctx->d_W, ko + 1, sizeof(double) * (size_t)NUM,
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_W, ko + 1,
+                                  DCLNO_CheckedArrayBytes((size_t)NUM, sizeof(double),
+                                                          "CuSOLVER host-to-device eigenvalue scale"),
                                   cudaMemcpyHostToDevice, ctx->stream));
 
     wait_cudafunc(cublasDdgmm(ctx->cublas, CUBLAS_SIDE_RIGHT, NUM, NUM,
@@ -374,7 +465,9 @@ static void DCLNO_Solve_Col_Local(int use_gpu,
         return;
     }
 
-    Tmp = (double*)malloc(sizeof(double)*NUM*NUM);
+    Tmp = (double*)DCLNO_MallocArray(DCLNO_CheckedMulCount((size_t)NUM, (size_t)NUM,
+                                                           "local DGEMM scratch dimensions"),
+                                     sizeof(double), "local DGEMM scratch");
 
     /* diagonalize S */
     for (i1=1; i1<=NUM; i1++) {
@@ -469,7 +562,8 @@ static void DCLNO_GPUProxy_Col_Service(int active,
     myinfo[1] = NUM;
     myinfo[2] = NUM2;
 
-    allinfo = (int*)malloc(sizeof(int)*3*size);
+    allinfo = (int*)DCLNO_MallocArray(DCLNO_CheckedMulCount(3u, (size_t)size, "GPU proxy allgather metadata count"),
+                                      sizeof(int), "GPU proxy allgather metadata");
     MPI_Allgather(myinfo, 3, MPI_INT, allinfo, 3, MPI_INT, DCLNO_gpu_group_comm);
 
     for (src=0; src<size; src++) {
@@ -486,10 +580,10 @@ static void DCLNO_GPUProxy_Col_Service(int active,
 
     if (rank == 0) {
 
-        recv_Sbuf = (double**)calloc(size, sizeof(double*));
-        recv_Hbuf = (double**)calloc(size, sizeof(double*));
-        recv_Sreq = (MPI_Request*)malloc(sizeof(MPI_Request) * size);
-        recv_Hreq = (MPI_Request*)malloc(sizeof(MPI_Request) * size);
+        recv_Sbuf = (double**)DCLNO_CallocArray((size_t)size, sizeof(double*), "GPU proxy S receive buffers");
+        recv_Hbuf = (double**)DCLNO_CallocArray((size_t)size, sizeof(double*), "GPU proxy H receive buffers");
+        recv_Sreq = (MPI_Request*)DCLNO_MallocArray((size_t)size, sizeof(MPI_Request), "GPU proxy S requests");
+        recv_Hreq = (MPI_Request*)DCLNO_MallocArray((size_t)size, sizeof(MPI_Request), "GPU proxy H requests");
 
         for (src = 0; src < size; src++) {
             recv_Sreq[src] = MPI_REQUEST_NULL;
@@ -499,11 +593,21 @@ static void DCLNO_GPUProxy_Col_Service(int active,
         for (src = 1; src < size; src++) {
             int s_active = allinfo[3*src + 0];
             int s_num    = allinfo[3*src + 1];
+            int s_num2   = allinfo[3*src + 2];
 
             if (!s_active) continue;
+            if (s_num <= 0 || s_num2 <= 0 || s_num2 > s_num) {
+                DCLNO_AbortWithMessage("Invalid GPU proxy task metadata in DCLNO_GPUProxy_Col_Service.");
+            }
 
-            recv_Sbuf[src] = (double*)malloc(sizeof(double) * s_num * s_num);
-            recv_Hbuf[src] = (double*)malloc(sizeof(double) * s_num * s_num);
+            recv_Sbuf[src] = (double*)DCLNO_MallocArray(DCLNO_CheckedMulCount((size_t)s_num, (size_t)s_num,
+                                                                              "GPU proxy received overlap matrix dimensions"),
+                                                        sizeof(double),
+                                                        "GPU proxy received overlap matrix");
+            recv_Hbuf[src] = (double*)DCLNO_MallocArray(DCLNO_CheckedMulCount((size_t)s_num, (size_t)s_num,
+                                                                              "GPU proxy received Hamiltonian matrix dimensions"),
+                                                        sizeof(double),
+                                                        "GPU proxy received Hamiltonian matrix");
 
             MPI_Irecv(recv_Sbuf[src], s_num*s_num, MPI_DOUBLE, src,
                       DCLNO_PROXY_TAG_COL_S, DCLNO_gpu_group_comm, &recv_Sreq[src]);
@@ -534,7 +638,8 @@ static void DCLNO_GPUProxy_Col_Service(int active,
 
                 Sbuf = recv_Sbuf[src];
                 Hbuf = recv_Hbuf[src];
-                kbuf = (double*)malloc(sizeof(double)*(s_num+2));
+                kbuf = (double*)DCLNO_MallocArray((size_t)(s_num + 2), sizeof(double),
+                                                 "GPU proxy eigenvalue buffer");
 
                 DCLNO_Solve_Col_CuSolver(s_num, s_num2, Sbuf, Hbuf, kbuf);
 
@@ -555,7 +660,10 @@ static void DCLNO_GPUProxy_Col_Service(int active,
         free(recv_Hreq);
     }
     else if (active) {
-        double *Cbuf = (double*)malloc(sizeof(double)*(size_t)NUM*(size_t)NUM2);
+        double *Cbuf = (double*)DCLNO_MallocArray(DCLNO_CheckedMulCount((size_t)NUM, (size_t)NUM2,
+                                                                        "GPU proxy packed eigenvector dimensions"),
+                                                  sizeof(double),
+                                                  "GPU proxy packed eigenvectors");
 
         MPI_Send(Smat, NUM*NUM, MPI_DOUBLE, 0,
                  DCLNO_PROXY_TAG_COL_S, DCLNO_gpu_group_comm);
@@ -619,10 +727,11 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
     int             size1, size2, num, NUM, NUM2, n2, Cwan, Hwan;
     int             LNO_recalc_flag;
     int             Mi, Mj, ig, ian, j, kl, jg, jan, Bnum, m, n, spin;
-    int             l, i1, j1, i2, ip, po1, m_size, k;
+    int             l, i1, j1, i2, ip, po1, k;
     int             po, loopN, tno1, tno2, h_AN, Gh_AN, iwan, jwan;
     int             MA_AN, GA_AN, GB_AN, tnoA, tnoB, ino, jno;
-    int             size_Residues;
+    long int        m_size;
+    long int        size_Residues;
     double          My_TZ, TZ, sumS, sumH, FermiF;
     double          tmp1, x;
     double          My_Num_State, Num_State;
@@ -710,12 +819,12 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
     }
 
     if (LO_HO_allocate_flag == 0) {
-        LO_TC = (int**)malloc(sizeof(int*) * 2);
-        HO_TC = (int**)malloc(sizeof(int*) * 2);
+        LO_TC = (int**)DCLNO_MallocArray(2, sizeof(int*), "LO tracker pointers");
+        HO_TC = (int**)DCLNO_MallocArray(2, sizeof(int*), "HO tracker pointers");
 
         for (spin = 0; spin < 2; spin++) {
-            LO_TC[spin] = (int*)malloc(sizeof(int) * (Matomnum + 1));
-            HO_TC[spin] = (int*)malloc(sizeof(int) * (Matomnum + 1));
+            LO_TC[spin] = (int*)DCLNO_MallocArray((size_t)(Matomnum + 1), sizeof(int), "LO tracker");
+            HO_TC[spin] = (int*)DCLNO_MallocArray((size_t)(Matomnum + 1), sizeof(int), "HO tracker");
             for (i = 0; i <= Matomnum; i++) {
                 LO_TC[spin][i] = 1;
                 HO_TC[spin][i] = 1;
@@ -729,13 +838,14 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
       sizing
     ****************************************************/
 
-    Msize = (int*)malloc(sizeof(int) * (Matomnum + 1));
+    Msize = (int*)DCLNO_MallocArray((size_t)(Matomnum + 1), sizeof(int), "cluster matrix sizes");
     Max_Msize = 0;
     m_size = 0;
 
-    EVal = (double***)malloc(sizeof(double**) * (SpinP_switch + 1));
+    EVal = (double***)DCLNO_MallocArray((size_t)(SpinP_switch + 1), sizeof(double**), "eigenvalue spin pointers");
     for (spin = 0; spin <= SpinP_switch; spin++) {
-        EVal[spin] = (double**)malloc(sizeof(double*) * (Matomnum + 1));
+        EVal[spin] = (double**)DCLNO_MallocArray((size_t)(Matomnum + 1), sizeof(double*),
+                                                 "eigenvalue atom pointers");
 
         for (Mc_AN = 0; Mc_AN <= Matomnum; Mc_AN++) {
 
@@ -765,7 +875,7 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
 
             if (Max_Msize < Msize[Mc_AN]) Max_Msize = Msize[Mc_AN];
             m_size += n2;
-            EVal[spin][Mc_AN] = (double*)malloc(sizeof(double) * n2);
+            EVal[spin][Mc_AN] = (double*)DCLNO_MallocArray((size_t)n2, sizeof(double), "eigenvalue row");
         }
     }
 
@@ -779,27 +889,45 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
     }
 
     if (BLAS_allocate_flag == 0) {
-        BLAS_OLP = (double*)malloc(sizeof(double) * Max_Msize * Max_Msize * (SpinP_switch + 1));
+        BLAS_OLP = (double*)DCLNO_MallocArray(
+            DCLNO_CheckedMulCount(DCLNO_CheckedMulCount((size_t)Max_Msize, (size_t)Max_Msize,
+                                                        "overlap work buffer matrix dimensions"),
+                                  (size_t)(SpinP_switch + 1),
+                                  "overlap work buffer spin dimensions"),
+            sizeof(double), "overlap work buffer");
         BLAS_allocate_flag = 1;
     }
 
-    BLAS_H = (double*)malloc(sizeof(double) * Max_Msize * Max_Msize * (SpinP_switch + 1));
-    BLAS_C = (double*)malloc(sizeof(double) * Max_Msize * Max_Msize);
+    BLAS_H = (double*)DCLNO_MallocArray(
+        DCLNO_CheckedMulCount(DCLNO_CheckedMulCount((size_t)Max_Msize, (size_t)Max_Msize,
+                                                    "Hamiltonian work buffer matrix dimensions"),
+                              (size_t)(SpinP_switch + 1),
+                              "Hamiltonian work buffer spin dimensions"),
+        sizeof(double), "Hamiltonian work buffer");
+    BLAS_C = (double*)DCLNO_MallocArray((size_t)(Max_Msize + 1), sizeof(double), "occupation buffer");
 
-    ko = (double*)malloc(sizeof(double) * (Max_Msize + 2));
+    ko = (double*)DCLNO_MallocArray((size_t)(Max_Msize + 2), sizeof(double), "eigenvalue scratch");
     C  = DCLNO_AllocRealMatrix1B(Max_Msize + 1);
 
-    Sc   = (double*)malloc(sizeof(double) * List_YOUSO[7] * List_YOUSO[7]);
-    Hc   = (double*)malloc(sizeof(double) * List_YOUSO[7] * List_YOUSO[7]);
-    Stmp = (double*)malloc(sizeof(double) * List_YOUSO[7] * List_YOUSO[7]);
-    Htmp = (double*)malloc(sizeof(double) * List_YOUSO[7] * List_YOUSO[7]);
+    Sc   = (double*)DCLNO_MallocArray(DCLNO_CheckedMulCount((size_t)List_YOUSO[7], (size_t)List_YOUSO[7],
+                                                            "Sc scratch dimensions"),
+                                      sizeof(double), "Sc scratch");
+    Hc   = (double*)DCLNO_MallocArray(DCLNO_CheckedMulCount((size_t)List_YOUSO[7], (size_t)List_YOUSO[7],
+                                                            "Hc scratch dimensions"),
+                                      sizeof(double), "Hc scratch");
+    Stmp = (double*)DCLNO_MallocArray(DCLNO_CheckedMulCount((size_t)List_YOUSO[7], (size_t)List_YOUSO[7],
+                                                            "Stmp scratch dimensions"),
+                                      sizeof(double), "Stmp scratch");
+    Htmp = (double*)DCLNO_MallocArray(DCLNO_CheckedMulCount((size_t)List_YOUSO[7], (size_t)List_YOUSO[7],
+                                                            "Htmp scratch dimensions"),
+                                      sizeof(double), "Htmp scratch");
 
-    Snd_H_Size = (int*)malloc(sizeof(int) * numprocs0);
-    Rcv_H_Size = (int*)malloc(sizeof(int) * numprocs0);
-    Snd_S_Size = (int*)malloc(sizeof(int) * numprocs0);
-    Rcv_S_Size = (int*)malloc(sizeof(int) * numprocs0);
+    Snd_H_Size = (int*)DCLNO_MallocArray((size_t)numprocs0, sizeof(int), "send Hamiltonian sizes");
+    Rcv_H_Size = (int*)DCLNO_MallocArray((size_t)numprocs0, sizeof(int), "recv Hamiltonian sizes");
+    Snd_S_Size = (int*)DCLNO_MallocArray((size_t)numprocs0, sizeof(int), "send overlap sizes");
+    Rcv_S_Size = (int*)DCLNO_MallocArray((size_t)numprocs0, sizeof(int), "recv overlap sizes");
 
-    MP = (int*)malloc(sizeof(int) * List_YOUSO[2]);
+    MP = (int*)DCLNO_MallocArray((size_t)List_YOUSO[2], sizeof(int), "MP map");
 
     gpu_group_max_msize = Max_Msize;
     if (use_gpu_proxy) {
@@ -814,24 +942,29 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
       allocation of Residues
     ****************************************************/
 
-    Residues = (double******)malloc(sizeof(double*****) * (SpinP_switch + 1));
+    Residues = (double******)DCLNO_MallocArray((size_t)(SpinP_switch + 1), sizeof(double*****),
+                                               "residue spin pointers");
     for (spin = 0; spin <= SpinP_switch; spin++) {
-        Residues[spin] = (double*****)malloc(sizeof(double****) * Matomnum);
+        Residues[spin] = (double*****)DCLNO_MallocArray((size_t)Matomnum, sizeof(double****),
+                                                        "residue atom pointers");
         for (Mc_AN = 0; Mc_AN < Matomnum; Mc_AN++) {
             Gc_AN = M2G[Mc_AN + 1];
             wanA  = WhatSpecies[Gc_AN];
             tno1  = Spe_Total_CNO[wanA];
 
-            Residues[spin][Mc_AN] = (double****)malloc(sizeof(double***) * (FNAN[Gc_AN] + 1));
+            Residues[spin][Mc_AN] = (double****)DCLNO_MallocArray((size_t)(FNAN[Gc_AN] + 1), sizeof(double***),
+                                                                  "residue neighbor pointers");
 
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                 Gh_AN = natn[Gc_AN][h_AN];
                 wanB  = WhatSpecies[Gh_AN];
                 tno2  = Spe_Total_CNO[wanB];
 
-                Residues[spin][Mc_AN][h_AN] = (double***)malloc(sizeof(double**) * tno1);
+                Residues[spin][Mc_AN][h_AN] = (double***)DCLNO_MallocArray((size_t)tno1, sizeof(double**),
+                                                                           "residue orbital-row pointers");
                 for (i = 0; i < tno1; i++) {
-                    Residues[spin][Mc_AN][h_AN][i] = (double**)malloc(sizeof(double*) * tno2);
+                    Residues[spin][Mc_AN][h_AN][i] = (double**)DCLNO_MallocArray((size_t)tno2, sizeof(double*),
+                                                                                  "residue orbital-column pointers");
                 }
             }
         }
@@ -841,11 +974,12 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
       PDOS
     ****************************************************/
 
-    PDOS_DC = (double***)malloc(sizeof(double**) * (SpinP_switch + 1));
+    PDOS_DC = (double***)DCLNO_MallocArray((size_t)(SpinP_switch + 1), sizeof(double**), "PDOS spin pointers");
     for (spin = 0; spin <= SpinP_switch; spin++) {
-        PDOS_DC[spin] = (double**)malloc(sizeof(double*) * Matomnum);
+        PDOS_DC[spin] = (double**)DCLNO_MallocArray((size_t)Matomnum, sizeof(double*), "PDOS atom pointers");
         for (Mc_AN = 0; Mc_AN < Matomnum; Mc_AN++) {
-            PDOS_DC[spin][Mc_AN] = (double*)malloc(sizeof(double) * (Msize[Mc_AN + 1] + 3));
+            PDOS_DC[spin][Mc_AN] = (double*)DCLNO_MallocArray((size_t)(Msize[Mc_AN + 1] + 3), sizeof(double),
+                                                              "PDOS row");
         }
     }
 
@@ -856,7 +990,7 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
         PrintMemory("Divide_Conquer_LNO(col): BLAS_H",
                     sizeof(double) * Max_Msize * Max_Msize * (SpinP_switch + 1), NULL);
         PrintMemory("Divide_Conquer_LNO(col): BLAS_C",
-                    sizeof(double) * Max_Msize * Max_Msize, NULL);
+                    sizeof(double) * (Max_Msize + 1), NULL);
     }
 
     /****************************************************
@@ -923,7 +1057,7 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
             if ((F_Snd_Num[IDS] + S_Snd_Num[IDS]) != 0) {
 
                 size1 = Snd_H_Size[IDS];
-                tmp_array = (double*)malloc(sizeof(double) * size1);
+                tmp_array = (double*)DCLNO_MallocArray((size_t)size1, sizeof(double), "MPI send Hamiltonian buffer");
 
                 num = 0;
                 for (spin = 0; spin <= SpinP_switch; spin++) {
@@ -952,7 +1086,7 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
             if ((F_Rcv_Num[IDR] + S_Rcv_Num[IDR]) != 0) {
 
                 size2 = Rcv_H_Size[IDR];
-                tmp_array2 = (double*)malloc(sizeof(double) * size2);
+                tmp_array2 = (double*)DCLNO_MallocArray((size_t)size2, sizeof(double), "MPI recv Hamiltonian buffer");
                 MPI_Recv(tmp_array2, size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
 
                 num = 0;
@@ -1051,7 +1185,7 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
                 if ((F_Snd_Num[IDS] + S_Snd_Num[IDS]) != 0) {
 
                     size1 = Snd_S_Size[IDS];
-                    tmp_array = (double*)malloc(sizeof(double) * size1);
+                    tmp_array = (double*)DCLNO_MallocArray((size_t)size1, sizeof(double), "MPI send overlap buffer");
 
                     num = 0;
                     for (n = 0; n < (F_Snd_Num[IDS] + S_Snd_Num[IDS]); n++) {
@@ -1078,7 +1212,7 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
                 if ((F_Rcv_Num[IDR] + S_Rcv_Num[IDR]) != 0) {
 
                     size2 = Rcv_S_Size[IDR];
-                    tmp_array2 = (double*)malloc(sizeof(double) * size2);
+                    tmp_array2 = (double*)DCLNO_MallocArray((size_t)size2, sizeof(double), "MPI recv overlap buffer");
                     MPI_Recv(tmp_array2, size2, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &stat);
 
                     num   = 0;
@@ -1505,7 +1639,8 @@ static double DC_Col(char * mode, int MD_iter, int SCF_iter, int SucceedReadingD
                     for (j = 0; j < tno2; j++) {
 
                         size_Residues += n2;
-                        Residues[spin][Mc_AN - 1][h_AN][i][j] = (double*)malloc(sizeof(double) * n2);
+                        Residues[spin][Mc_AN - 1][h_AN][i][j] =
+                            (double*)DCLNO_MallocArray((size_t)n2, sizeof(double), "residue value row");
                         Residues[spin][Mc_AN - 1][h_AN][i][j][0] = 0.0;
                         Residues[spin][Mc_AN - 1][h_AN][i][j][1] = 0.0;
 
@@ -1899,17 +2034,22 @@ void Save_DOS_Col(double ****** Residues, double **** OLP0, double *** EVal, int
 
     if (myid == Host_ID) {
         printf("The DOS is supported for a range from -8 to 8 eV for the O(N) DC-LNO method.\n");
-        sprintf(file_eig, "%s%s.Dos.val", filepath, filename);
+        if (snprintf(file_eig, sizeof(file_eig), "%s%s.Dos.val", filepath, filename) >= (int)sizeof(file_eig)) {
+            DCLNO_AbortWithMessage("Output path is too long for *.Dos.val in Save_DOS_Col.");
+        }
         fp_eig = fopen(file_eig, "w");
         if (fp_eig == NULL) {
             printf("cannot open a file %s\n", file_eig);
         }
     }
 
-    sprintf(file_ev, "%s%s.Dos.vec%i", filepath, filename, myid);
+    if (snprintf(file_ev, sizeof(file_ev), "%s%s.Dos.vec%i", filepath, filename, myid) >= (int)sizeof(file_ev)) {
+        DCLNO_AbortWithMessage("Output path is too long for *.Dos.vec in Save_DOS_Col.");
+    }
     fp_ev = fopen(file_ev, "w");
     if (fp_ev == NULL) {
         printf("cannot open a file %s\n", file_ev);
+        if (fp_eig != NULL) fclose(fp_eig);
         return;
     }
 
