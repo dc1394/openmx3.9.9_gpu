@@ -10,17 +10,18 @@
 
 ***********************************************************************/
 
-#include "set_cuda_default_device_from_local_rank.h"
-#include "set_openacc_device_from_local_rank.h"
 #include "lapack_prototypes.h"
 #include "mpi.h"
 #include "openmx_common.h"
+#include "set_cuda_default_device_from_local_rank.h"
+#include "set_openacc_device_from_local_rank.h"
 #include "tran_variables.h"
 #include <assert.h>
 #include <math.h>
 #include <openacc.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define measure_time 0
@@ -42,6 +43,364 @@ static void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int 
                                 int owns_global_dense_rank);
 
 static double get_max_value(double localValue);
+
+typedef struct
+{
+    int                initialized;
+    int                device_id;
+    int                matrix_dim;
+    int                transformed_s_valid;
+    int                transformed_s_dim;
+    size_t             d_work_bytes;
+    size_t             h_work_bytes;
+    cublasHandle_t     cublas;
+    cusolverDnHandle_t cusolver;
+    dcomplex *         d_S;
+    dcomplex *         d_H;
+    dcomplex *         d_tmp;
+    dcomplex *         d_scale;
+    double *           d_W;
+    int32_t *          d_info;
+    void *             d_work;
+    void *             h_work;
+} BandColCuSolverCtx;
+
+static BandColCuSolverCtx BandCol_cusolver_ctx = {0};
+
+typedef struct
+{
+    int      max_tno;
+    int      max_nk;
+    double * buf_Re0;
+    double * buf_Im0;
+    double * buf_Re1;
+    double * buf_Im1;
+    double * TmpEIGEN;
+    double **ReEVec0;
+    double **ImEVec0;
+    double **ReEVec1;
+    double **ImEVec1;
+} BandColDMWorkspace;
+
+static BandColDMWorkspace BandCol_dm_workspace = {0};
+
+static void BandCol_AbortWithMessage(const char * msg)
+{
+    fprintf(stderr, "%s\n", msg);
+    exit(1);
+}
+
+static void BandCol_DMWorkspace_Reset(void)
+{
+    BandColDMWorkspace *ws = &BandCol_dm_workspace;
+
+    free(ws->buf_Re0);
+    free(ws->buf_Im0);
+    free(ws->buf_Re1);
+    free(ws->buf_Im1);
+    free(ws->TmpEIGEN);
+    free(ws->ReEVec0);
+    free(ws->ImEVec0);
+    free(ws->ReEVec1);
+    free(ws->ImEVec1);
+
+    memset(ws, 0, sizeof(*ws));
+}
+
+static void BandCol_DMWorkspace_Ensure(int max_tno, int nk)
+{
+    BandColDMWorkspace *ws = &BandCol_dm_workspace;
+    size_t              vec_bytes;
+
+    if (max_tno <= 0 || nk <= 0) {
+        BandCol_AbortWithMessage("Invalid DM workspace size in Band_DFT_Col.c.");
+    }
+
+    if (ws->max_tno >= max_tno && ws->max_nk >= nk) {
+        return;
+    }
+
+    BandCol_DMWorkspace_Reset();
+
+    vec_bytes = sizeof(double) * (size_t)max_tno * (size_t)nk;
+
+    ws->buf_Re0  = (double *)malloc(vec_bytes);
+    ws->buf_Im0  = (double *)malloc(vec_bytes);
+    ws->buf_Re1  = (double *)malloc(vec_bytes);
+    ws->buf_Im1  = (double *)malloc(vec_bytes);
+    ws->TmpEIGEN = (double *)malloc(sizeof(double) * (size_t)nk);
+    ws->ReEVec0  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
+    ws->ImEVec0  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
+    ws->ReEVec1  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
+    ws->ImEVec1  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
+
+    if (ws->buf_Re0 == NULL || ws->buf_Im0 == NULL || ws->buf_Re1 == NULL || ws->buf_Im1 == NULL ||
+        ws->TmpEIGEN == NULL || ws->ReEVec0 == NULL || ws->ImEVec0 == NULL || ws->ReEVec1 == NULL ||
+        ws->ImEVec1 == NULL) {
+        BandCol_DMWorkspace_Reset();
+        BandCol_AbortWithMessage("Failed to allocate DM workspace in Band_DFT_Col.c.");
+    }
+
+    ws->max_tno = max_tno;
+    ws->max_nk  = nk;
+}
+
+static void BandCol_CuSolver_Destroy(void)
+{
+    BandColCuSolverCtx * ctx = &BandCol_cusolver_ctx;
+
+    if (ctx->d_S != NULL)
+        wait_cudafunc(cudaFree(ctx->d_S));
+    if (ctx->d_H != NULL)
+        wait_cudafunc(cudaFree(ctx->d_H));
+    if (ctx->d_tmp != NULL)
+        wait_cudafunc(cudaFree(ctx->d_tmp));
+    if (ctx->d_scale != NULL)
+        wait_cudafunc(cudaFree(ctx->d_scale));
+    if (ctx->d_W != NULL)
+        wait_cudafunc(cudaFree(ctx->d_W));
+    if (ctx->d_info != NULL)
+        wait_cudafunc(cudaFree(ctx->d_info));
+    if (ctx->d_work != NULL)
+        wait_cudafunc(cudaFree(ctx->d_work));
+    if (ctx->h_work != NULL)
+        free(ctx->h_work);
+    if (ctx->cusolver != NULL)
+        wait_cudafunc(cusolverDnDestroy(ctx->cusolver));
+    if (ctx->cublas != NULL)
+        wait_cudafunc(cublasDestroy(ctx->cublas));
+
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->device_id = -1;
+}
+
+static void BandCol_CuSolver_Init(void)
+{
+    BandColCuSolverCtx * ctx = &BandCol_cusolver_ctx;
+    int                  current_device;
+
+    wait_cudafunc(cudaGetDevice(&current_device));
+
+    if (ctx->initialized && ctx->device_id == current_device) {
+        return;
+    }
+
+    if (ctx->initialized) {
+        BandCol_CuSolver_Destroy();
+    }
+
+    wait_cudafunc(cublasCreate(&ctx->cublas));
+    wait_cudafunc(cusolverDnCreate(&ctx->cusolver));
+
+    ctx->initialized = 1;
+    ctx->device_id   = current_device;
+}
+
+static void BandCol_CuSolver_EnsureMatrixCapacity(int n)
+{
+    BandColCuSolverCtx * ctx = &BandCol_cusolver_ctx;
+    size_t               matrix_bytes;
+    size_t               vector_bytes;
+
+    if (n <= 0) {
+        BandCol_AbortWithMessage("Invalid matrix size in BandCol_CuSolver_EnsureMatrixCapacity.");
+    }
+
+    BandCol_CuSolver_Init();
+
+    if (n <= ctx->matrix_dim) {
+        return;
+    }
+
+    if (ctx->d_S != NULL)
+        wait_cudafunc(cudaFree(ctx->d_S));
+    if (ctx->d_H != NULL)
+        wait_cudafunc(cudaFree(ctx->d_H));
+    if (ctx->d_tmp != NULL)
+        wait_cudafunc(cudaFree(ctx->d_tmp));
+    if (ctx->d_scale != NULL)
+        wait_cudafunc(cudaFree(ctx->d_scale));
+    if (ctx->d_W != NULL)
+        wait_cudafunc(cudaFree(ctx->d_W));
+    if (ctx->d_info != NULL)
+        wait_cudafunc(cudaFree(ctx->d_info));
+
+    matrix_bytes = sizeof(dcomplex) * (size_t)n * (size_t)n;
+    vector_bytes = sizeof(dcomplex) * (size_t)n;
+
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_S, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_H, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_tmp, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_scale, vector_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_W, sizeof(double) * (size_t)n));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_info, sizeof(int32_t)));
+
+    ctx->matrix_dim          = n;
+    ctx->transformed_s_valid = 0;
+    ctx->transformed_s_dim   = 0;
+}
+
+static void BandCol_CuSolver_EnsureWorkspace(int m, int maxn, dcomplex * d_A)
+{
+    BandColCuSolverCtx * ctx  = &BandCol_cusolver_ctx;
+    cusolverEigMode_t    jobz = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t     uplo = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t   range;
+    double               vl      = 0.0;
+    double               vu      = 0.0;
+    int64_t              h_meig  = 0;
+    size_t               d_bytes = 0;
+    size_t               h_bytes = 0;
+
+    if (m <= 0 || maxn <= 0 || maxn > m) {
+        BandCol_AbortWithMessage("Invalid eigensolver dimensions in BandCol_CuSolver_EnsureWorkspace.");
+    }
+
+    BandCol_CuSolver_EnsureMatrixCapacity(m);
+
+    range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+
+    wait_cudafunc(cusolverDnXsyevdx_bufferSize(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_C_64F,
+                                               (cuDoubleComplex *)d_A, m, &vl, &vu, 1L, maxn, &h_meig, CUDA_R_64F,
+                                               ctx->d_W, CUDA_C_64F, &d_bytes, &h_bytes));
+
+    if (d_bytes > ctx->d_work_bytes) {
+        if (ctx->d_work != NULL)
+            wait_cudafunc(cudaFree(ctx->d_work));
+        ctx->d_work = NULL;
+        if (d_bytes > 0) {
+            wait_cudafunc(cudaMalloc((void **)&ctx->d_work, d_bytes));
+        }
+        ctx->d_work_bytes = d_bytes;
+    }
+
+    if (h_bytes == 0) {
+        if (ctx->h_work != NULL)
+            free(ctx->h_work);
+        ctx->h_work       = NULL;
+        ctx->h_work_bytes = 0;
+    } else if (h_bytes > ctx->h_work_bytes) {
+        if (ctx->h_work != NULL)
+            free(ctx->h_work);
+        ctx->h_work = malloc(h_bytes);
+        if (ctx->h_work == NULL) {
+            BandCol_AbortWithMessage("Failed to allocate host workspace in BandCol_CuSolver_EnsureWorkspace.");
+        }
+        ctx->h_work_bytes = h_bytes;
+    }
+}
+
+static void BandCol_CuSolver_Eigen(dcomplex * d_A, int m, int maxn, double * W_host)
+{
+    BandColCuSolverCtx * ctx  = &BandCol_cusolver_ctx;
+    cusolverEigMode_t    jobz = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t     uplo = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t   range;
+    double               vl     = 0.0;
+    double               vu     = 0.0;
+    int64_t              h_meig = 0;
+    int32_t              info   = 0;
+    char                 msg[256];
+
+    BandCol_CuSolver_EnsureWorkspace(m, maxn, d_A);
+    range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+
+    wait_cudafunc(cusolverDnXsyevdx(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_C_64F, (cuDoubleComplex *)d_A, m,
+                                    &vl, &vu, 1L, maxn, &h_meig, CUDA_R_64F, ctx->d_W, CUDA_C_64F, ctx->d_work,
+                                    ctx->d_work_bytes, ctx->h_work, ctx->h_work_bytes, ctx->d_info));
+
+    wait_cudafunc(cudaMemcpy(W_host, ctx->d_W, sizeof(double) * (size_t)maxn, cudaMemcpyDeviceToHost));
+    wait_cudafunc(cudaMemcpy(&info, ctx->d_info, sizeof(int32_t), cudaMemcpyDeviceToHost));
+
+    if (info != 0) {
+        snprintf(msg, sizeof(msg), "cusolverDnXsyevdx failed in Band_DFT_Col.c: info=%d", (int)info);
+        BandCol_AbortWithMessage(msg);
+    }
+}
+
+static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, dcomplex * Ss, double * ko,
+                                                 double * koS)
+{
+    BandColCuSolverCtx * ctx = &BandCol_cusolver_ctx;
+    size_t               matrix_bytes;
+    dcomplex *           scale_host;
+    int                  l;
+
+    BandCol_CuSolver_EnsureMatrixCapacity(n);
+
+    if (!build_from_overlap && ctx->transformed_s_valid && ctx->transformed_s_dim == n) {
+        return;
+    }
+
+    matrix_bytes = sizeof(dcomplex) * (size_t)n * (size_t)n;
+
+    if (build_from_overlap) {
+        wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
+        BandCol_CuSolver_Eigen(ctx->d_S, n, n, ko + 1);
+
+        scale_host = (dcomplex *)malloc(sizeof(dcomplex) * (size_t)n);
+        if (scale_host == NULL) {
+            BandCol_AbortWithMessage("Failed to allocate overlap scale buffer in Band_DFT_Col.c.");
+        }
+
+        for (l = 1; l <= n; l++) {
+            if (ko[l] < 0.0) {
+                ko[l] = 1.0e-10;
+            }
+            koS[l]              = ko[l];
+            scale_host[l - 1].r = 1.0 / sqrt(ko[l]);
+            scale_host[l - 1].i = 0.0;
+        }
+
+        wait_cudafunc(cudaMemcpy(ctx->d_scale, scale_host, sizeof(dcomplex) * (size_t)n, cudaMemcpyHostToDevice));
+        free(scale_host);
+
+        wait_cudafunc(cublasZdgmm(ctx->cublas, CUBLAS_SIDE_RIGHT, n, n, (cuDoubleComplex *)ctx->d_S, n,
+                                  (cuDoubleComplex *)ctx->d_scale, 1, (cuDoubleComplex *)ctx->d_tmp, n));
+
+        {
+            dcomplex * swap_tmp = ctx->d_S;
+            ctx->d_S            = ctx->d_tmp;
+            ctx->d_tmp          = swap_tmp;
+        }
+
+        wait_cudafunc(cudaMemcpy(Ss, ctx->d_S, matrix_bytes, cudaMemcpyDeviceToHost));
+    } else {
+        wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
+    }
+
+    ctx->transformed_s_valid = 1;
+    ctx->transformed_s_dim   = n;
+}
+
+static void BandCol_CuSolver_SolveHamiltonian(int n, int maxn, const dcomplex * H_in, double * ko, dcomplex * C_out)
+{
+    BandColCuSolverCtx * ctx = &BandCol_cusolver_ctx;
+    size_t               matrix_bytes;
+    cuDoubleComplex      alpha = make_cuDoubleComplex(1.0, 0.0);
+    cuDoubleComplex      beta  = make_cuDoubleComplex(0.0, 0.0);
+
+    if (!(ctx->transformed_s_valid && ctx->transformed_s_dim == n)) {
+        BandCol_AbortWithMessage("Transformed overlap is not ready in BandCol_CuSolver_SolveHamiltonian.");
+    }
+
+    matrix_bytes = sizeof(dcomplex) * (size_t)n * (size_t)n;
+
+    wait_cudafunc(cudaMemcpy(ctx->d_H, H_in, matrix_bytes, cudaMemcpyHostToDevice));
+
+    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_H, n,
+                              (cuDoubleComplex *)ctx->d_S, n, &beta, (cuDoubleComplex *)ctx->d_tmp, n));
+
+    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_S, n,
+                              (cuDoubleComplex *)ctx->d_tmp, n, &beta, (cuDoubleComplex *)ctx->d_H, n));
+
+    BandCol_CuSolver_Eigen(ctx->d_H, n, maxn, ko + 1);
+
+    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_H, n,
+                              (cuDoubleComplex *)ctx->d_S, n, &beta, (cuDoubleComplex *)ctx->d_tmp, n));
+
+    wait_cudafunc(cudaMemcpy(C_out, ctx->d_tmp, matrix_bytes, cudaMemcpyDeviceToHost));
+}
 
 double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_switch, double ***** nh,
                     double ***** ImNL, double **** CntOLP, double ***** CDM, double ***** EDM, double Eele0[2],
@@ -132,6 +491,7 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
     double *EVec_Snd, *EVec_Rcv;
     double *TmpEIGEN, **ReEVec0, **ImEVec0, **ReEVec1, **ImEVec1;
     int     owns_global_dense_rank;
+    int     transformed_s_ready;
 
     /* for time */
     dtime(&TStime);
@@ -752,6 +1112,8 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
         size_H1 = Get_OneD_HS_Col(1, CntOLP, S1, MP, order_GA, My_NZeros, SP_NZeros, SP_Atoms);
     }
 
+    transformed_s_ready = 0;
+
 diagonalize1:
 
     /* set H1 */
@@ -907,21 +1269,21 @@ diagonalize1:
                 time4 += Etime - Stime;
             }
 
-#pragma acc update     self(ko[0 : n + 1])
+#pragma acc update self(ko[0 : n + 1])
             for (int l = 1; l <= MaxN; l++) {
                 EIGEN[spin][kloop][l] = ko[l];
             }
 
             if (3 <= level_stdout && 0 <= kloop) {
                 printf(" myid0=%2d spin=%2d kloop %i, k1 k2 k3 %10.6f %10.6f %10.6f\n", myid0, spin, kloop,
-                           T_KGrids1[kloop], T_KGrids2[kloop], T_KGrids3[kloop]);
+                       T_KGrids1[kloop], T_KGrids2[kloop], T_KGrids3[kloop]);
                 for (i1 = 1; i1 <= n; i1++) {
                     if (SpinP_switch == 0)
                         printf("  Eigenvalues of Kohn-Sham %2d %15.12f %15.12f\n", i1, EIGEN[0][kloop][i1],
-                                   EIGEN[0][kloop][i1]);
+                               EIGEN[0][kloop][i1]);
                     else
                         printf("  Eigenvalues of Kohn-Sham %2d %15.12f %15.12f\n", i1, EIGEN[0][kloop][i1],
-                                   EIGEN[1][kloop][i1]);
+                               EIGEN[1][kloop][i1]);
                 }
             }
 
@@ -932,8 +1294,8 @@ diagonalize1:
                 dtime(&Etime);
                 time5 += Etime - Stime;
             }
-            } /* kloop0 */
-        } else {
+        } /* kloop0 */
+    } else {
         for (kloop0 = 0; kloop0 < num_kloop0; kloop0++) {
             if (scf_eigen_lib_flag == CuSOLVER) {
                 kloop = S_knum + kloop0;
@@ -974,148 +1336,32 @@ diagonalize1:
                     if (measure_time)
                         dtime(&Stime);
 
-                    if (SCF_iter == 1) {
-//#pragma acc enter data create(Hs[0 : n * n], Ss[0 : n * n], Cs[0 : n * n], ko[0 : n + 1])
-#pragma acc enter data create(Ss[0 : n * n], ko[0 : n + 1])
-                    } else {
-//#pragma acc enter data create(Hs[0 : n * n], Cs[0 : n * n], ko[0 : n + 1])
-#pragma acc enter data create(ko[0 : n + 1])
-#pragma acc enter data copyin(Ss[0 : n * n])
-                    }
+                    if (!transformed_s_ready) {
+                        BandCol_CuSolver_PrepareTransformedS(SCF_iter == 1, n, Ss, ko, koS);
+                        transformed_s_ready = 1;
 
-                    if (SCF_iter == 1) {
-//#pragma acc update device(Hs[0 : n * n], Ss[0 : n * n])
-#pragma acc update device(Ss[0 : n * n])
-                    }
-                    /*else {
-                #pragma acc update device(Hs[0 : n * n])
-                                    }*/
-
-                    if (SCF_iter == 1) {
-                        /* diagonalize S */
-
-                        EigenBand_lapack_openacc(Ss, ko, n, n);
-
-                        if (measure_time) {
+                        if (SCF_iter == 1 && measure_time) {
                             dtime(&Etime);
                             time2 += Etime - Stime;
                             part2_1 += Etime - Stime;
-                            if (SCF_iter != 1) {
-                                part2_1sum += part2_1;
-                            }
-                        }
-
-                        if (measure_time)
-                            dtime(&Stime);
-
-                        /* minus eigenvalues to 1.0e-14 */
-
-#pragma acc kernels
-#pragma acc loop independent
-                        for (int l = 1; l <= n; l++) {
-                            if (ko[l] < 0.0)
-                                ko[l] = 1.0e-10;
-                        }
-
-#pragma acc update self(ko[0 : n + 1])
-                        for (int l = 1; l <= n; l++) {
-                            koS[l] = ko[l];
-                        }
-
-                        /* calculate S*1/sqrt(ko) */
-
-#pragma acc kernels
-#pragma acc loop independent
-                        for (int l = 1; l <= n; l++)
-                            ko[l] = 1.0 / sqrt(ko[l]);
-
-                        {
-
-#pragma acc kernels
-#pragma acc loop independent collapse(2)
-                            for (int i1 = 1; i1 <= n; i1++) {
-                                for (int j1 = 1; j1 <= n; j1++) {
-                                    Ss[(j1 - 1) * n + i1 - 1].r *= ko[j1];
-                                    Ss[(j1 - 1) * n + i1 - 1].i *= ko[j1];
-                                }
-                            }
-
-                        } /* #pragma omp parallel */
-
-                        /* S * 1.0/sqrt(ko[l])  */
-#pragma acc update           self(Ss[0 : n * n])
-
-                        if (measure_time) {
-                            dtime(&Etime);
                             part2_2 += Etime - Stime;
-                            if (SCF_iter != 1) {
-                                part2_2sum += part2_2;
-                            }
                         }
 
                         if (measure_time)
                             dtime(&Stime);
                     }
 
-#pragma acc enter data copyin(Hs[0 : n * n])
-#pragma acc enter data create(Cs[0 : n * n])
-
-                    /****************************************************
-                                        1/sqrt(ko) * U^t * H * U * 1/sqrt(ko)
-                                    ****************************************************/
-
-#pragma acc kernels
-#pragma acc loop independent
-                    for (int i = 0; i < n * n; i++) {
-                        Cs[i].r = 0.0;
-                        Cs[i].i = 0.0;
-                    }
-
-                    my_cublasZgemm_openacc(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, Hs, Ss, Cs);
-
-                    /* pzgemm */
-
-                    /* H * U * 1/sqrt(ko) */
-
-                    /* 1/sqrt(ko) * U^+ H * U * 1/sqrt(ko) */
-
-#pragma acc kernels
-#pragma acc loop independent
-                    for (int i = 0; i < n * n; i++) {
-                        Hs[i].r = 0.0;
-                        Hs[i].i = 0.0;
-                    }
-
-                    my_cublasZgemm_openacc(CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, Ss, Cs, Hs);
-
-#pragma acc kernels
-#pragma acc loop independent
-                    for (int i = 0; i < n * n; i++) {
-                        Cs[i].r = Hs[i].r;
-                        Cs[i].i = Hs[i].i;
-                    }
+                    BandCol_CuSolver_SolveHamiltonian(n, MaxN, Hs, ko, Cs);
 
                     if (measure_time) {
                         dtime(&Etime);
                         time3 += Etime - Stime;
-
                         part2_3 += Etime - Stime;
-                        if (SCF_iter != 1) {
-                            part2_3sum += part2_3;
-                        }
                     }
-
-                    /* diagonalize H' */
 
                     if (measure_time)
                         dtime(&Stime);
 
-#pragma acc update    self(Ss[0 : n * n])
-#pragma acc exit data delete(Hs[0 : n * n], Ss[0 : n * n])
-
-                    EigenBand_lapack_openacc(Cs, ko, n, MaxN);
-
-#pragma acc update self(ko[0 : n + 1])
                     for (l = 1; l <= MaxN; l++) {
                         EIGEN[spin][kloop][l] = ko[l];
                     }
@@ -1124,44 +1370,12 @@ diagonalize1:
                         dtime(&Etime);
                         time4 += Etime - Stime;
                         part2_4 += Etime - Stime;
-                        if (SCF_iter != 1) {
-                            part2_4sum += part2_4;
-                        }
                     }
-
-                    if (measure_time)
-                        dtime(&Stime);
-
-                    if (measure_time)
-                        dtime(&starttime);
-
-#pragma acc enter data create(Hs[0 : n * n])
-#pragma acc enter data copyin(Ss[0 : n * n])
-
-                    /****************************************************
-                                                                      transformation to the original eigenvectors.
-                                                                       NOTE JRCAT-244p and JAIST-2122p
-                                                                    ****************************************************/
-#pragma acc kernels
-#pragma acc loop independent
-                    for (int i = 0; i < n * n; i++) {
-                        Hs[i] = Cs[i];
-                    }
-
-                    /* note for BLAS, A[M*K] * B[K*N] = C[M*N] */
-
-                    my_cublasZgemm_openacc(CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, Hs, Ss, Cs);
-
-#pragma acc update    self(Cs[0 : n * n])
-#pragma acc exit data delete(Hs[0 : n * n], Ss[0 : n * n], Cs[0 : n * n], ko[0 : n + 1])
 
                     if (measure_time) {
+                        dtime(&starttime);
                         dtime(&endtime);
-
                         partmul = endtime - starttime;
-                        if (SCF_iter != 1) {
-                            partmulsum += partmul;
-                        }
                     }
                 }
 
@@ -1522,15 +1736,14 @@ diagonalize1:
                     }
                 }
             }
-
-            // if (measure_time == 1) {
-            //     MPI_Allreduce(MPI_IN_PLACE, &time2, 1, MPI_DOUBLE, MPI_MAX, MPI_CommWD2[myworld2]);
-            //     MPI_Allreduce(MPI_IN_PLACE, &time3, 1, MPI_DOUBLE, MPI_MAX, MPI_CommWD2[myworld2]);
-            //     MPI_Allreduce(MPI_IN_PLACE, &time4, 1, MPI_DOUBLE, MPI_MAX, MPI_CommWD2[myworld2]);
-            //     MPI_Allreduce(MPI_IN_PLACE, &time5, 1, MPI_DOUBLE, MPI_MAX, MPI_CommWD2[myworld2]);
-            // }
-
         } /* kloop0 */
+
+        // if (measure_time == 1) {
+        //     MPI_Allreduce(MPI_IN_PLACE, &time2, 1, MPI_DOUBLE, MPI_MAX, MPI_CommWD2[myworld2]);
+        //     MPI_Allreduce(MPI_IN_PLACE, &time3, 1, MPI_DOUBLE, MPI_MAX, MPI_CommWD2[myworld2]);
+        //     MPI_Allreduce(MPI_IN_PLACE, &time4, 1, MPI_DOUBLE, MPI_MAX, MPI_CommWD2[myworld2]);
+        //     MPI_Allreduce(MPI_IN_PLACE, &time5, 1, MPI_DOUBLE, MPI_MAX, MPI_CommWD2[myworld2]);
+        // }
     }
 
     if (measure_time)
@@ -1885,26 +2098,26 @@ diagonalize1:
                 max_tno = tno;
         }
 
-        /* ---------- ヒープ確保（一回だけ）----------------------------- */
-        const size_t vec_bytes = (size_t)max_tno * nk * sizeof(double);
+        /* ---------- 作業バッファを使い回す ----------------------------- */
+        double * TmpEIGEN_local;
+        double **ReEVec0_local;
+        double **ImEVec0_local;
+        double **ReEVec1_local;
+        double **ImEVec1_local;
 
-        double * buf_Re0        = (double *)malloc(vec_bytes);
-        double * buf_Im0        = (double *)malloc(vec_bytes);
-        double * buf_Re1        = (double *)malloc(vec_bytes);
-        double * buf_Im1        = (double *)malloc(vec_bytes);
-        double * TmpEIGEN_local = (double *)malloc((size_t)nk * sizeof(double));
+        BandCol_DMWorkspace_Ensure(max_tno, nk);
 
-        /* 行ポインタを作る（配列の配列に相当） */
-        double ** ReEVec0_local = (double **)malloc((size_t)max_tno * sizeof(double *));
-        double ** ImEVec0_local = (double **)malloc((size_t)max_tno * sizeof(double *));
-        double ** ReEVec1_local = (double **)malloc((size_t)max_tno * sizeof(double *));
-        double ** ImEVec1_local = (double **)malloc((size_t)max_tno * sizeof(double *));
+        TmpEIGEN_local = BandCol_dm_workspace.TmpEIGEN;
+        ReEVec0_local  = BandCol_dm_workspace.ReEVec0;
+        ImEVec0_local  = BandCol_dm_workspace.ImEVec0;
+        ReEVec1_local  = BandCol_dm_workspace.ReEVec1;
+        ImEVec1_local  = BandCol_dm_workspace.ImEVec1;
 
         for (int i = 0; i < max_tno; ++i) {
-            ReEVec0_local[i] = buf_Re0 + (size_t)i * nk;
-            ImEVec0_local[i] = buf_Im0 + (size_t)i * nk;
-            ReEVec1_local[i] = buf_Re1 + (size_t)i * nk;
-            ImEVec1_local[i] = buf_Im1 + (size_t)i * nk;
+            ReEVec0_local[i] = BandCol_dm_workspace.buf_Re0 + (size_t)i * nk;
+            ImEVec0_local[i] = BandCol_dm_workspace.buf_Im0 + (size_t)i * nk;
+            ReEVec1_local[i] = BandCol_dm_workspace.buf_Re1 + (size_t)i * nk;
+            ImEVec1_local[i] = BandCol_dm_workspace.buf_Im1 + (size_t)i * nk;
         }
 
         /* ---------- Eigen 値をローカルへ -------------------------------- */
@@ -2007,16 +2220,6 @@ diagonalize1:
                 }
             } /* LB_AN */
         } /* GA_AN */
-
-        free(buf_Re0);
-        free(buf_Im0);
-        free(buf_Re1);
-        free(buf_Im1);
-        free(ReEVec0_local);
-        free(ImEVec0_local);
-        free(ReEVec1_local);
-        free(ImEVec1_local);
-        free(TmpEIGEN_local);
 
         if (measure_time) {
             dtime(&Etime0);
@@ -3350,8 +3553,7 @@ diagonalize1:
     ****************************************************/
 
     if (all_knum != 1 && scf_eigen_lib_flag == CuSOLVER) {
-#pragma acc exit data delete(Ss[0 : n * n], Hs[0 : n * n], Cs[0 : n * n],          \
-                             ko[0 : n + 1])
+#pragma acc exit data delete(Ss[0 : n * n], Hs[0 : n * n], Cs[0 : n * n], ko[0 : n + 1])
     }
 
     if (all_knum == 1) {
