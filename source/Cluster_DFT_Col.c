@@ -19,6 +19,7 @@
 #include <openacc.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <time.h>
 
@@ -52,6 +53,336 @@ static double Calc_DM_Cluster_collinear(int myid0, int numprocs0, int myid1, int
                                         int * Comm_World_StartID1, double ***** CDM, double ***** EDM, double ** ko,
                                         double * DM1, double * EDM1, double * PDM1, double * Work1, double ** EVec1,
                                         int * SP_NZeros, int * SP_Atoms);
+
+static void ClusterCol_AbortWithMessage(const char *message)
+{
+    fprintf(stderr, "%s\n", message);
+    fflush(stderr);
+    MPI_Abort(mpi_comm_level1, 1);
+}
+
+static size_t ClusterCol_CheckedMulCount(size_t a, size_t b, const char *label)
+{
+    if (a != 0 && b > SIZE_MAX / a) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Dimension overflow in Cluster_DFT_Col.c: %s", label);
+        ClusterCol_AbortWithMessage(msg);
+    }
+
+    return a * b;
+}
+
+static size_t ClusterCol_CheckedArrayBytes(size_t count, size_t elem_size, const char *label)
+{
+    if (count != 0 && elem_size > SIZE_MAX / count) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Allocation size overflow in Cluster_DFT_Col.c: %s", label);
+        ClusterCol_AbortWithMessage(msg);
+    }
+
+    return count * elem_size;
+}
+
+static void *ClusterCol_MallocArray(size_t count, size_t elem_size, const char *label)
+{
+    size_t bytes = ClusterCol_CheckedArrayBytes(count, elem_size, label);
+    void * ptr = malloc((bytes == 0) ? 1 : bytes);
+
+    if (ptr == NULL) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Out of memory in Cluster_DFT_Col.c: %s (%zu bytes)", label, bytes);
+        ClusterCol_AbortWithMessage(msg);
+    }
+
+    return ptr;
+}
+
+static int ClusterCol_DenseMatrixOwner(void)
+{
+    return (my_prow == 0 && my_pcol == 0);
+}
+
+typedef struct {
+    int                initialized;
+    int                device_id;
+    int                matrix_dim;
+    int                transformed_s_valid;
+    int                transformed_s_dim;
+    size_t             d_work_bytes;
+    size_t             h_work_bytes;
+    cudaStream_t       stream;
+    cublasHandle_t     cublas;
+    cusolverDnHandle_t cusolver;
+    double *           d_S;
+    double *           d_H;
+    double *           d_tmp;
+    double *           d_W;
+    int32_t *          d_info;
+    void *             d_work;
+    void *             h_work;
+} ClusterColCuSolverCtx;
+
+static ClusterColCuSolverCtx ClusterCol_cusolver_ctx = {0};
+
+static void ClusterCol_CuSolver_Destroy(void)
+{
+    ClusterColCuSolverCtx *ctx = &ClusterCol_cusolver_ctx;
+
+    if (ctx->d_S != NULL)
+        wait_cudafunc(cudaFree(ctx->d_S));
+    if (ctx->d_H != NULL)
+        wait_cudafunc(cudaFree(ctx->d_H));
+    if (ctx->d_tmp != NULL)
+        wait_cudafunc(cudaFree(ctx->d_tmp));
+    if (ctx->d_W != NULL)
+        wait_cudafunc(cudaFree(ctx->d_W));
+    if (ctx->d_info != NULL)
+        wait_cudafunc(cudaFree(ctx->d_info));
+    if (ctx->d_work != NULL)
+        wait_cudafunc(cudaFree(ctx->d_work));
+    if (ctx->h_work != NULL)
+        free(ctx->h_work);
+    if (ctx->cusolver != NULL)
+        wait_cudafunc(cusolverDnDestroy(ctx->cusolver));
+    if (ctx->cublas != NULL)
+        wait_cudafunc(cublasDestroy(ctx->cublas));
+    if (ctx->stream != NULL)
+        wait_cudafunc(cudaStreamDestroy(ctx->stream));
+
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->device_id = -1;
+}
+
+static void ClusterCol_CuSolver_Init(void)
+{
+    ClusterColCuSolverCtx *ctx = &ClusterCol_cusolver_ctx;
+    int                    current_device;
+
+    wait_cudafunc(cudaGetDevice(&current_device));
+
+    if (ctx->initialized && ctx->device_id == current_device) {
+        return;
+    }
+
+    if (ctx->initialized) {
+        ClusterCol_CuSolver_Destroy();
+    }
+
+    wait_cudafunc(cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking));
+    wait_cudafunc(cublasCreate(&ctx->cublas));
+    wait_cudafunc(cusolverDnCreate(&ctx->cusolver));
+    wait_cudafunc(cublasSetStream(ctx->cublas, ctx->stream));
+    wait_cudafunc(cusolverDnSetStream(ctx->cusolver, ctx->stream));
+
+    ctx->initialized = 1;
+    ctx->device_id   = current_device;
+}
+
+static void ClusterCol_CuSolver_EnsureMatrixCapacity(int num)
+{
+    ClusterColCuSolverCtx *ctx = &ClusterCol_cusolver_ctx;
+    size_t                 matrix_bytes;
+
+    if (num <= 0) {
+        ClusterCol_AbortWithMessage("Invalid matrix size in ClusterCol_CuSolver_EnsureMatrixCapacity.");
+    }
+
+    ClusterCol_CuSolver_Init();
+
+    if (num <= ctx->matrix_dim) {
+        return;
+    }
+
+    if (ctx->d_S != NULL)
+        wait_cudafunc(cudaFree(ctx->d_S));
+    if (ctx->d_H != NULL)
+        wait_cudafunc(cudaFree(ctx->d_H));
+    if (ctx->d_tmp != NULL)
+        wait_cudafunc(cudaFree(ctx->d_tmp));
+    if (ctx->d_W != NULL)
+        wait_cudafunc(cudaFree(ctx->d_W));
+    if (ctx->d_info != NULL)
+        wait_cudafunc(cudaFree(ctx->d_info));
+
+    matrix_bytes = ClusterCol_CheckedArrayBytes(ClusterCol_CheckedMulCount((size_t)num, (size_t)num,
+                                                                           "ClusterCol CuSOLVER dense matrix"),
+                                                sizeof(double), "ClusterCol CuSOLVER dense matrix");
+
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_S, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_H, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_tmp, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_W,
+                             ClusterCol_CheckedArrayBytes((size_t)num, sizeof(double),
+                                                          "ClusterCol CuSOLVER eigenvalue buffer")));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_info, sizeof(int32_t)));
+
+    ctx->matrix_dim          = num;
+    ctx->transformed_s_valid = 0;
+    ctx->transformed_s_dim   = 0;
+}
+
+static void ClusterCol_CuSolver_EnsureWorkspace(int m, int maxn, double *d_A)
+{
+    ClusterColCuSolverCtx *ctx = &ClusterCol_cusolver_ctx;
+    cusolverEigMode_t      jobz = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t       uplo = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t     range;
+    double                 vl = 0.0;
+    double                 vu = 0.0;
+    int64_t                h_meig = 0;
+    size_t                 d_bytes = 0;
+    size_t                 h_bytes = 0;
+
+    if (m <= 0 || maxn <= 0 || maxn > m) {
+        ClusterCol_AbortWithMessage("Invalid eigensolver dimensions in ClusterCol_CuSolver_EnsureWorkspace.");
+    }
+
+    ClusterCol_CuSolver_EnsureMatrixCapacity(m);
+
+    range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+
+    wait_cudafunc(cusolverDnXsyevdx_bufferSize(ctx->cusolver, NULL, jobz, range, uplo, m,
+                                               CUDA_R_64F, d_A, m, &vl, &vu, 1L, maxn, &h_meig,
+                                               CUDA_R_64F, ctx->d_W, CUDA_R_64F, &d_bytes, &h_bytes));
+
+    if (d_bytes > ctx->d_work_bytes) {
+        if (ctx->d_work != NULL)
+            wait_cudafunc(cudaFree(ctx->d_work));
+        ctx->d_work = NULL;
+        if (d_bytes > 0) {
+            wait_cudafunc(cudaMalloc((void **)&ctx->d_work, d_bytes));
+        }
+        ctx->d_work_bytes = d_bytes;
+    }
+
+    if (h_bytes == 0) {
+        if (ctx->h_work != NULL)
+            free(ctx->h_work);
+        ctx->h_work       = NULL;
+        ctx->h_work_bytes = 0;
+    } else if (h_bytes > ctx->h_work_bytes) {
+        if (ctx->h_work != NULL)
+            free(ctx->h_work);
+        ctx->h_work = ClusterCol_MallocArray(h_bytes, 1, "ClusterCol CuSOLVER host workspace");
+        ctx->h_work_bytes = h_bytes;
+    }
+}
+
+static void ClusterCol_CuSolver_Eigen(double *d_A, int m, int maxn, double *W)
+{
+    ClusterColCuSolverCtx *ctx = &ClusterCol_cusolver_ctx;
+    cusolverEigMode_t      jobz = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t       uplo = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t     range;
+    double                 vl = 0.0;
+    double                 vu = 0.0;
+    int64_t                h_meig = 0;
+    int32_t                info = 0;
+    char                   msg[256];
+
+    ClusterCol_CuSolver_EnsureWorkspace(m, maxn, d_A);
+    range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+
+    wait_cudafunc(cusolverDnXsyevdx(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_R_64F,
+                                    d_A, m, &vl, &vu, 1L, maxn, &h_meig, CUDA_R_64F,
+                                    ctx->d_W, CUDA_R_64F, ctx->d_work, ctx->d_work_bytes,
+                                    ctx->h_work, ctx->h_work_bytes, ctx->d_info));
+
+    wait_cudafunc(cudaMemcpyAsync(W, ctx->d_W, sizeof(double) * (size_t)maxn,
+                                  cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(&info, ctx->d_info, sizeof(int32_t),
+                                  cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+
+    if (info != 0) {
+        snprintf(msg, sizeof(msg), "cusolverDnXsyevdx failed in Cluster_DFT_Col.c: info=%d", (int)info);
+        ClusterCol_AbortWithMessage(msg);
+    }
+}
+
+static void ClusterCol_CuSolver_PrepareTransformedS(int SCF_iter, int n, double *Ss, double *ko0)
+{
+    ClusterColCuSolverCtx *ctx = &ClusterCol_cusolver_ctx;
+    size_t                 matrix_bytes;
+    double *               d_scale_matrix;
+    double *               d_scale_tmp;
+    double *               d_scale_vals;
+    int                    l;
+
+    ClusterCol_CuSolver_EnsureMatrixCapacity(n);
+
+    matrix_bytes = ClusterCol_CheckedArrayBytes(ClusterCol_CheckedMulCount((size_t)n, (size_t)n,
+                                                                           "ClusterCol transformed overlap"),
+                                                sizeof(double), "ClusterCol transformed overlap");
+
+    if (SCF_iter == 1) {
+        wait_cudafunc(cudaMemcpyAsync(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
+        ClusterCol_CuSolver_Eigen(ctx->d_S, n, n, ko0 + 1);
+
+        for (l = 1; l <= n; l++) {
+            if (ko0[l] < 0.0) {
+                ko0[l] = 1.0e-10;
+            }
+            ko0[l] = 1.0 / sqrt(ko0[l]);
+        }
+
+        wait_cudafunc(cudaMemcpyAsync(ctx->d_W, ko0 + 1, sizeof(double) * (size_t)n,
+                                      cudaMemcpyHostToDevice, ctx->stream));
+
+        d_scale_matrix = ctx->d_S;
+        d_scale_tmp    = ctx->d_tmp;
+        d_scale_vals   = ctx->d_W;
+
+        wait_cudafunc(cublasDdgmm(ctx->cublas, CUBLAS_SIDE_RIGHT, n, n,
+                                  d_scale_matrix, n, d_scale_vals, 1, d_scale_tmp, n));
+
+        ctx->d_S   = d_scale_tmp;
+        ctx->d_tmp = d_scale_matrix;
+
+        wait_cudafunc(cudaMemcpyAsync(Ss, ctx->d_S, matrix_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+        wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+
+        ctx->transformed_s_valid = 1;
+        ctx->transformed_s_dim   = n;
+    } else if (!(ctx->transformed_s_valid && ctx->transformed_s_dim == n)) {
+        wait_cudafunc(cudaMemcpyAsync(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
+        wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+        ctx->transformed_s_valid = 1;
+        ctx->transformed_s_dim   = n;
+    }
+}
+
+static void ClusterCol_CuSolver_SolveHamiltonian(int n, int maxn, const double *H_in, double *ko_spin, double *H_out)
+{
+    ClusterColCuSolverCtx *ctx = &ClusterCol_cusolver_ctx;
+    size_t                 matrix_bytes;
+    double                 alpha = 1.0;
+    double                 beta  = 0.0;
+
+    if (!(ctx->transformed_s_valid && ctx->transformed_s_dim == n)) {
+        ClusterCol_AbortWithMessage("Transformed overlap is not ready in ClusterCol_CuSolver_SolveHamiltonian.");
+    }
+
+    matrix_bytes = ClusterCol_CheckedArrayBytes(ClusterCol_CheckedMulCount((size_t)n, (size_t)n,
+                                                                           "ClusterCol Hamiltonian matrix"),
+                                                sizeof(double), "ClusterCol Hamiltonian matrix");
+
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_H, H_in, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
+
+    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n,
+                              &alpha, ctx->d_H, n, ctx->d_S, n, &beta, ctx->d_tmp, n));
+
+    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n,
+                              &alpha, ctx->d_S, n, ctx->d_tmp, n, &beta, ctx->d_H, n));
+
+    ClusterCol_CuSolver_Eigen(ctx->d_H, n, maxn, ko_spin + 1);
+
+    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_T, n, n, n,
+                              &alpha, ctx->d_H, n, ctx->d_S, n, &beta, ctx->d_tmp, n));
+
+    wait_cudafunc(cudaMemcpyAsync(H_out, ctx->d_tmp, matrix_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+}
 
 double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko, double ***** nh, double **** CntOLP,
                        double ***** CDM, double ***** EDM, double Eele0[2], double Eele1[2], int myworld1,
@@ -90,7 +421,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
     double     OLP_eigen_cut    = Threshold_OLP_Eigen;
     char       file_EV[YOUSO10] = ".EV";
     char       buf[fp_bsize]; /* setvbuf */
-    FILE *     fp_EV;
+    FILE *     fp_EV = NULL;
     double     stime, etime;
     double     time1, time2, time3, time4, time5, time6, time7;
 
@@ -150,11 +481,11 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
    double  H[List_YOUSO[23]][n2][n2]  
   ****************************************************/
 
-    is1 = (int *)malloc(sizeof(int) * numprocs1);
-    ie1 = (int *)malloc(sizeof(int) * numprocs1);
+    is1 = (int *)ClusterCol_MallocArray((size_t)numprocs1, sizeof(int), "is1");
+    ie1 = (int *)ClusterCol_MallocArray((size_t)numprocs1, sizeof(int), "ie1");
 
-    Num_Snd_EV = (int *)malloc(sizeof(int) * numprocs1);
-    Num_Rcv_EV = (int *)malloc(sizeof(int) * numprocs1);
+    Num_Snd_EV = (int *)ClusterCol_MallocArray((size_t)numprocs1, sizeof(int), "Num_Snd_EV");
+    Num_Rcv_EV = (int *)ClusterCol_MallocArray((size_t)numprocs1, sizeof(int), "Num_Rcv_EV");
 
     if (measure_time) {
         time1 = 0.0;
@@ -236,10 +567,11 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
 
         double * hm;
 
-        if (myid1 == 0) {
-            hm = (double *)malloc(sizeof(double) * n * n);
+        if (ClusterCol_DenseMatrixOwner()) {
+            hm = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)n, (size_t)n, "GPU dense Hamiltonian"),
+                                                  sizeof(double), "GPU dense Hamiltonian");
         } else {
-            hm = (double *)malloc(sizeof(double) * 1);
+            hm = (double *)ClusterCol_MallocArray(1, sizeof(double), "dummy GPU dense Hamiltonian");
         }
 
         if (measure_time) {
@@ -263,48 +595,9 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
         bool second_time = false;
     diagonalize_gpu:
 
-        if (myid1 == 0) {
-#pragma acc enter data copyin(Ss[0 : n * n])
-            if (SCF_iter == 1 && !second_time) {
-#pragma acc enter data create(ko[0 : SpinP_switch + 1][0 : n + 1])
-                Eigen_cusolver_x_openacc2(Ss, ko[0], n, n);
-
-                // #pragma acc update self(Ss[0 : n * n])
-                //             for (int i = 0; i < n * n; i++) {
-                //                 printf("%.7f ", Ss[i]);
-                //             }
-                //             puts("");
-
-                /* minus eigenvalues to 1.0e-10 */
-#pragma acc kernels
-#pragma acc loop independent
-                for (l = 1; l <= n; l++) {
-                    if (ko[0][l] < 0.0)
-                        ko[0][l] = 1.0e-10;
-                }
-
-                /* calculate S*1/sqrt(ko) */
-#pragma acc kernels
-#pragma acc loop independent
-                for (l = 1; l <= n; l++) {
-                    ko[0][l] = 1.0 / sqrt(ko[0][l]);
-                }
-
-#pragma acc kernels
-#pragma acc loop independent
-                for (i = 0; i < n; i++) {
-#pragma acc loop independent
-                    for (j = 0; j < n; j++) {
-                        //jg = np_cols * nblk * ((j) / nblk) + (j) % nblk + ((np_cols + my_pcol) % np_cols) * nblk + 1;
-                        Ss[n * j + i] *= ko[0][j + 1];
-                    }
-                }
-
-#pragma acc update     self(Ss[0 : n * n])
-            } else if (SCF_iter != 1 && !second_time) {
-    #pragma acc enter data create(ko[0 : SpinP_switch + 1][0 : n + 1])
-            } else if (second_time) {
-    #pragma acc enter data copyin(ko[0 : SpinP_switch + 1][0 : n + 1])
+        if (ClusterCol_DenseMatrixOwner()) {
+            if (!second_time) {
+                ClusterCol_CuSolver_PrepareTransformedS(SCF_iter, n, Ss, ko[0]);
             }
 
             /* find the maximum states in solved eigenvalues */
@@ -336,18 +629,13 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
 
             /* initialize ko */
 
-#pragma acc kernels
             if (!second_time) {
-#pragma acc loop independent
                 for (spin = 0; spin <= SpinP_switch; spin++) {
                     for (i1 = 1; i1 <= n; i1++) {
                         ko[spin][i1] = 10000.0;
                     }
                 }
             }
-
-#pragma acc enter data copyin(hm[0 : n * n])
-#pragma acc enter data create(Cs[0 : n * n])
 
             /* spin=myworld1 */
 
@@ -360,53 +648,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
             if (measure_time)
                 dtime(&stime);
 
-            /* pdgemm */
-
-            /* H * U * 1.0/sqrt(ko[l]) */
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                Cs[i] = 0.0;
-            }
-
-            my_cublasDgemm_openacc(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, hm, Ss, Cs);
-
-            /* 1.0/sqrt(ko[l]) * U^+ H * U * 1.0/sqrt(ko[l]) */
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (int i = 0; i < n * n; i++) {
-                hm[i] = 0.0;
-            }
-
-            my_cublasDgemm_openacc(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, hm);
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (int i = 0; i < n; i++) {
-#pragma acc loop independent
-                for (int j = 0; j < n; j++) {
-                    Cs[j * n + i] = hm[j * n + i];
-                }
-            }
-
-#pragma acc exit data delete(hm[0 : n * n], Ss[0 : n * n])
-
-            Eigen_cusolver_x_openacc2(Cs, ko[spin], n, MaxN);
-
-#pragma acc enter data copyin(Ss[0 : n * n])
-#pragma acc enter data create(hm[0 : n * n])
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                hm[i] = 0.0;
-            }
-
-            my_cublasDgemm_openacc(CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, Cs, Ss, hm);
-
-#pragma acc update    self(hm[0 : n * n], ko[0 : SpinP_switch + 1][0 : n + 1])
-#pragma acc exit data delete(hm[0 : n * n], Ss[0 : n * n], Cs[0 : n * n], ko[0 : SpinP_switch + 1][0 : n + 1])
+            ClusterCol_CuSolver_SolveHamiltonian(n, MaxN, hm, ko[spin], hm);
         }
 
         int desc_global[9];
@@ -493,12 +735,12 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
         Max_Num_Snd_EV++;
         Max_Num_Rcv_EV++;
 
-        index_Snd_i = (int *)malloc(sizeof(int) * Max_Num_Snd_EV);
-        index_Snd_j = (int *)malloc(sizeof(int) * Max_Num_Snd_EV);
-        EVec_Snd    = (double *)malloc(sizeof(double) * Max_Num_Snd_EV);
-        index_Rcv_i = (int *)malloc(sizeof(int) * Max_Num_Rcv_EV);
-        index_Rcv_j = (int *)malloc(sizeof(int) * Max_Num_Rcv_EV);
-        EVec_Rcv    = (double *)malloc(sizeof(double) * Max_Num_Rcv_EV);
+        index_Snd_i = (int *)ClusterCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(int), "index_Snd_i");
+        index_Snd_j = (int *)ClusterCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(int), "index_Snd_j");
+        EVec_Snd    = (double *)ClusterCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(double), "EVec_Snd");
+        index_Rcv_i = (int *)ClusterCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(int), "index_Rcv_i");
+        index_Rcv_j = (int *)ClusterCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(int), "index_Rcv_j");
+        EVec_Rcv    = (double *)ClusterCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(double), "EVec_Rcv");
 
         /* MPI communications of Hs */
 
@@ -777,12 +1019,12 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
         Max_Num_Snd_EV++;
         Max_Num_Rcv_EV++;
 
-        index_Snd_i = (int *)malloc(sizeof(int) * Max_Num_Snd_EV);
-        index_Snd_j = (int *)malloc(sizeof(int) * Max_Num_Snd_EV);
-        EVec_Snd    = (double *)malloc(sizeof(double) * Max_Num_Snd_EV);
-        index_Rcv_i = (int *)malloc(sizeof(int) * Max_Num_Rcv_EV);
-        index_Rcv_j = (int *)malloc(sizeof(int) * Max_Num_Rcv_EV);
-        EVec_Rcv    = (double *)malloc(sizeof(double) * Max_Num_Rcv_EV);
+        index_Snd_i = (int *)ClusterCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(int), "index_Snd_i");
+        index_Snd_j = (int *)ClusterCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(int), "index_Snd_j");
+        EVec_Snd    = (double *)ClusterCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(double), "EVec_Snd");
+        index_Rcv_i = (int *)ClusterCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(int), "index_Rcv_i");
+        index_Rcv_j = (int *)ClusterCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(int), "index_Rcv_j");
+        EVec_Rcv    = (double *)ClusterCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(double), "EVec_Rcv");
 
         /* for PrintMemory */
 
@@ -1039,7 +1281,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
                     if (fabs(Dnum) < 1.0e-14)
                         po = 1;
 
-                    if (myid1 == Host_ID && 2 <= level_stdout) {
+                    if (myid0 == Host_ID && 2 <= level_stdout) {
                         printf("spin=%2d ChemP=%15.12f HOMO_XANES=%2d Num_state=%15.12f\n", spin, ChemP,
                                HOMO_XANES[spin], Num_State);
                     }
@@ -1103,7 +1345,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
                 if (fabs(Dnum) < 1.0e-14)
                     po = 1;
 
-                if (myid1 == Host_ID && 2 <= level_stdout) {
+                if (myid0 == Host_ID && 2 <= level_stdout) {
                     printf("ChemP=%15.12f TZ=%15.12f Num_state=%15.12f\n", ChemP, TZ, Num_State);
                 }
 
@@ -1150,7 +1392,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
                 if (fabs(Dnum) < 1.0e-14)
                     po = 1;
 
-                if (myid1 == Host_ID && 2 <= level_stdout) {
+                if (myid0 == Host_ID && 2 <= level_stdout) {
                     printf("ChemP=%15.12f TZ=%15.12f Num_state=%15.12f\n", ChemP, TZ, Num_State);
                 }
 
@@ -1158,7 +1400,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
 
             } while (po == 0 && loopN < 1000);
 
-            if (2 <= level_stdout) {
+            if (myid0 == Host_ID && 2 <= level_stdout) {
                 printf("  ChemP=%15.12f\n", ChemP);
             }
 
@@ -1235,9 +1477,9 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
             int *    is3, *ie3;
             int      numprocs3, ID1;
 
-            array0 = (double *)malloc(sizeof(double) * (n + 2));
-            is3    = (int *)malloc(sizeof(int) * numprocs0);
-            ie3    = (int *)malloc(sizeof(int) * numprocs0);
+            array0 = (double *)ClusterCol_MallocArray((size_t)(n + 2), sizeof(double), "MO array0");
+            is3    = (int *)ClusterCol_MallocArray((size_t)numprocs0, sizeof(int), "MO is3");
+            ie3    = (int *)ClusterCol_MallocArray((size_t)numprocs0, sizeof(int), "MO ie3");
 
             /* HOMOs */
 
@@ -1476,9 +1718,12 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
 
         if (myid0 == Host_ID) {
 
-            sprintf(file_EV, "%s%s.EV", filepath, filename);
+            if (snprintf(file_EV, sizeof(file_EV), "%s%s.EV", filepath, filename) >= (int)sizeof(file_EV)) {
+                ClusterCol_AbortWithMessage("Output path is too long for EV file.");
+            }
 
-            if ((fp_EV = fopen(file_EV, "w")) != NULL) {
+            fp_EV = fopen(file_EV, "w");
+            if (fp_EV != NULL) {
 
                 setvbuf(fp_EV, buf, _IOFBF, fp_bsize); /* setvbuf */
 
@@ -1506,26 +1751,30 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
                     else if (SpinP_switch == 1)
                         fprintf(fp_EV, "      %5d %18.14f %18.14f\n", i1, ko[0][i1], ko[1][i1]);
                 }
+                fclose(fp_EV);
+                fp_EV = NULL;
+            } else {
+                printf("Failure of saving the EV file.\n");
             }
-
-            /* fclose of fp_EV */
-            fclose(fp_EV);
         }
 
         if (2 <= level_fileout) {
 
             if (myid0 == Host_ID) {
 
-                sprintf(file_EV, "%s%s.EV", filepath, filename);
+                if (snprintf(file_EV, sizeof(file_EV), "%s%s.EV", filepath, filename) >= (int)sizeof(file_EV)) {
+                    ClusterCol_AbortWithMessage("Output path is too long for EV file.");
+                }
 
-                if ((fp_EV = fopen(file_EV, "a")) != NULL) {
+                fp_EV = fopen(file_EV, "a");
+                if (fp_EV != NULL) {
                     setvbuf(fp_EV, buf, _IOFBF, fp_bsize); /* setvbuf */
                 } else {
                     printf("Failure of saving the EV file.\n");
                 }
             }
 
-            if (myid0 == Host_ID) {
+            if (myid0 == Host_ID && fp_EV != NULL) {
 
                 fprintf(fp_EV, "\n");
                 fprintf(fp_EV, "***********************************************************\n");
@@ -1552,9 +1801,11 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
             int *    is3, *ie3;
             int      numprocs3, ID1;
 
-            array0 = (double *)malloc(sizeof(double) * (n + 2) * 7);
-            is3    = (int *)malloc(sizeof(int) * numprocs0);
-            ie3    = (int *)malloc(sizeof(int) * numprocs0);
+            array0 = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)(n + 2), 7u,
+                                                                                  "EV vector output scratch"),
+                                                      sizeof(double), "EV vector output scratch");
+            is3    = (int *)ClusterCol_MallocArray((size_t)numprocs0, sizeof(int), "EV vector is3");
+            ie3    = (int *)ClusterCol_MallocArray((size_t)numprocs0, sizeof(int), "EV vector ie3");
 
             /* start of loop spin and i */
 
@@ -1592,7 +1843,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
 
                 for (i = 1; i <= num1; i++) {
 
-                    if (myid0 == Host_ID) {
+                    if (myid0 == Host_ID && fp_EV != NULL) {
 
                         /* header */
                         fprintf(fp_EV, "\n");
@@ -1708,7 +1959,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
                     Name_Multiple[4] = "4";
                     Name_Multiple[5] = "5";
 
-                    if (myid0 == Host_ID) {
+                    if (myid0 == Host_ID && fp_EV != NULL) {
 
                         i1 = 1;
                         for (Gc_AN = 1; Gc_AN <= atomnum; Gc_AN++) {
@@ -1751,7 +2002,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
 
             /* fclose of fp_EV */
 
-            if (myid0 == Host_ID) {
+            if (myid0 == Host_ID && fp_EV != NULL) {
                 fclose(fp_EV);
             }
 
@@ -1833,8 +2084,8 @@ double Calc_DM_Cluster_collinear(int myid0, int numprocs0, int myid1, int numpro
 
     /* allocation of arrays */
 
-    FF  = (double *)malloc(sizeof(double) * (n + 1));
-    dFF = (double *)malloc(sizeof(double) * (n + 1));
+    FF  = (double *)ClusterCol_MallocArray((size_t)(n + 1), sizeof(double), "Calc_DM FF");
+    dFF = (double *)ClusterCol_MallocArray((size_t)(n + 1), sizeof(double), "Calc_DM dFF");
 
     /* spin=myworld1 */
 
@@ -2138,7 +2389,7 @@ void Save_DOS_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, do
     int         i_vec[10];
     double      dum, tmp, av_num;
     char        file_eig[YOUSO10], file_ev[YOUSO10];
-    FILE *      fp_eig, *fp_ev;
+    FILE *      fp_eig = NULL, *fp_ev = NULL;
     MPI_Status  stat;
     MPI_Request request;
     float *     array0;
@@ -2153,10 +2404,12 @@ void Save_DOS_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, do
 
     /* allocation of arrays */
 
-    array0 = (float *)malloc(sizeof(float) * (n + 2));
-    is3    = (int *)malloc(sizeof(int) * numprocs);
-    ie3    = (int *)malloc(sizeof(int) * numprocs);
-    SD     = (float *)malloc(sizeof(float) * (atomnum + 1) * List_YOUSO[7]);
+    array0 = (float *)ClusterCol_MallocArray((size_t)(n + 2), sizeof(float), "DOS array0");
+    is3    = (int *)ClusterCol_MallocArray((size_t)numprocs, sizeof(int), "DOS is3");
+    ie3    = (int *)ClusterCol_MallocArray((size_t)numprocs, sizeof(int), "DOS ie3");
+    SD     = (float *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)(atomnum + 1), (size_t)List_YOUSO[7],
+                                                                        "DOS SD dimensions"),
+                                             sizeof(float), "DOS SD");
 
     /* open file pointers */
 
@@ -2281,7 +2534,7 @@ void Save_DOS_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, do
                 SD[i] = 0.0;
 
             i_vec[0] = i_vec[1] = i_vec[2] = 0;
-            if (myid == Host_ID)
+            if (myid == Host_ID && fp_ev != NULL)
                 fwrite(i_vec, sizeof(int), 3, fp_ev);
 
             for (MA_AN = 1; MA_AN <= Matomnum; MA_AN++) {
@@ -2316,7 +2569,7 @@ void Save_DOS_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, do
 
             /* write *.Dos.vec */
 
-            if (myid == Host_ID) {
+            if (myid == Host_ID && fp_ev != NULL) {
                 fwrite(&SD[1], sizeof(float), n, fp_ev);
             }
 
@@ -2327,7 +2580,7 @@ void Save_DOS_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, do
                    save *.Dos.val
   ****************************************************/
 
-    if (myid == Host_ID) {
+    if (myid == Host_ID && fp_eig != NULL) {
 
         fprintf(fp_eig, "mode        1\n");
         fprintf(fp_eig, "NonCol      0\n");
@@ -2382,9 +2635,9 @@ void Save_DOS_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, do
     /* close file pointers */
 
     if (myid == Host_ID) {
-        if (fp_eig)
+        if (fp_eig != NULL)
             fclose(fp_eig);
-        if (fp_ev)
+        if (fp_ev != NULL)
             fclose(fp_ev);
     }
 
@@ -2407,7 +2660,7 @@ void Save_LCAO_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, d
     double      dum, tmp, av_num, FermiF, x;
     double      max_x = 60.0;
     char        operate[YOUSO10];
-    FILE *      fp1;
+    FILE *      fp1 = NULL;
     MPI_Status  stat;
     MPI_Request request;
     double *    array0;
@@ -2421,15 +2674,17 @@ void Save_LCAO_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, d
 
     /* allocation of arrays */
 
-    array0 = (double *)malloc(sizeof(double) * (n + 2));
-    is3    = (int *)malloc(sizeof(int) * numprocs);
-    ie3    = (int *)malloc(sizeof(int) * numprocs);
+    array0 = (double *)ClusterCol_MallocArray((size_t)(n + 2), sizeof(double), "LCAO array0");
+    is3    = (int *)ClusterCol_MallocArray((size_t)numprocs, sizeof(int), "LCAO is3");
+    ie3    = (int *)ClusterCol_MallocArray((size_t)numprocs, sizeof(int), "LCAO ie3");
 
     /* open file pointer */
 
     if (myid == Host_ID) {
 
-        sprintf(operate, "%s%s.lcao", filepath, filename);
+        if (snprintf(operate, sizeof(operate), "%s%s.lcao", filepath, filename) >= (int)sizeof(operate)) {
+            ClusterCol_AbortWithMessage("Output path is too long for LCAO file.");
+        }
         fp1 = fopen(operate, "ab");
 
         if (fp1 != NULL) {
@@ -2467,7 +2722,7 @@ void Save_LCAO_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, d
 
     /* Save parameters */
 
-    if (myid == Host_ID) {
+    if (myid == Host_ID && fp1 != NULL) {
         fwrite(&n, sizeof(int), 1, fp1);
         fwrite(&MaxN, sizeof(int), 1, fp1);
         if (SpinP_switch == 0)
@@ -2547,7 +2802,7 @@ void Save_LCAO_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, d
 
             /* Save array0 */
 
-            if (myid == Host_ID) {
+            if (myid == Host_ID && fp1 != NULL) {
                 fwrite(array0, sizeof(double), n, fp1);
             }
 
@@ -2557,7 +2812,7 @@ void Save_LCAO_Col(int n, int MaxN, int myid1, int * is2, int * ie2, int * MP, d
     /* close file pointer */
 
     if (myid == Host_ID) {
-        if (fp1)
+        if (fp1 != NULL)
             fclose(fp1);
     }
 
@@ -2587,7 +2842,7 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
     double      sum, dum, tmp, av_num, sumx, sumy, sumz;
     char        operate[YOUSO10];
     char        buf[fp_bsize]; /* setvbuf */
-    FILE *      fp1;
+    FILE *      fp1 = NULL;
     MPI_Status  stat;
     MPI_Request request;
     double *    array0;
@@ -2618,13 +2873,14 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
 
     /* allocation of arrays */
 
-    array0 = (double *)malloc(sizeof(double) * (n + 2));
-    is3    = (int *)malloc(sizeof(int) * numprocs);
-    ie3    = (int *)malloc(sizeof(int) * numprocs);
+    array0 = (double *)ClusterCol_MallocArray((size_t)(n + 2), sizeof(double), "XANES array0");
+    is3    = (int *)ClusterCol_MallocArray((size_t)numprocs, sizeof(int), "XANES is3");
+    ie3    = (int *)ClusterCol_MallocArray((size_t)numprocs, sizeof(int), "XANES ie3");
 
-    C2 = (double **)malloc(sizeof(double *) * (SpinP_switch + 1));
+    C2 = (double **)ClusterCol_MallocArray((size_t)(SpinP_switch + 1), sizeof(double *), "XANES C2");
     for (spin = 0; spin <= SpinP_switch; spin++) {
-        C2[spin] = (double *)malloc(sizeof(double) * n * MaxN);
+        C2[spin] = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)n, (size_t)MaxN, "XANES C2 row"),
+                                                    sizeof(double), "XANES C2 row");
     }
 
     /* set iemin and imax */
@@ -2718,7 +2974,9 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
 
     /* open file pointer */
 
-    sprintf(operate, "%s%s", filepath, xanes_gs_file);
+    if (snprintf(operate, sizeof(operate), "%s%s", filepath, xanes_gs_file) >= (int)sizeof(operate)) {
+        ClusterCol_AbortWithMessage("Input path is too long for xanes ground-state file.");
+    }
 
     if ((fp1 = fopen(operate, "rb")) != NULL) {
 
@@ -2732,9 +2990,11 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
 
         /* allocation of C1 */
 
-        C1 = (double **)malloc(sizeof(double *) * (SpinP_switch1 + 1));
+        C1 = (double **)ClusterCol_MallocArray((size_t)(SpinP_switch1 + 1), sizeof(double *), "XANES C1");
         for (spin = 0; spin <= SpinP_switch1; spin++) {
-            C1[spin] = (double *)malloc(sizeof(double) * n1 * MaxN1);
+            C1[spin] = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)n1, (size_t)MaxN1,
+                                                                                   "XANES C1 row"),
+                                                        sizeof(double), "XANES C1 row");
         }
 
         /* read LCAO coefficients */
@@ -2750,8 +3010,7 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
     else {
         if (myid == Host_ID)
             printf("Could not find the xanes.gs.file: %s\n", operate);
-        MPI_Finalize();
-        exit(0);
+        ClusterCol_AbortWithMessage("Required xanes.gs.file was not found.");
     }
 
     /****************************************************
@@ -2760,10 +3019,11 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
 
     /* OLPmo: matrix for momentum operator */
 
-    OLPmo = (double *****)malloc(sizeof(double ****) * 3);
+    OLPmo = (double *****)ClusterCol_MallocArray(3, sizeof(double ****), "XANES OLPmo directions");
     for (direction = 0; direction < 3; direction++) {
 
-        OLPmo[direction] = (double ****)malloc(sizeof(double ***) * (Matomnum + 1));
+        OLPmo[direction] = (double ****)ClusterCol_MallocArray((size_t)(Matomnum + 1), sizeof(double ***),
+                                                               "XANES OLPmo atoms");
         FNAN[0]          = 0;
         for (Mc_AN = 0; Mc_AN <= Matomnum; Mc_AN++) {
 
@@ -2776,7 +3036,8 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
                 tno0  = Spe_Total_CNO[Cwan];
             }
 
-            OLPmo[direction][Mc_AN] = (double ***)malloc(sizeof(double **) * (FNAN[Gc_AN] + 1));
+            OLPmo[direction][Mc_AN] = (double ***)ClusterCol_MallocArray((size_t)(FNAN[Gc_AN] + 1), sizeof(double **),
+                                                                         "XANES OLPmo neighbors");
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                 if (Mc_AN == 0) {
@@ -2787,9 +3048,11 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
                     tno1  = Spe_Total_CNO[Hwan];
                 }
 
-                OLPmo[direction][Mc_AN][h_AN] = (double **)malloc(sizeof(double *) * tno0);
+                OLPmo[direction][Mc_AN][h_AN] = (double **)ClusterCol_MallocArray((size_t)tno0, sizeof(double *),
+                                                                                  "XANES OLPmo rows");
                 for (i = 0; i < tno0; i++) {
-                    OLPmo[direction][Mc_AN][h_AN][i] = (double *)malloc(sizeof(double) * tno1);
+                    OLPmo[direction][Mc_AN][h_AN][i] = (double *)ClusterCol_MallocArray((size_t)tno1, sizeof(double),
+                                                                                        "XANES OLPmo values");
                 }
             }
         }
@@ -2801,7 +3064,7 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
 
     /* set MP */
 
-    MP2 = (int *)malloc(sizeof(int) * (atomnum + 1));
+    MP2 = (int *)ClusterCol_MallocArray((size_t)(atomnum + 1), sizeof(int), "XANES MP2");
 
     p = 0;
     for (Gc_AN = 1; Gc_AN <= atomnum; Gc_AN++) {
@@ -2884,34 +3147,42 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
 
     /* allocation of arrays */
 
-    XANES_Out = (double **)malloc(sizeof(double *) * Num_XANES_Out);
+    XANES_Out = (double **)ClusterCol_MallocArray((size_t)Num_XANES_Out, sizeof(double *), "XANES output pointers");
     for (i = 0; i < Num_XANES_Out; i++) {
-        XANES_Out[i] = (double *)malloc(sizeof(double) * 10);
+        XANES_Out[i] = (double *)ClusterCol_MallocArray(10, sizeof(double), "XANES output row");
     }
 
-    Z = (double **)malloc(sizeof(double *) * (SpinP_switch + 1));
+    Z = (double **)ClusterCol_MallocArray((size_t)(SpinP_switch + 1), sizeof(double *), "XANES Z");
     for (spin = 0; spin <= SpinP_switch; spin++) {
-        Z[spin] = (double *)malloc(sizeof(double) * UMOmax * UMOmax);
+        Z[spin] = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)UMOmax, (size_t)UMOmax,
+                                                                              "XANES Z row"),
+                                                   sizeof(double), "XANES Z row");
     }
 
-    Ax = (double **)malloc(sizeof(double *) * (SpinP_switch + 1));
+    Ax = (double **)ClusterCol_MallocArray((size_t)(SpinP_switch + 1), sizeof(double *), "XANES Ax");
     for (spin = 0; spin <= SpinP_switch; spin++) {
-        Ax[spin] = (double *)malloc(sizeof(double) * UMOmax * UMOmax);
+        Ax[spin] = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)UMOmax, (size_t)UMOmax,
+                                                                               "XANES Ax row"),
+                                                    sizeof(double), "XANES Ax row");
     }
 
-    Ay = (double **)malloc(sizeof(double *) * (SpinP_switch + 1));
+    Ay = (double **)ClusterCol_MallocArray((size_t)(SpinP_switch + 1), sizeof(double *), "XANES Ay");
     for (spin = 0; spin <= SpinP_switch; spin++) {
-        Ay[spin] = (double *)malloc(sizeof(double) * UMOmax * UMOmax);
+        Ay[spin] = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)UMOmax, (size_t)UMOmax,
+                                                                               "XANES Ay row"),
+                                                    sizeof(double), "XANES Ay row");
     }
 
-    Az = (double **)malloc(sizeof(double *) * (SpinP_switch + 1));
+    Az = (double **)ClusterCol_MallocArray((size_t)(SpinP_switch + 1), sizeof(double *), "XANES Az");
     for (spin = 0; spin <= SpinP_switch; spin++) {
-        Az[spin] = (double *)malloc(sizeof(double) * UMOmax * UMOmax);
+        Az[spin] = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)UMOmax, (size_t)UMOmax,
+                                                                               "XANES Az row"),
+                                                    sizeof(double), "XANES Az row");
     }
 
-    ind2ind = (int **)malloc(sizeof(int *) * (SpinP_switch + 1));
+    ind2ind = (int **)ClusterCol_MallocArray((size_t)(SpinP_switch + 1), sizeof(int *), "XANES ind2ind");
     for (spin = 0; spin <= SpinP_switch; spin++) {
-        ind2ind[spin] = (int *)malloc(sizeof(int) * UMOmax);
+        ind2ind[spin] = (int *)ClusterCol_MallocArray((size_t)UMOmax, sizeof(int), "XANES ind2ind row");
     }
 
     /**************************************************************
@@ -3043,7 +3314,9 @@ void Calc_XANES_Col(int n, int MaxN, int myid1, double ** ko, double ***** nh, d
 
     if (myid == Host_ID) {
 
-        sprintf(file1, "%s%s.xanes", filepath, filename);
+        if (snprintf(file1, sizeof(file1), "%s%s.xanes", filepath, filename) >= (int)sizeof(file1)) {
+            ClusterCol_AbortWithMessage("Output path is too long for xanes file.");
+        }
 
         if ((fp1 = fopen(file1, "w")) != NULL) {
 
@@ -3286,7 +3559,7 @@ double Lapack_LU_Dinverse(int n, double * A)
 
     /* L*U factorization */
 
-    ipiv = (int *)malloc(sizeof(int) * n);
+    ipiv = (int *)ClusterCol_MallocArray((size_t)n, sizeof(int), "Lapack_LU_Dinverse ipiv");
 
     F77_NAME(dgetrf, DGETRF)(&n, &n, A, &n, ipiv, &info);
 
@@ -3319,7 +3592,7 @@ double Lapack_LU_Dinverse(int n, double * A)
     /* inverse L*U factorization */
 
     lwork = 4 * n;
-    work  = (double *)malloc(sizeof(double) * lwork);
+    work  = (double *)ClusterCol_MallocArray((size_t)lwork, sizeof(double), "Lapack_LU_Dinverse work");
 
     F77_NAME(dgetri, DGETRI)(&n, A, &n, ipiv, work, &lwork, &info);
 

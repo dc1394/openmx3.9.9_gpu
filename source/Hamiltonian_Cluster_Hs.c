@@ -147,7 +147,7 @@ void Hamiltonian_Cluster_Hs(double **** RH, double * Hs, int * MP, int spin, MPI
     /* H1 -> H */
 
     if (spin == myworld1) {
-        if (scf_eigen_lib_flag == CuSOLVER && myid1 == 0) {
+        if (scf_eigen_lib_flag == CuSOLVER && my_prow == 0 && my_pcol == 0) {
             for (i = 0; i < n * n; i++) {
                 Hs[i] = 0.0;
             }
