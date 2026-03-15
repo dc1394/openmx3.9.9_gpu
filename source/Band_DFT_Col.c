@@ -69,17 +69,14 @@ static BandColCuSolverCtx BandCol_cusolver_ctx = {0};
 
 typedef struct
 {
-    int      max_tno;
-    int      max_nk;
-    double * buf_Re0;
-    double * buf_Im0;
-    double * buf_Re1;
-    double * buf_Im1;
-    double * TmpEIGEN;
-    double **ReEVec0;
-    double **ImEVec0;
-    double **ReEVec1;
-    double **ImEVec1;
+    int        max_tno;
+    int        max_cols;
+    int        max_nk;
+    dcomplex * vec0;
+    dcomplex * vec0e;
+    dcomplex * vec1;
+    dcomplex * mat0;
+    dcomplex * mat1;
 } BandColDMWorkspace;
 
 static BandColDMWorkspace BandCol_dm_workspace = {0};
@@ -94,55 +91,217 @@ static void BandCol_DMWorkspace_Reset(void)
 {
     BandColDMWorkspace *ws = &BandCol_dm_workspace;
 
-    free(ws->buf_Re0);
-    free(ws->buf_Im0);
-    free(ws->buf_Re1);
-    free(ws->buf_Im1);
-    free(ws->TmpEIGEN);
-    free(ws->ReEVec0);
-    free(ws->ImEVec0);
-    free(ws->ReEVec1);
-    free(ws->ImEVec1);
+    free(ws->vec0);
+    free(ws->vec0e);
+    free(ws->vec1);
+    free(ws->mat0);
+    free(ws->mat1);
 
     memset(ws, 0, sizeof(*ws));
 }
 
-static void BandCol_DMWorkspace_Ensure(int max_tno, int nk)
+static void BandCol_DMWorkspace_Ensure(int max_tno, int max_cols, int nk)
 {
     BandColDMWorkspace *ws = &BandCol_dm_workspace;
-    size_t              vec_bytes;
+    size_t              vec0_bytes;
+    size_t              vec1_bytes;
+    size_t              mat_bytes;
 
-    if (max_tno <= 0 || nk <= 0) {
+    if (max_tno <= 0 || max_cols <= 0 || nk <= 0) {
         BandCol_AbortWithMessage("Invalid DM workspace size in Band_DFT_Col.c.");
     }
 
-    if (ws->max_tno >= max_tno && ws->max_nk >= nk) {
+    if (ws->max_tno >= max_tno && ws->max_cols >= max_cols && ws->max_nk >= nk) {
         return;
     }
 
     BandCol_DMWorkspace_Reset();
 
-    vec_bytes = sizeof(double) * (size_t)max_tno * (size_t)nk;
+    vec0_bytes = sizeof(dcomplex) * (size_t)max_tno * (size_t)nk;
+    vec1_bytes = sizeof(dcomplex) * (size_t)max_cols * (size_t)nk;
+    mat_bytes  = sizeof(dcomplex) * (size_t)max_tno * (size_t)max_cols;
 
-    ws->buf_Re0  = (double *)malloc(vec_bytes);
-    ws->buf_Im0  = (double *)malloc(vec_bytes);
-    ws->buf_Re1  = (double *)malloc(vec_bytes);
-    ws->buf_Im1  = (double *)malloc(vec_bytes);
-    ws->TmpEIGEN = (double *)malloc(sizeof(double) * (size_t)nk);
-    ws->ReEVec0  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
-    ws->ImEVec0  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
-    ws->ReEVec1  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
-    ws->ImEVec1  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
+    ws->vec0  = (dcomplex *)malloc(vec0_bytes);
+    ws->vec0e = (dcomplex *)malloc(vec0_bytes);
+    ws->vec1  = (dcomplex *)malloc(vec1_bytes);
+    ws->mat0  = (dcomplex *)malloc(mat_bytes);
+    ws->mat1  = (dcomplex *)malloc(mat_bytes);
 
-    if (ws->buf_Re0 == NULL || ws->buf_Im0 == NULL || ws->buf_Re1 == NULL || ws->buf_Im1 == NULL ||
-        ws->TmpEIGEN == NULL || ws->ReEVec0 == NULL || ws->ImEVec0 == NULL || ws->ReEVec1 == NULL ||
-        ws->ImEVec1 == NULL) {
+    if (ws->vec0 == NULL || ws->vec0e == NULL || ws->vec1 == NULL || ws->mat0 == NULL || ws->mat1 == NULL) {
         BandCol_DMWorkspace_Reset();
         BandCol_AbortWithMessage("Failed to allocate DM workspace in Band_DFT_Col.c.");
     }
 
     ws->max_tno = max_tno;
+    ws->max_cols = max_cols;
     ws->max_nk  = nk;
+}
+
+static void BandCol_GetDMMaxDims(int * max_tno, int * max_cols)
+{
+    int max_tno_local  = 0;
+    int max_cols_local = 0;
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int cols = 0;
+        int wanA = WhatSpecies[GA_AN];
+        int tnoA = Spe_Total_CNO[wanA];
+
+        if (max_tno_local < tnoA)
+            max_tno_local = tnoA;
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+
+            cols += Spe_Total_CNO[wanB];
+        }
+
+        if (max_cols_local < cols)
+            max_cols_local = cols;
+    }
+
+    *max_tno = max_tno_local;
+    *max_cols = max_cols_local;
+}
+
+static int BandCol_ApplyOccupationWeightsDense(int n, int stride, int maxn, dcomplex * evec, const double * eigen,
+                                               int spin, double kw, double chem_p, double chem_p_xanes, int use_xanes,
+                                               double beta, double x_cut, double fermi_eps)
+{
+    int nk = maxn;
+
+    for (int k = 1; k <= maxn; ++k) {
+        double eig = eigen[k];
+        int    orb = k;
+        double x;
+        double fermi_f;
+        double popn;
+        double scale;
+
+        if (use_xanes == 1)
+            x = (eig - chem_p_xanes) * beta;
+        else
+            x = (eig - chem_p) * beta;
+
+        if (x <= -x_cut)
+            x = -x_cut;
+        if (x_cut <= x)
+            x = x_cut;
+
+        popn    = x;
+        fermi_f = FermiFunc(x, spin, k, &orb, &popn);
+        scale   = sqrt(kw * fermi_f);
+
+        for (int i = 0; i < n; ++i) {
+            dcomplex * v = evec + (size_t)i * stride + (size_t)(k - 1);
+            v->r *= scale;
+            v->i *= scale;
+        }
+
+        if (fermi_f < fermi_eps) {
+            nk = k;
+            break;
+        }
+    }
+
+    return nk;
+}
+
+static void BandCol_AccumulateWeightedDM(int stride, int k_offset, int nk, const double * eig, const dcomplex * evec,
+                                         int * MP, double k1, double k2, double k3, int max_tno, int max_cols,
+                                         double * CDM1, double * EDM1)
+{
+    BandColDMWorkspace *ws = &BandCol_dm_workspace;
+    dcomplex            alpha = {1.0, 0.0};
+    dcomplex            beta = {0.0, 0.0};
+    char                trans_c = 'C';
+    char                trans_n = 'N';
+    int                 lda = nk;
+    int                 ldb = nk;
+    int                 ldc = max_tno;
+    size_t              dm_offset = 0;
+
+    BandCol_DMWorkspace_Ensure(max_tno, max_cols, nk);
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        const int wanA = WhatSpecies[GA_AN];
+        const int tnoA = Spe_Total_CNO[wanA];
+        const int Anum = MP[GA_AN];
+        int       total_cols = 0;
+        int       m_blk = tnoA;
+        int       k_blk = nk;
+
+        for (int i = 0; i < tnoA; ++i) {
+            const size_t     base = (size_t)(Anum + i - 1) * stride + (size_t)k_offset;
+            const dcomplex * v    = evec + base;
+            dcomplex *       a    = ws->vec0 + (size_t)i * nk;
+            dcomplex *       ae   = ws->vec0e + (size_t)i * nk;
+
+            for (int k = 0; k < nk; ++k) {
+                const double   ek = eig[k];
+                const dcomplex vk = v[k];
+
+                a[k]    = vk;
+                ae[k].r = ek * vk.r;
+                ae[k].i = ek * vk.i;
+            }
+        }
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            const int GB_AN = natn[GA_AN][LB_AN];
+            const int wanB  = WhatSpecies[GB_AN];
+            const int tnoB  = Spe_Total_CNO[wanB];
+            const int Bnum  = MP[GB_AN];
+
+            for (int j = 0; j < tnoB; ++j) {
+                const size_t     base = (size_t)(Bnum + j - 1) * stride + (size_t)k_offset;
+                const dcomplex * v    = evec + base;
+                dcomplex *       b    = ws->vec1 + (size_t)(total_cols + j) * nk;
+
+                memcpy(b, v, sizeof(dcomplex) * (size_t)nk);
+            }
+
+            total_cols += tnoB;
+        }
+
+        F77_NAME(zgemm, ZGEMM)
+        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec0, &lda, ws->vec1, &ldb, &beta, ws->mat0,
+         &ldc);
+
+        F77_NAME(zgemm, ZGEMM)
+        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec0e, &lda, ws->vec1, &ldb, &beta, ws->mat1,
+         &ldc);
+
+        total_cols = 0;
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            const int    GB_AN = natn[GA_AN][LB_AN];
+            const int    Rn    = ncn[GA_AN][LB_AN];
+            const int    wanB  = WhatSpecies[GB_AN];
+            const int    tnoB  = Spe_Total_CNO[wanB];
+            const int    l1    = atv_ijk[Rn][1];
+            const int    l2    = atv_ijk[Rn][2];
+            const int    l3    = atv_ijk[Rn][3];
+            const double kRn   = k1 * l1 + k2 * l2 + k3 * l3;
+            double       phase_im;
+            double       phase_re;
+
+            sincos(2.0 * PI * kRn, &phase_im, &phase_re);
+
+            for (int i = 0; i < tnoA; ++i) {
+                for (int j = 0; j < tnoB; ++j, ++dm_offset) {
+                    const size_t   mat_idx = (size_t)i + (size_t)(total_cols + j) * ldc;
+                    const dcomplex dm_ij   = ws->mat0[mat_idx];
+                    const dcomplex edm_ij  = ws->mat1[mat_idx];
+
+                    CDM1[dm_offset] += phase_re * dm_ij.r - phase_im * dm_ij.i;
+                    EDM1[dm_offset] += phase_re * edm_ij.r - phase_im * edm_ij.i;
+                }
+            }
+
+            total_cols += tnoB;
+        }
+    }
 }
 
 static void BandCol_CuSolver_Destroy(void)
@@ -489,7 +648,7 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
     int *   Num_Snd_EV, *Num_Rcv_EV;
     int *   index_Snd_i, *index_Snd_j, *index_Rcv_i, *index_Rcv_j;
     double *EVec_Snd, *EVec_Rcv;
-    double *TmpEIGEN, **ReEVec0, **ImEVec0, **ReEVec1, **ImEVec1;
+    int     dm_max_tno, dm_max_cols;
     int     owns_global_dense_rank;
     int     transformed_s_ready;
 
@@ -590,11 +749,10 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
     My_NZeros = (int *)malloc(sizeof(int) * numprocs0);
     SP_NZeros = (int *)malloc(sizeof(int) * numprocs0);
     SP_Atoms  = (int *)malloc(sizeof(int) * numprocs0);
-    TmpEIGEN  = NULL;
-    ReEVec0   = NULL;
-    ImEVec0   = NULL;
-    ReEVec1   = NULL;
-    ImEVec1   = NULL;
+    dm_max_tno  = 0;
+    dm_max_cols = 0;
+
+    BandCol_GetDMMaxDims(&dm_max_tno, &dm_max_cols);
 
     /***********************************************
                 k-points by regular mesh
@@ -1027,30 +1185,6 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
         EVec_Rcv    = (double *)malloc(sizeof(double) * Max_Num_Rcv_EV * 2);
 
     } /* if (all_knum==1) */
-
-    if (all_knum != 1) {
-        TmpEIGEN = (double *)malloc(sizeof(double) * (MaxN + 1));
-
-        ReEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            ReEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-        }
-
-        ImEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            ImEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-        }
-
-        ReEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            ReEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-        }
-
-        ImEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            ImEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-        }
-    }
 
     /****************************************************
        PrintMemory
@@ -2026,10 +2160,8 @@ diagonalize1:
 
         /* initialize CDM1 and EDM1 */
 
-        for (i = 0; i < size_H1; i++) {
-            CDM1[i] = 0.0;
-            EDM1[i] = 0.0;
-        }
+        memset(CDM1, 0, sizeof(double) * (size_t)size_H1);
+        memset(EDM1, 0, sizeof(double) * (size_t)size_H1);
 
         /* calculate CDM and EDM */
 
@@ -2088,138 +2220,14 @@ diagonalize1:
             dtime(&Stime0);
         }
 
-        /* ---------- 必要サイズを決定 ---------------------------------- */
-        const int nk      = kmax - kmin + 1; /* k 点数（必ず ≥1） */
-        int       max_tno = 0;               /* 系内最大局在軌道数 */
-        for (int GA = 1; GA <= atomnum; ++GA) {
-            const int wan = WhatSpecies[GA];
-            const int tno = Spe_Total_CNO[wan];
-            if (tno > max_tno)
-                max_tno = tno;
+        if (kmin <= kmax) {
+            const int nk       = kmax - kmin + 1;
+            const int stride   = ie2[myid2] - is2[myid2] + 1;
+            const int k_offset = kmin - is2[myid2];
+
+            BandCol_AccumulateWeightedDM(stride, k_offset, nk, &EIGEN[spin][kloop][kmin], EVec1[spin], MP, k1, k2, k3,
+                                         dm_max_tno, dm_max_cols, CDM1, EDM1);
         }
-
-        /* ---------- 作業バッファを使い回す ----------------------------- */
-        double * TmpEIGEN_local;
-        double **ReEVec0_local;
-        double **ImEVec0_local;
-        double **ReEVec1_local;
-        double **ImEVec1_local;
-
-        BandCol_DMWorkspace_Ensure(max_tno, nk);
-
-        TmpEIGEN_local = BandCol_dm_workspace.TmpEIGEN;
-        ReEVec0_local  = BandCol_dm_workspace.ReEVec0;
-        ImEVec0_local  = BandCol_dm_workspace.ImEVec0;
-        ReEVec1_local  = BandCol_dm_workspace.ReEVec1;
-        ImEVec1_local  = BandCol_dm_workspace.ImEVec1;
-
-        for (int i = 0; i < max_tno; ++i) {
-            ReEVec0_local[i] = BandCol_dm_workspace.buf_Re0 + (size_t)i * nk;
-            ImEVec0_local[i] = BandCol_dm_workspace.buf_Im0 + (size_t)i * nk;
-            ReEVec1_local[i] = BandCol_dm_workspace.buf_Re1 + (size_t)i * nk;
-            ImEVec1_local[i] = BandCol_dm_workspace.buf_Im1 + (size_t)i * nk;
-        }
-
-        /* ---------- Eigen 値をローカルへ -------------------------------- */
-        {
-            const double * src = &EIGEN[spin][kloop][kmin];
-            for (int k = 0; k < nk; ++k)
-                TmpEIGEN_local[k] = src[k];
-        }
-
-        const int stride = ie2[myid2] - is2[myid2] + 1;
-        size_t    p      = 0; /* CDM1/EDM1 書込オフセット */
-
-        /*========================== GA ループ ===========================*/
-        for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
-            const int wanA = WhatSpecies[GA_AN];
-            const int tnoA = Spe_Total_CNO[wanA];
-            const int Anum = MP[GA_AN];
-
-            /* ----- GA 行列要素を作業バッファへ ------------------------- */
-            for (int i = 0; i < tnoA; ++i) {
-                const size_t     base = (size_t)(Anum + i - 1) * stride - is2[myid2] + kmin;
-                const dcomplex * v    = &EVec1[spin][base];
-                double * restrict r   = ReEVec0_local[i];
-                double * restrict im  = ImEVec0_local[i];
-                for (int k = 0; k < nk; ++k) {
-                    r[k]  = v[k].r;
-                    im[k] = v[k].i;
-                }
-            }
-
-            /*===================  近接原子 LB ループ  ===================*/
-            for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
-                const int GB_AN = natn[GA_AN][LB_AN];
-                const int Rn    = ncn[GA_AN][LB_AN];
-                const int wanB  = WhatSpecies[GB_AN];
-                const int tnoB  = Spe_Total_CNO[wanB];
-                const int Bnum  = MP[GB_AN];
-
-                /* ----- フェーズ因子（sin/cos 同時計算） ----------------- */
-                const int    l1  = atv_ijk[Rn][1];
-                const int    l2  = atv_ijk[Rn][2];
-                const int    l3  = atv_ijk[Rn][3];
-                const double kRn = k1 * l1 + k2 * l2 + k3 * l3;
-                double       si, co;
-                sincos(2.0 * PI * kRn, &si, &co);
-
-                /* ----- GB 行列要素を作業バッファへ ---------------------- */
-                for (int j = 0; j < tnoB; ++j) {
-                    const size_t     base = (size_t)(Bnum + j - 1) * stride - is2[myid2] + kmin;
-                    const dcomplex * v    = &EVec1[spin][base];
-                    double * restrict r   = ReEVec1_local[j];
-                    double * restrict im  = ImEVec1_local[j];
-                    for (int k = 0; k < nk; ++k) {
-                        r[k]  = v[k].r;
-                        im[k] = v[k].i;
-                    }
-                }
-
-                /*================ (i,j) 内側ループ ======================*/
-                for (int i = 0; i < tnoA; ++i) {
-                    const double * restrict r0  = ReEVec0_local[i];
-                    const double * restrict im0 = ImEVec0_local[i];
-
-                    for (int j = 0; j < tnoB; ++j, ++p) {
-                        const double * restrict r1  = ReEVec1_local[j];
-                        const double * restrict im1 = ImEVec1_local[j];
-
-                        double d1 = 0.0, d2 = 0.0, d3 = 0.0, d4 = 0.0;
-                        int    k = 0;
-
-                        /* ---- k ループを 4 要素アンローリング ------------- */
-                        for (; k + 3 < nk; k += 4) {
-#define KSTEP(idx)                                                                                                     \
-    do {                                                                                                               \
-        double reA = r0[idx] * r1[idx] + im0[idx] * im1[idx];                                                          \
-        double imA = r0[idx] * im1[idx] - im0[idx] * r1[idx];                                                          \
-        d1 += reA;                                                                                                     \
-        d2 += imA;                                                                                                     \
-        d3 += reA * TmpEIGEN_local[idx];                                                                               \
-        d4 += imA * TmpEIGEN_local[idx];                                                                               \
-    } while (0)
-                            KSTEP(k);
-                            KSTEP(k + 1);
-                            KSTEP(k + 2);
-                            KSTEP(k + 3);
-#undef KSTEP
-                        }
-                        for (; k < nk; ++k) {
-                            double reA = r0[k] * r1[k] + im0[k] * im1[k];
-                            double imA = r0[k] * im1[k] - im0[k] * r1[k];
-                            d1 += reA;
-                            d2 += imA;
-                            d3 += reA * TmpEIGEN_local[k];
-                            d4 += imA * TmpEIGEN_local[k];
-                        }
-
-                        CDM1[p] += co * d1 - si * d2;
-                        EDM1[p] += co * d3 - si * d4;
-                    }
-                }
-            } /* LB_AN */
-        } /* GA_AN */
 
         if (measure_time) {
             dtime(&Etime0);
@@ -2229,13 +2237,8 @@ diagonalize1:
 
         /* sum of CDM1 and EDM1 by Allreduce in MPI */
 
-        MPI_Allreduce(CDM1, H1, size_H1, MPI_DOUBLE, MPI_SUM, MPI_CommWD1[myworld1]);
-        for (i = 0; i < size_H1; i++)
-            CDM1[i] = H1[i];
-
-        MPI_Allreduce(EDM1, H1, size_H1, MPI_DOUBLE, MPI_SUM, MPI_CommWD1[myworld1]);
-        for (i = 0; i < size_H1; i++)
-            EDM1[i] = H1[i];
+        MPI_Allreduce(MPI_IN_PLACE, CDM1, size_H1, MPI_DOUBLE, MPI_SUM, MPI_CommWD1[myworld1]);
+        MPI_Allreduce(MPI_IN_PLACE, EDM1, size_H1, MPI_DOUBLE, MPI_SUM, MPI_CommWD1[myworld1]);
 
         if (measure_time) {
             dtime(&Etime0);
@@ -2428,10 +2431,8 @@ diagonalize1:
 
         /* initialize CDM1 and EDM1 */
 
-        for (i = 0; i < size_H1; i++) {
-            CDM1[i] = 0.0;
-            EDM1[i] = 0.0;
-        }
+        memset(CDM1, 0, sizeof(double) * (size_t)size_H1);
+        memset(EDM1, 0, sizeof(double) * (size_t)size_H1);
 
         /* initialize CDM, EDM, and iDM */
 
@@ -2626,45 +2627,13 @@ diagonalize1:
                 /* weight of k-point */
 
                 double kw = (double)T_k_op[kloop];
-
-                int po   = 0;
-                int kmin = 1;
-                int kmax = MaxN;
+                int    nk;
 
                 if (measure_time)
                     dtime(&Stime1);
 
-                for (int k = 1; k <= MaxN; k++) {
-
-                    double eig = EIGEN[spin][kloop][k];
-                    double x;
-
-                    if (xanes_calc == 1)
-                        x = (eig - ChemP_XANES[spin]) * Beta;
-                    else
-                        x = (eig - ChemP) * Beta;
-
-                    if (x <= -x_cut)
-                        x = -x_cut;
-                    if (x_cut <= x)
-                        x = x_cut;
-                    double FermiF = FermiFunc(x, spin, k, &k, &x);
-
-                    double tmp1 = sqrt(kw * FermiF);
-
-                    for (int i1 = 1; i1 <= n; i1++) {
-                        int i = (i1 - 1) * n + k - 1;
-                        EVec1[spin][i].r *= tmp1;
-                        EVec1[spin][i].i *= tmp1;
-                    }
-
-                    /* find kmax */
-
-                    if (FermiF < FermiEps && po == 0) {
-                        kmax = k;
-                        po   = 1;
-                    }
-                }
+                nk = BandCol_ApplyOccupationWeightsDense(n, n, MaxN, EVec1[spin], EIGEN[spin][kloop], spin, kw, ChemP,
+                                                         ChemP_XANES[spin], xanes_calc, Beta, x_cut, FermiEps);
 
                 if (measure_time) {
                     dtime(&Etime1);
@@ -2672,172 +2641,8 @@ diagonalize1:
                     dtime(&Stime1);
                 }
 
-                /* store EIGEN to a temporary array */
-
-                for (int k = 1; k <= MaxN; k++) {
-                    TmpEIGEN[k] = EIGEN[spin][kloop][k];
-                }
-
-                /* calculation of CDM1 and EDM1 */
-
-                // int wanAmax = 1;
-                // int tnoAmax = 1;
-                // int tnoBmax = 1;
-                // int i1max = 1;
-                // int j1max = 1;
-                // int LB_ANmax = 1;
-                // int Rnmax = 1;
-                // int GB_ANmax = 1;
-                // int pmax = 1;
-                // for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                //     if (wanAmax < WhatSpecies[GA_AN]) {
-                //         wanAmax = WhatSpecies[GA_AN];
-                //     }
-
-                //     if (tnoAmax < Spe_Total_CNO[WhatSpecies[GA_AN]]) {
-                //         tnoAmax = Spe_Total_CNO[WhatSpecies[GA_AN]];
-                //     }
-
-                //     int wanA = WhatSpecies[GA_AN];
-                //     int tnoA = Spe_Total_CNO[wanA];
-                //     int Anum = MP[GA_AN];
-
-                //     for (int i = 0; i < tnoA; i++) {
-                //         int i1 = (Anum + i - 1) * n - 1;
-
-                //         if (i1max < i1) {
-                //             i1max = i1;
-                //         }
-                //     }
-
-                //     if (LB_ANmax < FNAN[GA_AN]) {
-                //         LB_ANmax = FNAN[GA_AN];
-                //     }
-
-                //     for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                //         if (Rnmax < ncn[GA_AN][LB_AN]) {
-                //             Rnmax = ncn[GA_AN][LB_AN];
-                //         }
-
-                //         if (GB_ANmax < natn[GA_AN][LB_AN]) {
-                //             GB_ANmax = natn[GA_AN][LB_AN];
-                //         }
-
-                //         int GB_AN = natn[GA_AN][LB_AN];
-                //         int wanB = WhatSpecies[GB_AN];
-                //         int tnoB = Spe_Total_CNO[wanB];
-                //         int Bnum = MP[GB_AN];
-
-                //         if (tnoBmax < tnoB) {
-                //             tnoBmax = tnoB;
-                //         }
-
-                //         for (i = 0; i < tnoA; i++) {
-                //             for (j = 0; j < tnoB; j++) {
-                //                 /* increment of p */
-                //                 pmax++;
-                //             }
-                //         }
-                //     }
-                // }
-
-                // int ijmax = i1max > j1max ? i1max : j1max;
-
-                // #pragma acc data copy(ReEVec0[:tnoAmax][:MaxN + 1], ImEVec0[:tnoAmax][:MaxN + 1])
-                // #pragma acc data copy(FNAN[:atomnum + 1])
-                // #pragma acc data copy(EVec1[:2][:ijmax + MaxN + 1])
-                // #pragma acc data copy(Spe_Total_CNO[:wanAmax])
-                // #pragma acc data copy(natn[:atomnum + 1][:LB_ANmax], ncn[:atomnum + 1][:LB_ANmax], atv_ijk[:Rnmax][:4])
-                // #pragma acc data copy(ReEVec1[:tnoBmax][:MaxN + 1], ImEVec1[:tnoBmax][:MaxN + 1])
-                // #pragma acc data copy(MP[:atomnum + 1], WhatSpecies[:atomnum + 1], TmpEIGEN[:MaxN + 1])
-                // #pragma acc data copy(CDM1[:pmax], EDM1[:pmax])
-                // #pragma acc kernels
-                // #pragma acc loop independent gang
-
-                int p = 0;
-                for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                    int wanA = WhatSpecies[GA_AN];
-                    int tnoA = Spe_Total_CNO[wanA];
-                    int Anum = MP[GA_AN];
-
-                    /* store EVec1 to temporary arrays */
-
-                    for (int i = 0; i < tnoA; i++) {
-                        int i1 = (Anum + i - 1) * n - 1;
-                        for (int k = 1; k <= MaxN; k++) {
-                            ReEVec0[i][k] = EVec1[spin][i1 + k].r;
-                            ImEVec0[i][k] = EVec1[spin][i1 + k].i;
-                        }
-                    }
-
-                    // #pragma acc loop independent vector(1024)
-                    for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                        int GB_AN = natn[GA_AN][LB_AN];
-                        int Rn    = ncn[GA_AN][LB_AN];
-                        int wanB  = WhatSpecies[GB_AN];
-                        int tnoB  = Spe_Total_CNO[wanB];
-                        int Bnum  = MP[GB_AN];
-
-                        int    l1  = atv_ijk[Rn][1];
-                        int    l2  = atv_ijk[Rn][2];
-                        int    l3  = atv_ijk[Rn][3];
-                        double kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
-
-                        double si = sin(2.0 * PI * kRn);
-                        double co = cos(2.0 * PI * kRn);
-
-                        /* store EVec1 to temporary arrays */
-
-                        for (int j = 0; j < tnoB; j++) {
-                            int j1 = (Bnum + j - 1) * n - 1;
-                            for (int k = 1; k <= MaxN; k++) {
-                                ReEVec1[j][k] = EVec1[spin][j1 + k].r;
-                                ImEVec1[j][k] = EVec1[spin][j1 + k].i;
-                            }
-                        }
-
-                        for (int i = 0; i < tnoA; i++) {
-                            for (int j = 0; j < tnoB; j++) {
-                                /***************************************************************
-                                 Note that the imaginary part is zero,
-                                 since
-
-                                 at k
-                                 A = (co + i si)(Re + i Im) = (co*Re - si*Im) + i (co*Im + si*Re)
-                                 at -k
-                                 B = (co - i si)(Re - i Im) = (co*Re - si*Im) - i (co*Im + si*Re)
-                                 Thus, Re(A+B) = 2*(co*Re - si*Im)
-                                       Im(A+B) = 0
-                                ***************************************************************/
-
-                                double d1 = 0.0;
-                                double d2 = 0.0;
-                                double d3 = 0.0;
-                                double d4 = 0.0;
-
-                                // #pragma acc loop reduction(+:d1) reduction(+:d2) reduction(+:d3) reduction(+:d4)
-                                for (int k = 1; k <= MaxN; k++) {
-                                    double ReA = ReEVec0[i][k] * ReEVec1[j][k] + ImEVec0[i][k] * ImEVec1[j][k];
-                                    double ImA = ReEVec0[i][k] * ImEVec1[j][k] - ImEVec0[i][k] * ReEVec1[j][k];
-
-                                    d1 += ReA;
-                                    d2 += ImA;
-                                    d3 += ReA * TmpEIGEN[k];
-                                    d4 += ImA * TmpEIGEN[k];
-                                }
-
-                                // int p = (((GA_AN - 1) * (FNAN[GA_AN] + 1) + LB_AN) * tnoA + i) * tnoB + j;
-
-                                // #pragma omp atomic
-                                CDM1[p] += co * d1 - si * d2;
-                                // #pragma omp atomic
-                                EDM1[p] += co * d3 - si * d4;
-
-                                p++;
-                            }
-                        }
-                    }
-                } /* GA_AN */
+                BandCol_AccumulateWeightedDM(n, 0, nk, &EIGEN[spin][kloop][1], EVec1[spin], MP, k1, k2, k3,
+                                             dm_max_tno, dm_max_cols, CDM1, EDM1);
 
                 if (measure_time) {
                     dtime(&Etime1);
@@ -3060,221 +2865,32 @@ diagonalize1:
 
                 kw = (double)T_k_op[kloop];
 
-                po   = 0;
-                kmin = 1;
-                kmax = MaxN;
-
                 if (measure_time)
                     dtime(&Stime1);
 
-                for (k = 1; k <= MaxN; k++) {
+                {
+                    int nk;
 
-                    eig = EIGEN[spin][kloop][k];
+                    nk = BandCol_ApplyOccupationWeightsDense(n, n, MaxN, EVec1[spin], EIGEN[spin][kloop], spin, kw,
+                                                             ChemP, ChemP_XANES[spin], xanes_calc, Beta, x_cut,
+                                                             FermiEps);
 
-                    if (xanes_calc == 1)
-                        x = (eig - ChemP_XANES[spin]) * Beta;
-                    else
-                        x = (eig - ChemP) * Beta;
-
-                    if (x <= -x_cut)
-                        x = -x_cut;
-                    if (x_cut <= x)
-                        x = x_cut;
-                    FermiF = FermiFunc(x, spin, k, &k, &x);
-
-                    tmp1 = sqrt(kw * FermiF);
-
-                    for (i1 = 1; i1 <= n; i1++) {
-                        i = (i1 - 1) * n + k - 1;
-                        EVec1[spin][i].r *= tmp1;
-                        EVec1[spin][i].i *= tmp1;
+                    if (measure_time) {
+                        dtime(&Etime1);
+                        time11A += Etime1 - Stime1;
+                        dtime(&Stime1);
                     }
 
-                    /* find kmax */
+                    BandCol_AccumulateWeightedDM(n, 0, nk, &EIGEN[spin][kloop][1], EVec1[spin], MP, k1, k2, k3,
+                                                 dm_max_tno, dm_max_cols, CDM1, EDM1);
 
-                    if (FermiF < FermiEps && po == 0) {
-                        kmax = k;
-                        po   = 1;
+                    if (measure_time) {
+                        dtime(&Etime1);
+                        time11B += Etime1 - Stime1;
+
+                        dtime(&Etime);
+                        time11 += Etime - Stime;
                     }
-                }
-
-                if (measure_time) {
-                    dtime(&Etime1);
-                    time11A += Etime1 - Stime1;
-                    dtime(&Stime1);
-                }
-
-                /* store EIGEN to a temporary array */
-
-                for (k = 1; k <= MaxN; k++) {
-                    TmpEIGEN[k] = EIGEN[spin][kloop][k];
-                }
-
-                /* calculation of CDM1 and EDM1 */
-
-                // int wanAmax = 1;
-                // int tnoAmax = 1;
-                // int tnoBmax = 1;
-                // int i1max = 1;
-                // int j1max = 1;
-                // int LB_ANmax = 1;
-                // int Rnmax = 1;
-                // int GB_ANmax = 1;
-                // int pmax = 1;
-                // for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                //     if (wanAmax < WhatSpecies[GA_AN]) {
-                //         wanAmax = WhatSpecies[GA_AN];
-                //     }
-
-                //     if (tnoAmax < Spe_Total_CNO[WhatSpecies[GA_AN]]) {
-                //         tnoAmax = Spe_Total_CNO[WhatSpecies[GA_AN]];
-                //     }
-
-                //     int wanA = WhatSpecies[GA_AN];
-                //     int tnoA = Spe_Total_CNO[wanA];
-                //     int Anum = MP[GA_AN];
-
-                //     for (int i = 0; i < tnoA; i++) {
-                //         int i1 = (Anum + i - 1) * n - 1;
-
-                //         if (i1max < i1) {
-                //             i1max = i1;
-                //         }
-                //     }
-
-                //     if (LB_ANmax < FNAN[GA_AN]) {
-                //         LB_ANmax = FNAN[GA_AN];
-                //     }
-
-                //     for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                //         if (Rnmax < ncn[GA_AN][LB_AN]) {
-                //             Rnmax = ncn[GA_AN][LB_AN];
-                //         }
-
-                //         if (GB_ANmax < natn[GA_AN][LB_AN]) {
-                //             GB_ANmax = natn[GA_AN][LB_AN];
-                //         }
-
-                //         int GB_AN = natn[GA_AN][LB_AN];
-                //         int wanB = WhatSpecies[GB_AN];
-                //         int tnoB = Spe_Total_CNO[wanB];
-                //         int Bnum = MP[GB_AN];
-
-                //         if (tnoBmax < tnoB) {
-                //             tnoBmax = tnoB;
-                //         }
-
-                //         for (i = 0; i < tnoA; i++) {
-                //             for (j = 0; j < tnoB; j++) {
-                //                 /* increment of p */
-                //                 pmax++;
-                //             }
-                //         }
-                //     }
-                // }
-
-                // int ijmax = i1max > j1max ? i1max : j1max;
-
-                // #pragma acc data copy(ReEVec0[:tnoAmax][:MaxN + 1], ImEVec0[:tnoAmax][:MaxN + 1])
-                // #pragma acc data copy(FNAN[:atomnum + 1])
-                // #pragma acc data copy(EVec1[:2][:ijmax + MaxN + 1])
-                // #pragma acc data copy(Spe_Total_CNO[:wanAmax])
-                // #pragma acc data copy(natn[:atomnum + 1][:LB_ANmax], ncn[:atomnum + 1][:LB_ANmax], atv_ijk[:Rnmax][:4])
-                // #pragma acc data copy(ReEVec1[:tnoBmax][:MaxN + 1], ImEVec1[:tnoBmax][:MaxN + 1])
-                // #pragma acc data copy(MP[:atomnum + 1], WhatSpecies[:atomnum + 1], TmpEIGEN[:MaxN + 1])
-                // #pragma acc data copy(CDM1[:pmax], EDM1[:pmax])
-                // #pragma acc kernels
-                // #pragma acc loop independent gang
-
-                int p = 0;
-                for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                    int wanA = WhatSpecies[GA_AN];
-                    int tnoA = Spe_Total_CNO[wanA];
-                    int Anum = MP[GA_AN];
-
-                    /* store EVec1 to temporary arrays */
-
-                    for (int i = 0; i < tnoA; i++) {
-                        int i1 = (Anum + i - 1) * n - 1;
-                        for (int k = 1; k <= MaxN; k++) {
-                            ReEVec0[i][k] = EVec1[spin][i1 + k].r;
-                            ImEVec0[i][k] = EVec1[spin][i1 + k].i;
-                        }
-                    }
-
-                    // #pragma acc loop independent vector(1024)
-                    for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                        int GB_AN = natn[GA_AN][LB_AN];
-                        int Rn    = ncn[GA_AN][LB_AN];
-                        int wanB  = WhatSpecies[GB_AN];
-                        int tnoB  = Spe_Total_CNO[wanB];
-                        int Bnum  = MP[GB_AN];
-
-                        int    l1  = atv_ijk[Rn][1];
-                        int    l2  = atv_ijk[Rn][2];
-                        int    l3  = atv_ijk[Rn][3];
-                        double kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
-
-                        double si = sin(2.0 * PI * kRn);
-                        double co = cos(2.0 * PI * kRn);
-
-                        /* store EVec1 to temporary arrays */
-
-                        for (int j = 0; j < tnoB; j++) {
-                            int j1 = (Bnum + j - 1) * n - 1;
-                            for (int k = 1; k <= MaxN; k++) {
-                                ReEVec1[j][k] = EVec1[spin][j1 + k].r;
-                                ImEVec1[j][k] = EVec1[spin][j1 + k].i;
-                            }
-                        }
-
-                        for (int i = 0; i < tnoA; i++) {
-                            for (int j = 0; j < tnoB; j++) {
-                                /***************************************************************
-                                 Note that the imaginary part is zero,
-                                 since
-
-                                 at k
-                                 A = (co + i si)(Re + i Im) = (co*Re - si*Im) + i (co*Im + si*Re)
-                                 at -k
-                                 B = (co - i si)(Re - i Im) = (co*Re - si*Im) - i (co*Im + si*Re)
-                                 Thus, Re(A+B) = 2*(co*Re - si*Im)
-                                       Im(A+B) = 0
-                                ***************************************************************/
-
-                                double d1 = 0.0;
-                                double d2 = 0.0;
-                                double d3 = 0.0;
-                                double d4 = 0.0;
-
-                                // #pragma acc loop reduction(+:d1) reduction(+:d2) reduction(+:d3) reduction(+:d4)
-                                for (int k = 1; k <= MaxN; k++) {
-                                    ReA = ReEVec0[i][k] * ReEVec1[j][k] + ImEVec0[i][k] * ImEVec1[j][k];
-                                    ImA = ReEVec0[i][k] * ImEVec1[j][k] - ImEVec0[i][k] * ReEVec1[j][k];
-
-                                    d1 += ReA;
-                                    d2 += ImA;
-                                    d3 += ReA * TmpEIGEN[k];
-                                    d4 += ImA * TmpEIGEN[k];
-                                }
-
-                                // int p = (((GA_AN - 1) * (FNAN[GA_AN] + 1) + LB_AN) * tnoA + i) * tnoB + j;
-
-                                CDM1[p] += co * d1 - si * d2;
-                                EDM1[p] += co * d3 - si * d4;
-
-                                p++;
-                            }
-                        }
-                    }
-                } /* GA_AN */
-
-                if (measure_time) {
-                    dtime(&Etime1);
-                    time11B += Etime1 - Stime1;
-
-                    dtime(&Etime);
-                    time11 += Etime - Stime;
                 }
             } /* kloop0 */
         }
@@ -3286,8 +2902,8 @@ diagonalize1:
         if (measure_time)
             dtime(&Stime);
 
-        MPI_Allreduce(&CDM1[0], &H1[0], size_H1, MPI_DOUBLE, MPI_SUM, MPI_CommWD1[myworld1]);
-        MPI_Allreduce(&EDM1[0], &S1[0], size_H1, MPI_DOUBLE, MPI_SUM, MPI_CommWD1[myworld1]);
+        MPI_Allreduce(MPI_IN_PLACE, CDM1, size_H1, MPI_DOUBLE, MPI_SUM, MPI_CommWD1[myworld1]);
+        MPI_Allreduce(MPI_IN_PLACE, EDM1, size_H1, MPI_DOUBLE, MPI_SUM, MPI_CommWD1[myworld1]);
 
         /* CDM and EDM */
 
@@ -3309,8 +2925,8 @@ diagonalize1:
 
                     for (i = 0; i < tnoA; i++) {
                         for (j = 0; j < tnoB; j++) {
-                            CDM[spin][MA_AN][LB_AN][i][j] = H1[k];
-                            EDM[spin][MA_AN][LB_AN][i][j] = S1[k];
+                            CDM[spin][MA_AN][LB_AN][i][j] = CDM1[k];
+                            EDM[spin][MA_AN][LB_AN][i][j] = EDM1[k];
                             k++;
                         }
                     }
@@ -3356,7 +2972,7 @@ diagonalize1:
                 IDR = Comm_World_StartID1[(i + 1) % 2];
 
                 if (myid0 == IDS) {
-                    MPI_Isend(&H1[0], size_H1, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request);
+                    MPI_Isend(&CDM1[0], size_H1, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request);
                 }
 
                 if (myid0 == IDR) {
@@ -3368,7 +2984,7 @@ diagonalize1:
                 }
 
                 if (myid0 == IDS) {
-                    MPI_Isend(&S1[0], size_H1, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request);
+                    MPI_Isend(&EDM1[0], size_H1, MPI_DOUBLE, IDR, tag, mpi_comm_level1, &request);
                 }
 
                 if (myid0 == IDR) {
@@ -3577,30 +3193,6 @@ diagonalize1:
     free(SP_Atoms);
     free(SP_NZeros);
     free(My_NZeros);
-
-    if (all_knum != 1) {
-        free(TmpEIGEN);
-
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            free(ReEVec0[i]);
-        }
-        free(ReEVec0);
-
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            free(ImEVec0[i]);
-        }
-        free(ImEVec0);
-
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            free(ReEVec1[i]);
-        }
-        free(ReEVec1);
-
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            free(ImEVec1[i]);
-        }
-        free(ImEVec1);
-    }
 
     /* for PrintMemory and allocation */
     firsttime = 0;
