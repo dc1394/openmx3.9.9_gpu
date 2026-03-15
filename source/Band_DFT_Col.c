@@ -53,12 +53,13 @@ typedef struct
     int                transformed_s_dim;
     size_t             d_work_bytes;
     size_t             h_work_bytes;
+    cudaStream_t       stream;
     cublasHandle_t     cublas;
     cusolverDnHandle_t cusolver;
     dcomplex *         d_S;
     dcomplex *         d_H;
     dcomplex *         d_tmp;
-    dcomplex *         d_scale;
+    double *           d_scale;
     double *           d_W;
     int32_t *          d_info;
     void *             d_work;
@@ -165,9 +166,10 @@ static void BandCol_GetDMMaxDims(int * max_tno, int * max_cols)
     *max_cols = max_cols_local;
 }
 
-static int BandCol_ApplyOccupationWeightsDense(int n, int stride, int maxn, dcomplex * evec, const double * eigen,
-                                               int spin, double kw, double chem_p, double chem_p_xanes, int use_xanes,
-                                               double beta, double x_cut, double fermi_eps)
+static int BandCol_ApplyOccupationWeightsDense(int n, int basis_stride, int state_stride, int maxn, dcomplex * evec,
+                                               const double * eigen, int spin, double kw, double chem_p,
+                                               double chem_p_xanes, int use_xanes, double beta, double x_cut,
+                                               double fermi_eps)
 {
     int nk = maxn;
 
@@ -194,7 +196,8 @@ static int BandCol_ApplyOccupationWeightsDense(int n, int stride, int maxn, dcom
         scale   = sqrt(kw * fermi_f);
 
         for (int i = 0; i < n; ++i) {
-            dcomplex * v = evec + (size_t)i * stride + (size_t)(k - 1);
+            dcomplex * v =
+                evec + (size_t)i * (size_t)basis_stride + (size_t)(k - 1) * (size_t)state_stride;
             v->r *= scale;
             v->i *= scale;
         }
@@ -208,9 +211,9 @@ static int BandCol_ApplyOccupationWeightsDense(int n, int stride, int maxn, dcom
     return nk;
 }
 
-static void BandCol_AccumulateWeightedDM(int stride, int k_offset, int nk, const double * eig, const dcomplex * evec,
-                                         int * MP, double k1, double k2, double k3, int max_tno, int max_cols,
-                                         double * CDM1, double * EDM1)
+static void BandCol_AccumulateWeightedDM(int basis_stride, int state_stride, int k_offset, int nk, const double * eig,
+                                         const dcomplex * evec, int * MP, double k1, double k2, double k3,
+                                         int max_tno, int max_cols, double * CDM1, double * EDM1)
 {
     BandColDMWorkspace *ws = &BandCol_dm_workspace;
     dcomplex            alpha = {1.0, 0.0};
@@ -233,14 +236,15 @@ static void BandCol_AccumulateWeightedDM(int stride, int k_offset, int nk, const
         int       k_blk = nk;
 
         for (int i = 0; i < tnoA; ++i) {
-            const size_t     base = (size_t)(Anum + i - 1) * stride + (size_t)k_offset;
+            const size_t     base = (size_t)(Anum + i - 1) * (size_t)basis_stride +
+                                (size_t)k_offset * (size_t)state_stride;
             const dcomplex * v    = evec + base;
             dcomplex *       a    = ws->vec0 + (size_t)i * nk;
             dcomplex *       ae   = ws->vec0e + (size_t)i * nk;
 
             for (int k = 0; k < nk; ++k) {
                 const double   ek = eig[k];
-                const dcomplex vk = v[k];
+                const dcomplex vk = v[(size_t)k * (size_t)state_stride];
 
                 a[k]    = vk;
                 ae[k].r = ek * vk.r;
@@ -255,11 +259,14 @@ static void BandCol_AccumulateWeightedDM(int stride, int k_offset, int nk, const
             const int Bnum  = MP[GB_AN];
 
             for (int j = 0; j < tnoB; ++j) {
-                const size_t     base = (size_t)(Bnum + j - 1) * stride + (size_t)k_offset;
+                const size_t     base = (size_t)(Bnum + j - 1) * (size_t)basis_stride +
+                                    (size_t)k_offset * (size_t)state_stride;
                 const dcomplex * v    = evec + base;
                 dcomplex *       b    = ws->vec1 + (size_t)(total_cols + j) * nk;
 
-                memcpy(b, v, sizeof(dcomplex) * (size_t)nk);
+                for (int k = 0; k < nk; ++k) {
+                    b[k] = v[(size_t)k * (size_t)state_stride];
+                }
             }
 
             total_cols += tnoB;
@@ -328,6 +335,8 @@ static void BandCol_CuSolver_Destroy(void)
         wait_cudafunc(cusolverDnDestroy(ctx->cusolver));
     if (ctx->cublas != NULL)
         wait_cudafunc(cublasDestroy(ctx->cublas));
+    if (ctx->stream != NULL)
+        wait_cudafunc(cudaStreamDestroy(ctx->stream));
 
     memset(ctx, 0, sizeof(*ctx));
     ctx->device_id = -1;
@@ -348,8 +357,11 @@ static void BandCol_CuSolver_Init(void)
         BandCol_CuSolver_Destroy();
     }
 
+    wait_cudafunc(cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking));
     wait_cudafunc(cublasCreate(&ctx->cublas));
     wait_cudafunc(cusolverDnCreate(&ctx->cusolver));
+    wait_cudafunc(cublasSetStream(ctx->cublas, ctx->stream));
+    wait_cudafunc(cusolverDnSetStream(ctx->cusolver, ctx->stream));
 
     ctx->initialized = 1;
     ctx->device_id   = current_device;
@@ -385,7 +397,7 @@ static void BandCol_CuSolver_EnsureMatrixCapacity(int n)
         wait_cudafunc(cudaFree(ctx->d_info));
 
     matrix_bytes = sizeof(dcomplex) * (size_t)n * (size_t)n;
-    vector_bytes = sizeof(dcomplex) * (size_t)n;
+    vector_bytes = sizeof(double) * (size_t)n;
 
     wait_cudafunc(cudaMalloc((void **)&ctx->d_S, matrix_bytes));
     wait_cudafunc(cudaMalloc((void **)&ctx->d_H, matrix_bytes));
@@ -468,8 +480,9 @@ static void BandCol_CuSolver_Eigen(dcomplex * d_A, int m, int maxn, double * W_h
                                     &vl, &vu, 1L, maxn, &h_meig, CUDA_R_64F, ctx->d_W, CUDA_C_64F, ctx->d_work,
                                     ctx->d_work_bytes, ctx->h_work, ctx->h_work_bytes, ctx->d_info));
 
-    wait_cudafunc(cudaMemcpy(W_host, ctx->d_W, sizeof(double) * (size_t)maxn, cudaMemcpyDeviceToHost));
-    wait_cudafunc(cudaMemcpy(&info, ctx->d_info, sizeof(int32_t), cudaMemcpyDeviceToHost));
+    wait_cudafunc(cudaMemcpyAsync(W_host, ctx->d_W, sizeof(double) * (size_t)maxn, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(&info, ctx->d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
 
     if (info != 0) {
         snprintf(msg, sizeof(msg), "cusolverDnXsyevdx failed in Band_DFT_Col.c: info=%d", (int)info);
@@ -477,12 +490,11 @@ static void BandCol_CuSolver_Eigen(dcomplex * d_A, int m, int maxn, double * W_h
     }
 }
 
-static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, dcomplex * Ss, double * ko,
-                                                 double * koS)
+static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int copy_transformed_s_to_host, int n,
+                                                 dcomplex * Ss, double * ko, double * koS)
 {
     BandColCuSolverCtx * ctx = &BandCol_cusolver_ctx;
     size_t               matrix_bytes;
-    dcomplex *           scale_host;
     int                  l;
 
     BandCol_CuSolver_EnsureMatrixCapacity(n);
@@ -494,28 +506,22 @@ static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, 
     matrix_bytes = sizeof(dcomplex) * (size_t)n * (size_t)n;
 
     if (build_from_overlap) {
-        wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
+        wait_cudafunc(cudaMemcpyAsync(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
         BandCol_CuSolver_Eigen(ctx->d_S, n, n, ko + 1);
-
-        scale_host = (dcomplex *)malloc(sizeof(dcomplex) * (size_t)n);
-        if (scale_host == NULL) {
-            BandCol_AbortWithMessage("Failed to allocate overlap scale buffer in Band_DFT_Col.c.");
-        }
 
         for (l = 1; l <= n; l++) {
             if (ko[l] < 0.0) {
                 ko[l] = 1.0e-10;
             }
-            koS[l]              = ko[l];
-            scale_host[l - 1].r = 1.0 / sqrt(ko[l]);
-            scale_host[l - 1].i = 0.0;
+            koS[l] = ko[l];
+            ko[l]  = 1.0 / sqrt(ko[l]);
         }
 
-        wait_cudafunc(cudaMemcpy(ctx->d_scale, scale_host, sizeof(dcomplex) * (size_t)n, cudaMemcpyHostToDevice));
-        free(scale_host);
+        wait_cudafunc(
+            cudaMemcpyAsync(ctx->d_scale, ko + 1, sizeof(double) * (size_t)n, cudaMemcpyHostToDevice, ctx->stream));
 
         wait_cudafunc(cublasZdgmm(ctx->cublas, CUBLAS_SIDE_RIGHT, n, n, (cuDoubleComplex *)ctx->d_S, n,
-                                  (cuDoubleComplex *)ctx->d_scale, 1, (cuDoubleComplex *)ctx->d_tmp, n));
+                                  ctx->d_scale, 1, (cuDoubleComplex *)ctx->d_tmp, n));
 
         {
             dcomplex * swap_tmp = ctx->d_S;
@@ -523,16 +529,19 @@ static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, 
             ctx->d_tmp          = swap_tmp;
         }
 
-        wait_cudafunc(cudaMemcpy(Ss, ctx->d_S, matrix_bytes, cudaMemcpyDeviceToHost));
+        if (copy_transformed_s_to_host) {
+            wait_cudafunc(cudaMemcpyAsync(Ss, ctx->d_S, matrix_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+            wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+        }
     } else {
-        wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
+        wait_cudafunc(cudaMemcpyAsync(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
     }
 
     ctx->transformed_s_valid = 1;
     ctx->transformed_s_dim   = n;
 }
 
-static void BandCol_CuSolver_SolveHamiltonian(int n, int maxn, const dcomplex * H_in, double * ko, dcomplex * C_out)
+static void BandCol_CuSolver_SolveHamiltonianEigenvalues(int n, int maxn, const dcomplex * H_in, double * ko)
 {
     BandColCuSolverCtx * ctx = &BandCol_cusolver_ctx;
     size_t               matrix_bytes;
@@ -545,7 +554,7 @@ static void BandCol_CuSolver_SolveHamiltonian(int n, int maxn, const dcomplex * 
 
     matrix_bytes = sizeof(dcomplex) * (size_t)n * (size_t)n;
 
-    wait_cudafunc(cudaMemcpy(ctx->d_H, H_in, matrix_bytes, cudaMemcpyHostToDevice));
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_H, H_in, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
 
     wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_H, n,
                               (cuDoubleComplex *)ctx->d_S, n, &beta, (cuDoubleComplex *)ctx->d_tmp, n));
@@ -554,11 +563,41 @@ static void BandCol_CuSolver_SolveHamiltonian(int n, int maxn, const dcomplex * 
                               (cuDoubleComplex *)ctx->d_tmp, n, &beta, (cuDoubleComplex *)ctx->d_H, n));
 
     BandCol_CuSolver_Eigen(ctx->d_H, n, maxn, ko + 1);
+}
 
-    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_H, n,
-                              (cuDoubleComplex *)ctx->d_S, n, &beta, (cuDoubleComplex *)ctx->d_tmp, n));
+static void BandCol_CuSolver_SolveHamiltonianEigenvectors(int n, int maxn, int compact_output, const dcomplex * H_in,
+                                                          double * ko, dcomplex * C_out)
+{
+    BandColCuSolverCtx * ctx = &BandCol_cusolver_ctx;
+    size_t               copy_bytes;
+    cuDoubleComplex      alpha = make_cuDoubleComplex(1.0, 0.0);
+    cuDoubleComplex      beta  = make_cuDoubleComplex(0.0, 0.0);
+    int                  rows_out;
+    int                  cols_out;
+    int                  ldc;
 
-    wait_cudafunc(cudaMemcpy(C_out, ctx->d_tmp, matrix_bytes, cudaMemcpyDeviceToHost));
+    BandCol_CuSolver_SolveHamiltonianEigenvalues(n, maxn, H_in, ko);
+
+    rows_out = maxn;
+    cols_out = n;
+    ldc      = compact_output ? maxn : n;
+
+    if (rows_out <= 0 || rows_out > n || ldc < rows_out) {
+        BandCol_AbortWithMessage("Invalid output geometry in BandCol_CuSolver_SolveHamiltonianEigenvectors.");
+    }
+
+    if (!compact_output) {
+        wait_cudafunc(cudaMemsetAsync(ctx->d_tmp, 0, sizeof(dcomplex) * (size_t)n * (size_t)n, ctx->stream));
+    }
+
+    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_T, rows_out, cols_out, n, &alpha,
+                              (cuDoubleComplex *)ctx->d_H, n, (cuDoubleComplex *)ctx->d_S, n, &beta,
+                              (cuDoubleComplex *)ctx->d_tmp, ldc));
+
+    copy_bytes = sizeof(dcomplex) * (size_t)ldc * (size_t)cols_out;
+
+    wait_cudafunc(cudaMemcpyAsync(C_out, ctx->d_tmp, copy_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
 }
 
 double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_switch, double ***** nh,
@@ -1471,7 +1510,7 @@ diagonalize1:
                         dtime(&Stime);
 
                     if (!transformed_s_ready) {
-                        BandCol_CuSolver_PrepareTransformedS(SCF_iter == 1, n, Ss, ko, koS);
+                        BandCol_CuSolver_PrepareTransformedS(SCF_iter == 1, SCF_iter == 1, n, Ss, ko, koS);
                         transformed_s_ready = 1;
 
                         if (SCF_iter == 1 && measure_time) {
@@ -1485,7 +1524,7 @@ diagonalize1:
                             dtime(&Stime);
                     }
 
-                    BandCol_CuSolver_SolveHamiltonian(n, MaxN, Hs, ko, Cs);
+                    BandCol_CuSolver_SolveHamiltonianEigenvectors(n, MaxN, 0, Hs, ko, Cs);
 
                     if (measure_time) {
                         dtime(&Etime);
@@ -2225,8 +2264,8 @@ diagonalize1:
             const int stride   = ie2[myid2] - is2[myid2] + 1;
             const int k_offset = kmin - is2[myid2];
 
-            BandCol_AccumulateWeightedDM(stride, k_offset, nk, &EIGEN[spin][kloop][kmin], EVec1[spin], MP, k1, k2, k3,
-                                         dm_max_tno, dm_max_cols, CDM1, EDM1);
+            BandCol_AccumulateWeightedDM(stride, 1, k_offset, nk, &EIGEN[spin][kloop][kmin], EVec1[spin], MP, k1, k2,
+                                         k3, dm_max_tno, dm_max_cols, CDM1, EDM1);
         }
 
         if (measure_time) {
@@ -2632,8 +2671,8 @@ diagonalize1:
                 if (measure_time)
                     dtime(&Stime1);
 
-                nk = BandCol_ApplyOccupationWeightsDense(n, n, MaxN, EVec1[spin], EIGEN[spin][kloop], spin, kw, ChemP,
-                                                         ChemP_XANES[spin], xanes_calc, Beta, x_cut, FermiEps);
+                nk = BandCol_ApplyOccupationWeightsDense(n, n, 1, MaxN, EVec1[spin], EIGEN[spin][kloop], spin, kw,
+                                                         ChemP, ChemP_XANES[spin], xanes_calc, Beta, x_cut, FermiEps);
 
                 if (measure_time) {
                     dtime(&Etime1);
@@ -2641,7 +2680,7 @@ diagonalize1:
                     dtime(&Stime1);
                 }
 
-                BandCol_AccumulateWeightedDM(n, 0, nk, &EIGEN[spin][kloop][1], EVec1[spin], MP, k1, k2, k3,
+                BandCol_AccumulateWeightedDM(n, 1, 0, nk, &EIGEN[spin][kloop][1], EVec1[spin], MP, k1, k2, k3,
                                              dm_max_tno, dm_max_cols, CDM1, EDM1);
 
                 if (measure_time) {
@@ -2871,8 +2910,8 @@ diagonalize1:
                 {
                     int nk;
 
-                    nk = BandCol_ApplyOccupationWeightsDense(n, n, MaxN, EVec1[spin], EIGEN[spin][kloop], spin, kw,
-                                                             ChemP, ChemP_XANES[spin], xanes_calc, Beta, x_cut,
+                    nk = BandCol_ApplyOccupationWeightsDense(n, n, 1, MaxN, EVec1[spin], EIGEN[spin][kloop], spin,
+                                                             kw, ChemP, ChemP_XANES[spin], xanes_calc, Beta, x_cut,
                                                              FermiEps);
 
                     if (measure_time) {
@@ -2881,7 +2920,7 @@ diagonalize1:
                         dtime(&Stime1);
                     }
 
-                    BandCol_AccumulateWeightedDM(n, 0, nk, &EIGEN[spin][kloop][1], EVec1[spin], MP, k1, k2, k3,
+                    BandCol_AccumulateWeightedDM(n, 1, 0, nk, &EIGEN[spin][kloop][1], EVec1[spin], MP, k1, k2, k3,
                                                  dm_max_tno, dm_max_cols, CDM1, EDM1);
 
                     if (measure_time) {

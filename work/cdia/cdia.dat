@@ -44,7 +44,7 @@ scf.ElectronicTemperature  300.0       # default=300 (K)
 scf.energycutoff           150.0       # default=150 (Ry)
 scf.maxIter                 40        # default=40
 scf.EigenvalueSolver       band        # DC|GDC|Cluster|Band
-scf.Kgrid                  2 2 2       # means n1 x n2 x n3
+scf.Kgrid                  8 8 8       # means n1 x n2 x n3
 scf.Mixing.Type           rmm-diisk    # Simple|Rmm-Diis|Gr-Pulay|Kerker|Rmm-Diisk
 scf.Init.Mixing.Weight     0.30        # default=0.30 
 scf.Min.Mixing.Weight      0.001       # default=0.001 
@@ -52,7 +52,7 @@ scf.Max.Mixing.Weight      0.700       # default=0.40
 scf.Mixing.History          7          # default=5
 scf.Mixing.StartPulay       5          # default=6
 scf.criterion             1.0e-10      # default=1.0e-6 (Hartree) 
-#scf.eigen.lib              cusolver
+scf.eigen.lib              cusolver
 
 #
 # MD or Geometry Optimization
