@@ -363,6 +363,28 @@ static void BandNonCol_AccumulateWeightedDM(int basis_stride, int nk, int kmin, 
     }
 }
 
+static void BandNonCol_AccumulateDMKPoint(int myid2, int * is2, int * ie2, int * MP, int n, int n2, double k1,
+                                          double k2, double k3, const double * ko, dcomplex * EVec1, double * rDM11,
+                                          double * rDM22, double * rDM12, double * iDM12, double * iDM11,
+                                          double * iDM22, double * rEDM11, double * rEDM22)
+{
+    int basis_stride = ie2[myid2] - is2[myid2] + 1;
+    int nk;
+
+    if (basis_stride <= 0) {
+        return;
+    }
+
+    nk = BandNonCol_ApplyOccupationWeightsDense(n2, basis_stride, is2[myid2], ie2[myid2], EVec1, ko);
+
+    if (nk <= 0) {
+        return;
+    }
+
+    BandNonCol_AccumulateWeightedDM(basis_stride, nk, is2[myid2], ko, EVec1, MP, n, k1, k2, k3, rDM11, rDM22, rDM12,
+                                    iDM12, iDM11, iDM22, rEDM11, rEDM22);
+}
+
 static void BandNonCol_CalcDMAllK1(int myid0, int myid2, int size_H1, int * is2, int * ie2, int * MP, int n, int n2,
                                    double k1, double k2, double k3, double ***** CDM, double ***** iDM0,
                                    double ***** EDM, double * ko, dcomplex * EVec1, double * dm_buffer)
@@ -375,20 +397,12 @@ static void BandNonCol_CalcDMAllK1(int myid0, int myid2, int size_H1, int * is2,
     double * iDM22  = dm_buffer + (size_t)size_H1 * 5;
     double * rEDM11 = dm_buffer + (size_t)size_H1 * 6;
     double * rEDM22 = dm_buffer + (size_t)size_H1 * 7;
-    int      basis_stride = ie2[myid2] - is2[myid2] + 1;
-    int      nk          = 0;
     size_t   p           = 0;
 
     memset(dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 8);
 
-    if (0 < basis_stride) {
-        nk = BandNonCol_ApplyOccupationWeightsDense(n2, basis_stride, is2[myid2], ie2[myid2], EVec1, ko);
-
-        if (0 < nk) {
-            BandNonCol_AccumulateWeightedDM(basis_stride, nk, is2[myid2], ko, EVec1, MP, n, k1, k2, k3, rDM11, rDM22,
-                                            rDM12, iDM12, iDM11, iDM22, rEDM11, rEDM22);
-        }
-    }
+    BandNonCol_AccumulateDMKPoint(myid2, is2, ie2, MP, n, n2, k1, k2, k3, ko, EVec1, rDM11, rDM22, rDM12, iDM12,
+                                  iDM11, iDM22, rEDM11, rEDM22);
 
     MPI_Allreduce(MPI_IN_PLACE, dm_buffer, size_H1 * 8, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
@@ -2509,6 +2523,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
         /* initialize CDM, EDM, and iDM */
 
         BandNonCol_ZeroDensityMatrices(CDM, iDM[0], EDM);
+        memset(dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 8);
 
         /* for kloop */
 
@@ -3091,9 +3106,11 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
                     /* calculate DM and iDM */
 
-                    Calc_DM_Band_non_collinear((kloop0 < num_kloop0), 0, myid0, myid2, size_H1, is2, ie2, MP, n, n2,
-                                               MaxN, k1, k2, k3, CDM, iDM[0], EDM, EIGEN[0][kloop], H1, S1, EVec1[0],
-                                               rDM11, rDM22, rDM12, iDM12, iDM11, iDM22, rEDM11, rEDM22);
+                    if (kloop0 < num_kloop0) {
+                        BandNonCol_AccumulateDMKPoint(myid2, is2, ie2, MP, n, n2, k1, k2, k3, EIGEN[0][kloop],
+                                                      EVec1[0], rDM11, rDM22, rDM12, iDM12, iDM11, iDM22, rEDM11,
+                                                      rEDM22);
+                    }
 
                     if (measure_time) {
                         dtime(&Etime);
@@ -3451,9 +3468,10 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
                 /* calculate DM and iDM */
 
-                Calc_DM_Band_non_collinear((kloop0 < num_kloop0), 0, myid0, myid2, size_H1, is2, ie2, MP, n, n2, MaxN,
-                                           k1, k2, k3, CDM, iDM[0], EDM, EIGEN[0][kloop], H1, S1, EVec1[0], rDM11,
-                                           rDM22, rDM12, iDM12, iDM11, iDM22, rEDM11, rEDM22);
+                if (kloop0 < num_kloop0) {
+                    BandNonCol_AccumulateDMKPoint(myid2, is2, ie2, MP, n, n2, k1, k2, k3, EIGEN[0][kloop], EVec1[0],
+                                                  rDM11, rDM22, rDM12, iDM12, iDM11, iDM22, rEDM11, rEDM22);
+                }
 
                 if (measure_time) {
                     dtime(&Etime);
