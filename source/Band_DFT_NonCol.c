@@ -20,6 +20,7 @@
 #include <omp.h>
 #include <openacc.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define measure_time 0
@@ -35,6 +36,392 @@ static double Calc_DM_Band_non_collinear(int calc_flag, int store_flag, int myid
                                          double * rEDM11, double * rEDM22);
 
 static double get_max_value(double local_value);
+
+typedef struct
+{
+    int        max_tno;
+    int        max_cols;
+    int        max_nk;
+    dcomplex * vec_up;
+    dcomplex * vec_up_e;
+    dcomplex * vec_dn;
+    dcomplex * vec_dn_e;
+    dcomplex * cols_up;
+    dcomplex * cols_dn;
+    dcomplex * mat11;
+    dcomplex * mat22;
+    dcomplex * mat12;
+    dcomplex * mat11e;
+    dcomplex * mat22e;
+} BandNonColDMWorkspace;
+
+static BandNonColDMWorkspace BandNonCol_dm_workspace = {0};
+
+static void BandNonCol_AbortWithMessage(const char * msg)
+{
+    fprintf(stderr, "%s\n", msg);
+    exit(1);
+}
+
+static void BandNonCol_DMWorkspace_Reset(void)
+{
+    BandNonColDMWorkspace * ws = &BandNonCol_dm_workspace;
+
+    free(ws->vec_up);
+    free(ws->vec_up_e);
+    free(ws->vec_dn);
+    free(ws->vec_dn_e);
+    free(ws->cols_up);
+    free(ws->cols_dn);
+    free(ws->mat11);
+    free(ws->mat22);
+    free(ws->mat12);
+    free(ws->mat11e);
+    free(ws->mat22e);
+
+    memset(ws, 0, sizeof(*ws));
+}
+
+static void BandNonCol_DMWorkspace_Ensure(int max_tno, int max_cols, int nk)
+{
+    BandNonColDMWorkspace *ws = &BandNonCol_dm_workspace;
+    size_t                 vec_bytes;
+    size_t                 cols_bytes;
+    size_t                 mat_bytes;
+
+    if (max_tno <= 0 || max_cols <= 0 || nk <= 0) {
+        BandNonCol_AbortWithMessage("Invalid DM workspace size in Band_DFT_NonCol.c.");
+    }
+
+    if (ws->max_tno >= max_tno && ws->max_cols >= max_cols && ws->max_nk >= nk) {
+        return;
+    }
+
+    BandNonCol_DMWorkspace_Reset();
+
+    vec_bytes  = sizeof(dcomplex) * (size_t)max_tno * (size_t)nk;
+    cols_bytes = sizeof(dcomplex) * (size_t)max_cols * (size_t)nk;
+    mat_bytes  = sizeof(dcomplex) * (size_t)max_tno * (size_t)max_cols;
+
+    ws->vec_up   = (dcomplex *)malloc(vec_bytes);
+    ws->vec_up_e = (dcomplex *)malloc(vec_bytes);
+    ws->vec_dn   = (dcomplex *)malloc(vec_bytes);
+    ws->vec_dn_e = (dcomplex *)malloc(vec_bytes);
+    ws->cols_up  = (dcomplex *)malloc(cols_bytes);
+    ws->cols_dn  = (dcomplex *)malloc(cols_bytes);
+    ws->mat11    = (dcomplex *)malloc(mat_bytes);
+    ws->mat22    = (dcomplex *)malloc(mat_bytes);
+    ws->mat12    = (dcomplex *)malloc(mat_bytes);
+    ws->mat11e   = (dcomplex *)malloc(mat_bytes);
+    ws->mat22e   = (dcomplex *)malloc(mat_bytes);
+
+    if (ws->vec_up == NULL || ws->vec_up_e == NULL || ws->vec_dn == NULL || ws->vec_dn_e == NULL ||
+        ws->cols_up == NULL || ws->cols_dn == NULL || ws->mat11 == NULL || ws->mat22 == NULL || ws->mat12 == NULL ||
+        ws->mat11e == NULL || ws->mat22e == NULL) {
+        BandNonCol_DMWorkspace_Reset();
+        BandNonCol_AbortWithMessage("Failed to allocate DM workspace in Band_DFT_NonCol.c.");
+    }
+
+    ws->max_tno  = max_tno;
+    ws->max_cols = max_cols;
+    ws->max_nk   = nk;
+}
+
+static void BandNonCol_GetDMMaxDims(int * max_tno, int * max_cols)
+{
+    int max_tno_local  = 0;
+    int max_cols_local = 0;
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int cols = 0;
+        int wanA = WhatSpecies[GA_AN];
+        int tnoA = Spe_Total_CNO[wanA];
+
+        if (max_tno_local < tnoA) {
+            max_tno_local = tnoA;
+        }
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+
+            cols += Spe_Total_CNO[wanB];
+        }
+
+        if (max_cols_local < cols) {
+            max_cols_local = cols;
+        }
+    }
+
+    *max_tno  = max_tno_local;
+    *max_cols = max_cols_local;
+}
+
+static void BandNonCol_ZeroDensityMatrices(double ***** CDM, double ***** iDM0, double ***** EDM)
+{
+    int    MA_AN, GA_AN, LB_AN, GB_AN, wanA, wanB, tnoA, tnoB, i;
+    size_t row_bytes;
+
+    for (MA_AN = 1; MA_AN <= Matomnum; ++MA_AN) {
+        GA_AN = M2G[MA_AN];
+        wanA  = WhatSpecies[GA_AN];
+        tnoA  = Spe_Total_CNO[wanA];
+
+        for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            GB_AN    = natn[GA_AN][LB_AN];
+            wanB     = WhatSpecies[GB_AN];
+            tnoB     = Spe_Total_CNO[wanB];
+            row_bytes = sizeof(double) * (size_t)tnoB;
+
+            for (i = 0; i < tnoA; ++i) {
+                memset(CDM[0][MA_AN][LB_AN][i], 0, row_bytes);
+                memset(CDM[1][MA_AN][LB_AN][i], 0, row_bytes);
+                memset(CDM[2][MA_AN][LB_AN][i], 0, row_bytes);
+                memset(CDM[3][MA_AN][LB_AN][i], 0, row_bytes);
+                memset(EDM[0][MA_AN][LB_AN][i], 0, row_bytes);
+                memset(EDM[1][MA_AN][LB_AN][i], 0, row_bytes);
+                memset(EDM[2][MA_AN][LB_AN][i], 0, row_bytes);
+                memset(EDM[3][MA_AN][LB_AN][i], 0, row_bytes);
+                memset(iDM0[0][MA_AN][LB_AN][i], 0, row_bytes);
+                memset(iDM0[1][MA_AN][LB_AN][i], 0, row_bytes);
+            }
+        }
+    }
+}
+
+static int BandNonCol_ApplyOccupationWeightsDense(int n2, int basis_stride, int kmin, int kmax, dcomplex * evec,
+                                                  const double * eigen)
+{
+    const double max_x     = 60.0;
+    const double FermiEps  = 1.0e-13;
+    int          nk        = 0;
+
+    if (kmax < kmin || basis_stride <= 0) {
+        return 0;
+    }
+
+    for (int k = kmin; k <= kmax; ++k) {
+        double x      = (eigen[k] - ChemP) * Beta;
+        double FermiF;
+        double scale;
+        int    local_k = k - kmin;
+
+        if (x <= -max_x)
+            x = -max_x;
+        if (max_x <= x)
+            x = max_x;
+
+        FermiF = FermiFunc_NC(x, k);
+        scale  = sqrt(FermiF);
+
+        for (int i = 0; i < n2; ++i) {
+            dcomplex * v = evec + (size_t)i * (size_t)basis_stride + (size_t)local_k;
+            v->r *= scale;
+            v->i *= scale;
+        }
+
+        nk = local_k + 1;
+
+        if (FermiF < FermiEps) {
+            break;
+        }
+    }
+
+    return nk;
+}
+
+static void BandNonCol_AccumulateWeightedDM(int basis_stride, int nk, int kmin, const double * eig, const dcomplex * evec,
+                                            int * MP, int n, double k1, double k2, double k3, double * rDM11,
+                                            double * rDM22, double * rDM12, double * iDM12, double * iDM11,
+                                            double * iDM22, double * rEDM11, double * rEDM22)
+{
+    BandNonColDMWorkspace *ws = &BandNonCol_dm_workspace;
+    dcomplex               alpha = {1.0, 0.0};
+    dcomplex               beta = {0.0, 0.0};
+    char                   trans_c = 'C';
+    char                   trans_n = 'N';
+    int                    max_tno, max_cols;
+    int                    lda, ldb, ldc;
+    size_t                 dm_offset = 0;
+
+    if (nk <= 0 || basis_stride <= 0) {
+        return;
+    }
+
+    BandNonCol_GetDMMaxDims(&max_tno, &max_cols);
+    BandNonCol_DMWorkspace_Ensure(max_tno, max_cols, nk);
+
+    lda = nk;
+    ldb = nk;
+    ldc = max_tno;
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int wanA       = WhatSpecies[GA_AN];
+        int tnoA       = Spe_Total_CNO[wanA];
+        int Anum       = MP[GA_AN];
+        int total_cols = 0;
+        int m_blk      = tnoA;
+        int k_blk      = nk;
+
+        for (int i = 0; i < tnoA; ++i) {
+            const dcomplex * src_up = evec + (size_t)(Anum + i - 1) * (size_t)basis_stride;
+            const dcomplex * src_dn = evec + (size_t)(Anum + i + n - 1) * (size_t)basis_stride;
+            dcomplex *       dst_up = ws->vec_up + (size_t)i * (size_t)nk;
+            dcomplex *       dst_dn = ws->vec_dn + (size_t)i * (size_t)nk;
+            dcomplex *       dst_up_e = ws->vec_up_e + (size_t)i * (size_t)nk;
+            dcomplex *       dst_dn_e = ws->vec_dn_e + (size_t)i * (size_t)nk;
+
+            memcpy(dst_up, src_up, sizeof(dcomplex) * (size_t)nk);
+            memcpy(dst_dn, src_dn, sizeof(dcomplex) * (size_t)nk);
+
+            for (int k = 0; k < nk; ++k) {
+                double ek = eig[kmin + k];
+
+                dst_up_e[k].r = ek * dst_up[k].r;
+                dst_up_e[k].i = ek * dst_up[k].i;
+                dst_dn_e[k].r = ek * dst_dn[k].r;
+                dst_dn_e[k].i = ek * dst_dn[k].i;
+            }
+        }
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+            int tnoB  = Spe_Total_CNO[wanB];
+            int Bnum  = MP[GB_AN];
+
+            for (int j = 0; j < tnoB; ++j) {
+                const dcomplex * src_up = evec + (size_t)(Bnum + j - 1) * (size_t)basis_stride;
+                const dcomplex * src_dn = evec + (size_t)(Bnum + j + n - 1) * (size_t)basis_stride;
+                dcomplex *       dst_up = ws->cols_up + (size_t)(total_cols + j) * (size_t)nk;
+                dcomplex *       dst_dn = ws->cols_dn + (size_t)(total_cols + j) * (size_t)nk;
+
+                memcpy(dst_up, src_up, sizeof(dcomplex) * (size_t)nk);
+                memcpy(dst_dn, src_dn, sizeof(dcomplex) * (size_t)nk);
+            }
+
+            total_cols += tnoB;
+        }
+
+        F77_NAME(zgemm, ZGEMM)
+        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_up, &lda, ws->cols_up, &ldb, &beta,
+         ws->mat11, &ldc);
+
+        F77_NAME(zgemm, ZGEMM)
+        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_dn, &lda, ws->cols_dn, &ldb, &beta,
+         ws->mat22, &ldc);
+
+        F77_NAME(zgemm, ZGEMM)
+        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_up, &lda, ws->cols_dn, &ldb, &beta,
+         ws->mat12, &ldc);
+
+        F77_NAME(zgemm, ZGEMM)
+        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_up_e, &lda, ws->cols_up, &ldb, &beta,
+         ws->mat11e, &ldc);
+
+        F77_NAME(zgemm, ZGEMM)
+        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_dn_e, &lda, ws->cols_dn, &ldb, &beta,
+         ws->mat22e, &ldc);
+
+        total_cols = 0;
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int    GB_AN = natn[GA_AN][LB_AN];
+            int    Rn    = ncn[GA_AN][LB_AN];
+            int    wanB  = WhatSpecies[GB_AN];
+            int    tnoB  = Spe_Total_CNO[wanB];
+            int    l1    = atv_ijk[Rn][1];
+            int    l2    = atv_ijk[Rn][2];
+            int    l3    = atv_ijk[Rn][3];
+            double kRn   = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
+            double phase_im;
+            double phase_re;
+
+            sincos(2.0 * PI * kRn, &phase_im, &phase_re);
+
+            for (int i = 0; i < tnoA; ++i) {
+                for (int j = 0; j < tnoB; ++j, ++dm_offset) {
+                    size_t         mat_idx = (size_t)i + (size_t)(total_cols + j) * (size_t)ldc;
+                    const dcomplex dm11    = ws->mat11[mat_idx];
+                    const dcomplex dm22    = ws->mat22[mat_idx];
+                    const dcomplex dm12    = ws->mat12[mat_idx];
+                    const dcomplex edm11   = ws->mat11e[mat_idx];
+                    const dcomplex edm22   = ws->mat22e[mat_idx];
+
+                    rDM11[dm_offset] += phase_re * dm11.r - phase_im * dm11.i;
+                    iDM11[dm_offset] += phase_re * dm11.i + phase_im * dm11.r;
+                    rDM22[dm_offset] += phase_re * dm22.r - phase_im * dm22.i;
+                    iDM22[dm_offset] += phase_re * dm22.i + phase_im * dm22.r;
+                    rDM12[dm_offset] += phase_re * dm12.r - phase_im * dm12.i;
+                    iDM12[dm_offset] += phase_re * dm12.i + phase_im * dm12.r;
+                    rEDM11[dm_offset] += phase_re * edm11.r - phase_im * edm11.i;
+                    rEDM22[dm_offset] += phase_re * edm22.r - phase_im * edm22.i;
+                }
+            }
+
+            total_cols += tnoB;
+        }
+    }
+}
+
+static void BandNonCol_CalcDMAllK1(int myid0, int myid2, int size_H1, int * is2, int * ie2, int * MP, int n, int n2,
+                                   double k1, double k2, double k3, double ***** CDM, double ***** iDM0,
+                                   double ***** EDM, double * ko, dcomplex * EVec1, double * dm_buffer)
+{
+    double * rDM11  = dm_buffer;
+    double * rDM22  = dm_buffer + (size_t)size_H1;
+    double * rDM12  = dm_buffer + (size_t)size_H1 * 2;
+    double * iDM12  = dm_buffer + (size_t)size_H1 * 3;
+    double * iDM11  = dm_buffer + (size_t)size_H1 * 4;
+    double * iDM22  = dm_buffer + (size_t)size_H1 * 5;
+    double * rEDM11 = dm_buffer + (size_t)size_H1 * 6;
+    double * rEDM22 = dm_buffer + (size_t)size_H1 * 7;
+    int      basis_stride = ie2[myid2] - is2[myid2] + 1;
+    int      nk          = 0;
+    size_t   p           = 0;
+
+    memset(dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 8);
+
+    if (0 < basis_stride) {
+        nk = BandNonCol_ApplyOccupationWeightsDense(n2, basis_stride, is2[myid2], ie2[myid2], EVec1, ko);
+
+        if (0 < nk) {
+            BandNonCol_AccumulateWeightedDM(basis_stride, nk, is2[myid2], ko, EVec1, MP, n, k1, k2, k3, rDM11, rDM22,
+                                            rDM12, iDM12, iDM11, iDM22, rEDM11, rEDM22);
+        }
+    }
+
+    MPI_Allreduce(MPI_IN_PLACE, dm_buffer, size_H1 * 8, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int MA_AN = F_G2M[GA_AN];
+        int wanA  = WhatSpecies[GA_AN];
+        int tnoA  = Spe_Total_CNO[wanA];
+        int ID    = G2ID[GA_AN];
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+            int tnoB  = Spe_Total_CNO[wanB];
+
+            if (myid0 == ID) {
+                for (int i = 0; i < tnoA; ++i) {
+                    for (int j = 0; j < tnoB; ++j, ++p) {
+                        CDM[0][MA_AN][LB_AN][i][j]    = rDM11[p];
+                        CDM[1][MA_AN][LB_AN][i][j]    = rDM22[p];
+                        CDM[2][MA_AN][LB_AN][i][j]    = rDM12[p];
+                        CDM[3][MA_AN][LB_AN][i][j]    = iDM12[p];
+                        iDM0[0][MA_AN][LB_AN][i][j]   = iDM11[p];
+                        iDM0[1][MA_AN][LB_AN][i][j]   = iDM22[p];
+                        EDM[0][MA_AN][LB_AN][i][j]    = rEDM11[p];
+                        EDM[1][MA_AN][LB_AN][i][j]    = rEDM22[p];
+                    }
+                }
+            } else {
+                p += (size_t)tnoA * (size_t)tnoB;
+            }
+        }
+    }
+}
 
 #pragma GCC optimize("O2")
 double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_switch, double ***** nh,
@@ -142,7 +529,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
     int *   Num_Snd_EV, *Num_Rcv_EV;
     int *   index_Snd_i, *index_Snd_j, *index_Rcv_i, *index_Rcv_j;
     double *EVec_Snd, *EVec_Rcv;
-    double *rDM11, *rDM22, *rDM12, *iDM12, *iDM11, *iDM22, *rEDM11, *rEDM22;
+    double *dm_buffer, *rDM11, *rDM22, *rDM12, *iDM12, *iDM11, *iDM22, *rEDM11, *rEDM22;
 
     /* for time */
     dtime(&TStime);
@@ -226,57 +613,18 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
        allocation of arrays
     ***********************************************/
 
-    rDM11  = (double *)malloc(sizeof(double) * size_H1);
-    rDM22  = (double *)malloc(sizeof(double) * size_H1);
-    rDM12  = (double *)malloc(sizeof(double) * size_H1);
-    iDM11  = (double *)malloc(sizeof(double) * size_H1);
-    iDM22  = (double *)malloc(sizeof(double) * size_H1);
-    iDM12  = (double *)malloc(sizeof(double) * size_H1);
-    rEDM11 = (double *)malloc(sizeof(double) * size_H1);
-    rEDM22 = (double *)malloc(sizeof(double) * size_H1);
+    dm_buffer = (double *)malloc(sizeof(double) * (size_t)size_H1 * 8);
 
-    for (i = 0; i < size_H1; i++) {
-        rDM11[i]  = 0.0;
-        rDM22[i]  = 0.0;
-        rDM12[i]  = 0.0;
-        iDM11[i]  = 0.0;
-        iDM22[i]  = 0.0;
-        iDM12[i]  = 0.0;
-        rEDM11[i] = 0.0;
-        rEDM22[i] = 0.0;
-    }
+    rDM11  = dm_buffer;
+    rDM22  = dm_buffer + (size_t)size_H1;
+    rDM12  = dm_buffer + (size_t)size_H1 * 2;
+    iDM12  = dm_buffer + (size_t)size_H1 * 3;
+    iDM11  = dm_buffer + (size_t)size_H1 * 4;
+    iDM22  = dm_buffer + (size_t)size_H1 * 5;
+    rEDM11 = dm_buffer + (size_t)size_H1 * 6;
+    rEDM22 = dm_buffer + (size_t)size_H1 * 7;
 
-    /***********************************************
-            initialize CDM, EDM, and iDM
-    ***********************************************/
-
-    for (MA_AN = 1; MA_AN <= Matomnum; MA_AN++) {
-        GA_AN = M2G[MA_AN];
-        wanA  = WhatSpecies[GA_AN];
-        tnoA  = Spe_Total_CNO[wanA];
-        Anum  = MP[GA_AN];
-        for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-            GB_AN = natn[GA_AN][LB_AN];
-            wanB  = WhatSpecies[GB_AN];
-            tnoB  = Spe_Total_CNO[wanB];
-            Bnum  = MP[GB_AN];
-
-            for (i = 0; i < tnoA; i++) {
-                for (j = 0; j < tnoB; j++) {
-                    CDM[0][MA_AN][LB_AN][i][j]    = 0.0;
-                    CDM[1][MA_AN][LB_AN][i][j]    = 0.0;
-                    CDM[2][MA_AN][LB_AN][i][j]    = 0.0;
-                    CDM[3][MA_AN][LB_AN][i][j]    = 0.0;
-                    EDM[0][MA_AN][LB_AN][i][j]    = 0.0;
-                    EDM[1][MA_AN][LB_AN][i][j]    = 0.0;
-                    EDM[2][MA_AN][LB_AN][i][j]    = 0.0;
-                    EDM[3][MA_AN][LB_AN][i][j]    = 0.0;
-                    iDM[0][0][MA_AN][LB_AN][i][j] = 0.0;
-                    iDM[0][1][MA_AN][LB_AN][i][j] = 0.0;
-                }
-            }
-        }
-    }
+    memset(dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 8);
 
     /***********************************************
                 k-points by regular mesh
@@ -2115,35 +2463,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
     if (all_knum == 1) {
 
-        /* initialize CDM, EDM, and iDM */
-
-        for (MA_AN = 1; MA_AN <= Matomnum; MA_AN++) {
-            GA_AN = M2G[MA_AN];
-            wanA  = WhatSpecies[GA_AN];
-            tnoA  = Spe_Total_CNO[wanA];
-            Anum  = MP[GA_AN];
-            for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                GB_AN = natn[GA_AN][LB_AN];
-                wanB  = WhatSpecies[GB_AN];
-                tnoB  = Spe_Total_CNO[wanB];
-                Bnum  = MP[GB_AN];
-
-                for (i = 0; i < tnoA; i++) {
-                    for (j = 0; j < tnoB; j++) {
-                        CDM[0][MA_AN][LB_AN][i][j]    = 0.0;
-                        CDM[1][MA_AN][LB_AN][i][j]    = 0.0;
-                        CDM[2][MA_AN][LB_AN][i][j]    = 0.0;
-                        CDM[3][MA_AN][LB_AN][i][j]    = 0.0;
-                        EDM[0][MA_AN][LB_AN][i][j]    = 0.0;
-                        EDM[1][MA_AN][LB_AN][i][j]    = 0.0;
-                        EDM[2][MA_AN][LB_AN][i][j]    = 0.0;
-                        EDM[3][MA_AN][LB_AN][i][j]    = 0.0;
-                        iDM[0][0][MA_AN][LB_AN][i][j] = 0.0;
-                        iDM[0][1][MA_AN][LB_AN][i][j] = 0.0;
-                    }
-                }
-            }
-        }
+        BandNonCol_ZeroDensityMatrices(CDM, iDM[0], EDM);
 
         /* get k1, k2, and k3 */
 
@@ -2154,9 +2474,8 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
         k3 = T_KGrids3[kloop];
 
         /* calculate DM, iDM, and EDM */
-        Calc_DM_Band_non_collinear(1, 1, myid0, myid2, size_H1, is2, ie2, MP, n, n2, MaxN, k1, k2, k3, CDM, iDM[0], EDM,
-                                   EIGEN[0][kloop], H1, S1, EVec1[0], rDM11, rDM22, rDM12, iDM12, iDM11, iDM22, rEDM11,
-                                   rEDM22);
+        BandNonCol_CalcDMAllK1(myid0, myid2, size_H1, is2, ie2, MP, n, n2, k1, k2, k3, CDM, iDM[0], EDM,
+                               EIGEN[0][kloop], EVec1[0], dm_buffer);
 
     } /* if (all_knum==1) */
 
@@ -2189,33 +2508,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
         /* initialize CDM, EDM, and iDM */
 
-        for (MA_AN = 1; MA_AN <= Matomnum; MA_AN++) {
-            GA_AN = M2G[MA_AN];
-            wanA  = WhatSpecies[GA_AN];
-            tnoA  = Spe_Total_CNO[wanA];
-            Anum  = MP[GA_AN];
-            for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                GB_AN = natn[GA_AN][LB_AN];
-                wanB  = WhatSpecies[GB_AN];
-                tnoB  = Spe_Total_CNO[wanB];
-                Bnum  = MP[GB_AN];
-
-                for (i = 0; i < tnoA; i++) {
-                    for (j = 0; j < tnoB; j++) {
-                        CDM[0][MA_AN][LB_AN][i][j]    = 0.0;
-                        CDM[1][MA_AN][LB_AN][i][j]    = 0.0;
-                        CDM[2][MA_AN][LB_AN][i][j]    = 0.0;
-                        CDM[3][MA_AN][LB_AN][i][j]    = 0.0;
-                        EDM[0][MA_AN][LB_AN][i][j]    = 0.0;
-                        EDM[1][MA_AN][LB_AN][i][j]    = 0.0;
-                        EDM[2][MA_AN][LB_AN][i][j]    = 0.0;
-                        EDM[3][MA_AN][LB_AN][i][j]    = 0.0;
-                        iDM[0][0][MA_AN][LB_AN][i][j] = 0.0;
-                        iDM[0][1][MA_AN][LB_AN][i][j] = 0.0;
-                    }
-                }
-            }
-        }
+        BandNonCol_ZeroDensityMatrices(CDM, iDM[0], EDM);
 
         /* for kloop */
 
@@ -3333,14 +3626,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
     free(SP_NZeros);
     free(SP_Atoms);
 
-    free(rDM11);
-    free(rDM22);
-    free(rDM12);
-    free(iDM11);
-    free(iDM22);
-    free(iDM12);
-    free(rEDM11);
-    free(rEDM22);
+    free(dm_buffer);
 
     free(is1);
     free(ie1);
@@ -3830,6 +4116,9 @@ double Calc_DM_Band_non_collinear(int calc_flag, int store_flag, int myid0, int 
 
     dtime(&stime);
 
+    (void)DM1;
+    (void)Work1;
+
     if (measure_time) {
         dtime(&Stime);
     }
@@ -3999,37 +4288,7 @@ double Calc_DM_Band_non_collinear(int calc_flag, int store_flag, int myid0, int 
             dtime(&Stime);
         }
 
-        MPI_Allreduce(rDM11, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        for (i = 0; i < size_H1; i++)
-            rDM11[i] = Work1[i];
-
-        MPI_Allreduce(rDM22, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        for (i = 0; i < size_H1; i++)
-            rDM22[i] = Work1[i];
-
-        MPI_Allreduce(rDM12, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        for (i = 0; i < size_H1; i++)
-            rDM12[i] = Work1[i];
-
-        MPI_Allreduce(iDM11, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        for (i = 0; i < size_H1; i++)
-            iDM11[i] = Work1[i];
-
-        MPI_Allreduce(iDM22, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        for (i = 0; i < size_H1; i++)
-            iDM22[i] = Work1[i];
-
-        MPI_Allreduce(iDM12, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        for (i = 0; i < size_H1; i++)
-            iDM12[i] = Work1[i];
-
-        MPI_Allreduce(rEDM11, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        for (i = 0; i < size_H1; i++)
-            rEDM11[i] = Work1[i];
-
-        MPI_Allreduce(rEDM22, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        for (i = 0; i < size_H1; i++)
-            rEDM22[i] = Work1[i];
+        MPI_Allreduce(MPI_IN_PLACE, rDM11, size_H1 * 8, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
         if (measure_time) {
             dtime(&Etime);
