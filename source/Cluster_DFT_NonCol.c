@@ -20,6 +20,7 @@
 #include <openacc.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <time.h>
 
@@ -29,11 +30,612 @@ static void     Save_DOS_NonCol(int n, int n2, int MaxN, int * MP, double **** O
 static void     Save_LCAO_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomplex * EVec1, double * ko);
 static dcomplex Lapack_LU_Zinverse(int n, dcomplex * A);
 
-static double Calc_Oscillator_Strength(int n, int n2, int UMOmax, int Nocc[2], int * MP2, int * ind2ind, dcomplex * Z0,
-                                       dcomplex * A, dcomplex * Z, dcomplex * Ax, dcomplex * Ay, dcomplex * Az,
-                                       double Utot1, double Utot2, double XANES_Res[10]);
+static void Calc_Oscillator_Strength(int n, int n2, int UMOmax, int Nocc[2], int * MP2, int * ind2ind, dcomplex * Z0,
+                                     dcomplex * A, dcomplex * Z, dcomplex * Ax, dcomplex * Ay, dcomplex * Az,
+                                     double Utot1, double Utot2, double XANES_Res[10]);
 
 static void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, dcomplex * EVec1, double * ko);
+
+static void ClusterNonCol_AbortWithMessage(const char * message)
+{
+    fprintf(stderr, "%s\n", message);
+    fflush(stderr);
+    MPI_Abort(mpi_comm_level1, 1);
+}
+
+static size_t ClusterNonCol_CheckedMulCount(size_t a, size_t b, const char * label)
+{
+    if (a != 0 && b > SIZE_MAX / a) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Dimension overflow in Cluster_DFT_NonCol.c: %s", label);
+        ClusterNonCol_AbortWithMessage(msg);
+    }
+
+    return a * b;
+}
+
+static size_t ClusterNonCol_CheckedArrayBytes(size_t count, size_t elem_size, const char * label)
+{
+    if (count != 0 && elem_size > SIZE_MAX / count) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Allocation size overflow in Cluster_DFT_NonCol.c: %s", label);
+        ClusterNonCol_AbortWithMessage(msg);
+    }
+
+    return count * elem_size;
+}
+
+static void *ClusterNonCol_MallocArray(size_t count, size_t elem_size, const char * label)
+{
+    size_t bytes = ClusterNonCol_CheckedArrayBytes(count, elem_size, label);
+    void * ptr   = malloc((bytes == 0) ? 1 : bytes);
+
+    if (ptr == NULL) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Out of memory in Cluster_DFT_NonCol.c: %s (%zu bytes)", label, bytes);
+        ClusterNonCol_AbortWithMessage(msg);
+    }
+
+    return ptr;
+}
+
+static void ClusterNonCol_ValidateMode(const char * mode)
+{
+    char msg[512];
+
+    if (mode == NULL) {
+        ClusterNonCol_AbortWithMessage("Cluster_DFT_NonCol received a NULL mode string.");
+    }
+
+    if (strcasecmp(mode, "scf") == 0 || strcasecmp(mode, "dos") == 0 || strcasecmp(mode, "lcaoout") == 0 ||
+        strcasecmp(mode, "xanes") == 0) {
+        return;
+    }
+
+    snprintf(msg, sizeof(msg), "Unsupported mode in Cluster_DFT_NonCol.c: %s", mode);
+    ClusterNonCol_AbortWithMessage(msg);
+}
+
+static int ClusterNonCol_FindOwner(int value, int numprocs, const int * is, const int * ie, const char * label)
+{
+    int  ID;
+    char msg[512];
+
+    for (ID = 0; ID < numprocs; ID++) {
+        if (is[ID] <= value && value <= ie[ID]) {
+            return ID;
+        }
+    }
+
+    snprintf(msg, sizeof(msg), "Failed to map %s=%d onto an MPI owner in Cluster_DFT_NonCol.c.", label, value);
+    ClusterNonCol_AbortWithMessage(msg);
+    return 0;
+}
+
+static void ClusterNonCol_SetChemPBounds(double * chem_min, double * chem_max, const double * ko, int MaxN)
+{
+    double lower = -15.0;
+    double upper = 15.0;
+
+    if (ko != NULL && 1 <= MaxN) {
+        lower = fmin(lower, ko[1] - 1.0);
+        upper = fmax(upper, ko[MaxN] + 1.0);
+    }
+
+    if (upper <= lower) {
+        upper = lower + 30.0;
+    }
+
+    *chem_min = lower;
+    *chem_max = upper;
+}
+
+typedef struct
+{
+    int        max_tno;
+    int        max_cols;
+    int        max_nk;
+    size_t     dm_buffer_elems;
+    dcomplex * rows_up_w;
+    dcomplex * rows_dn_w;
+    dcomplex * cols_up;
+    dcomplex * cols_dn;
+    dcomplex * mat11;
+    dcomplex * mat22;
+    dcomplex * mat12;
+    double *   occ;
+    double *   occ_e;
+    double *   dm_buffer;
+} ClusterNonColDMWorkspace;
+
+static ClusterNonColDMWorkspace ClusterNonCol_dm_workspace = {0};
+
+static void ClusterNonCol_DMWorkspace_Reset(void)
+{
+    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
+
+    free(ws->rows_up_w);
+    free(ws->rows_dn_w);
+    free(ws->cols_up);
+    free(ws->cols_dn);
+    free(ws->mat11);
+    free(ws->mat22);
+    free(ws->mat12);
+    free(ws->occ);
+    free(ws->occ_e);
+    free(ws->dm_buffer);
+
+    memset(ws, 0, sizeof(*ws));
+}
+
+static void ClusterNonCol_GetDMMaxDims(int * max_tno, int * max_cols)
+{
+    int max_tno_local  = 0;
+    int max_cols_local = 0;
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int cols = 0;
+        int wanA = WhatSpecies[GA_AN];
+        int tnoA = Spe_Total_CNO[wanA];
+
+        if (max_tno_local < tnoA) {
+            max_tno_local = tnoA;
+        }
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+
+            cols += Spe_Total_CNO[wanB];
+        }
+
+        if (max_cols_local < cols) {
+            max_cols_local = cols;
+        }
+    }
+
+    *max_tno  = max_tno_local;
+    *max_cols = max_cols_local;
+}
+
+static void ClusterNonCol_DMWorkspace_Ensure(int max_tno, int max_cols, int nk, size_t dm_buffer_elems)
+{
+    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
+    size_t                     vec_elems;
+    size_t                     col_elems;
+    size_t                     mat_elems;
+
+    if (max_tno <= 0 || max_cols <= 0 || nk <= 0 || dm_buffer_elems == 0) {
+        ClusterNonCol_AbortWithMessage("Invalid DM workspace size in Cluster_DFT_NonCol.c.");
+    }
+
+    if (ws->max_tno >= max_tno && ws->max_cols >= max_cols && ws->max_nk >= nk &&
+        ws->dm_buffer_elems >= dm_buffer_elems) {
+        return;
+    }
+
+    ClusterNonCol_DMWorkspace_Reset();
+
+    vec_elems = ClusterNonCol_CheckedMulCount((size_t)max_tno, (size_t)nk, "DM workspace vectors");
+    col_elems = ClusterNonCol_CheckedMulCount((size_t)max_cols, (size_t)nk, "DM workspace columns");
+    mat_elems = ClusterNonCol_CheckedMulCount((size_t)max_tno, (size_t)max_cols, "DM workspace matrices");
+
+    ws->rows_up_w = (dcomplex *)ClusterNonCol_MallocArray(vec_elems, sizeof(dcomplex), "DM rows_up_w");
+    ws->rows_dn_w = (dcomplex *)ClusterNonCol_MallocArray(vec_elems, sizeof(dcomplex), "DM rows_dn_w");
+    ws->cols_up   = (dcomplex *)ClusterNonCol_MallocArray(col_elems, sizeof(dcomplex), "DM cols_up");
+    ws->cols_dn   = (dcomplex *)ClusterNonCol_MallocArray(col_elems, sizeof(dcomplex), "DM cols_dn");
+    ws->mat11     = (dcomplex *)ClusterNonCol_MallocArray(mat_elems, sizeof(dcomplex), "DM mat11");
+    ws->mat22     = (dcomplex *)ClusterNonCol_MallocArray(mat_elems, sizeof(dcomplex), "DM mat22");
+    ws->mat12     = (dcomplex *)ClusterNonCol_MallocArray(mat_elems, sizeof(dcomplex), "DM mat12");
+    ws->occ       = (double *)ClusterNonCol_MallocArray((size_t)nk, sizeof(double), "DM occupations");
+    ws->occ_e     = (double *)ClusterNonCol_MallocArray((size_t)nk, sizeof(double), "DM energy occupations");
+    ws->dm_buffer = (double *)ClusterNonCol_MallocArray(dm_buffer_elems, sizeof(double), "DM buffer");
+
+    ws->max_tno         = max_tno;
+    ws->max_cols        = max_cols;
+    ws->max_nk          = nk;
+    ws->dm_buffer_elems = dm_buffer_elems;
+}
+
+static int ClusterNonCol_PrecomputeOccupations(int kmin, int kmax, const double * ko, double * occ, double * occ_e)
+{
+    int    nk     = 0;
+    int    local_k;
+    int    global_k;
+    double max_x  = 60.0;
+    double weight = 0.0;
+    double x;
+
+    for (local_k = 0, global_k = kmin; global_k <= kmax; ++global_k, ++local_k) {
+        x = (ko[global_k] - ChemP) * Beta;
+        if (x <= -max_x)
+            x = -max_x;
+        if (max_x <= x)
+            x = max_x;
+
+        weight      = FermiFunc_NC(x, global_k);
+        occ[local_k]   = weight;
+        occ_e[local_k] = weight * ko[global_k];
+
+        if (1.0e-13 < weight) {
+            nk = local_k + 1;
+        }
+    }
+
+    return nk;
+}
+
+static int ClusterNonCol_PrecomputePartialOccupations(int kmin, int kmax, const double * ko, double * occ)
+{
+    int    nk      = 0;
+    int    local_k;
+    int    global_k;
+    double max_x   = 60.0;
+    double x;
+    double x2;
+    double occ0;
+    double occ1;
+    double weight;
+
+    for (local_k = 0, global_k = kmin; global_k <= kmax; ++global_k, ++local_k) {
+        x = (ko[global_k] - ChemP) * Beta;
+        if (x <= -max_x)
+            x = -max_x;
+        if (max_x <= x)
+            x = max_x;
+
+        x2 = (ko[global_k] - (ChemP + ene_win_partial_charge)) * Beta;
+        if (x2 <= -max_x)
+            x2 = -max_x;
+        if (max_x <= x2)
+            x2 = max_x;
+
+        occ0   = FermiFunc_NC(x, global_k);
+        occ1   = FermiFunc_NC(x2, global_k);
+        weight = fabs(occ0 - occ1);
+        occ[local_k] = weight;
+
+        if (1.0e-13 < weight) {
+            nk = local_k + 1;
+        }
+    }
+
+    return nk;
+}
+
+static void ClusterNonCol_AccumulateWeightedDensity(int n, int n2, int nk, int * MP, dcomplex * EVec1,
+                                                    const double * weights, double * out11r, double * out22r,
+                                                    double * out12r, double * out12i, double * out11i, double * out22i)
+{
+    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
+    dcomplex                   alpha = {1.0, 0.0};
+    dcomplex                   beta  = {0.0, 0.0};
+    char                       trans_c = 'C';
+    char                       trans_n = 'N';
+    size_t                     p = 0;
+
+    if (nk <= 0) {
+        return;
+    }
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int tnoA       = Spe_Total_CNO[WhatSpecies[GA_AN]];
+        int Anum       = MP[GA_AN];
+        int total_cols = 0;
+        int lda        = nk;
+        int ldb        = nk;
+        int ldc        = tnoA;
+
+        for (int i = 0; i < tnoA; ++i) {
+            dcomplex * dst_up = ws->rows_up_w + (size_t)i * (size_t)nk;
+            dcomplex * dst_dn = ws->rows_dn_w + (size_t)i * (size_t)nk;
+            int        basis_up = Anum + i - 1;
+            int        basis_dn = basis_up + n;
+
+            for (int local_k = 0; local_k < nk; ++local_k) {
+                dcomplex c_up = EVec1[(size_t)local_k * (size_t)n2 + (size_t)basis_up];
+                dcomplex c_dn = EVec1[(size_t)local_k * (size_t)n2 + (size_t)basis_dn];
+                double   w    = weights[local_k];
+
+                dst_up[local_k].r = w * c_up.r;
+                dst_up[local_k].i = w * c_up.i;
+                dst_dn[local_k].r = w * c_dn.r;
+                dst_dn[local_k].i = w * c_dn.i;
+            }
+        }
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
+            int Bnum  = MP[GB_AN];
+
+            for (int j = 0; j < tnoB; ++j) {
+                dcomplex * dst_up = ws->cols_up + (size_t)(total_cols + j) * (size_t)nk;
+                dcomplex * dst_dn = ws->cols_dn + (size_t)(total_cols + j) * (size_t)nk;
+                int        basis_up = Bnum + j - 1;
+                int        basis_dn = basis_up + n;
+
+                for (int local_k = 0; local_k < nk; ++local_k) {
+                    dst_up[local_k] = EVec1[(size_t)local_k * (size_t)n2 + (size_t)basis_up];
+                    dst_dn[local_k] = EVec1[(size_t)local_k * (size_t)n2 + (size_t)basis_dn];
+                }
+            }
+
+            total_cols += tnoB;
+        }
+
+        F77_NAME(zgemm, ZGEMM)
+        (&trans_c, &trans_n, &tnoA, &total_cols, &nk, &alpha, ws->rows_up_w, &lda, ws->cols_up, &ldb, &beta,
+         ws->mat11, &ldc);
+
+        F77_NAME(zgemm, ZGEMM)
+        (&trans_c, &trans_n, &tnoA, &total_cols, &nk, &alpha, ws->rows_dn_w, &lda, ws->cols_dn, &ldb, &beta,
+         ws->mat22, &ldc);
+
+        if (out12r != NULL || out12i != NULL) {
+            F77_NAME(zgemm, ZGEMM)
+            (&trans_c, &trans_n, &tnoA, &total_cols, &nk, &alpha, ws->rows_up_w, &lda, ws->cols_dn, &ldb, &beta,
+             ws->mat12, &ldc);
+        }
+
+        total_cols = 0;
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
+
+            for (int i = 0; i < tnoA; ++i) {
+                for (int j = 0; j < tnoB; ++j, ++p) {
+                    size_t         idx = (size_t)i + (size_t)(total_cols + j) * (size_t)ldc;
+                    const dcomplex dm11 = ws->mat11[idx];
+                    const dcomplex dm22 = ws->mat22[idx];
+                    const dcomplex dm12 = ws->mat12[idx];
+
+                    if (out11r != NULL) {
+                        out11r[p] += dm11.r;
+                    }
+
+                    if (out22r != NULL) {
+                        out22r[p] += dm22.r;
+                    }
+
+                    if (out12r != NULL) {
+                        out12r[p] += dm12.r;
+                    }
+
+                    if (out12i != NULL) {
+                        out12i[p] += dm12.i;
+                    }
+
+                    if (out11i != NULL) {
+                        out11i[p] += dm11.i;
+                    }
+
+                    if (out22i != NULL) {
+                        out22i[p] += dm22.i;
+                    }
+                }
+            }
+
+            total_cols += tnoB;
+        }
+    }
+}
+
+static void ClusterNonCol_StoreDMBuffer(int myid, int size_H1, int * MP, double ***** CDM, double ***** iDM0,
+                                        const double * dm_buffer)
+{
+    const double * rDM11 = dm_buffer;
+    const double * rDM22 = dm_buffer + (size_t)size_H1;
+    const double * rDM12 = dm_buffer + (size_t)size_H1 * 2;
+    const double * iDM12 = dm_buffer + (size_t)size_H1 * 3;
+    const double * iDM11 = dm_buffer + (size_t)size_H1 * 4;
+    const double * iDM22 = dm_buffer + (size_t)size_H1 * 5;
+    size_t         p     = 0;
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int MA_AN = F_G2M[GA_AN];
+        int tnoA  = Spe_Total_CNO[WhatSpecies[GA_AN]];
+        int ID    = G2ID[GA_AN];
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
+
+            if (myid == ID) {
+                for (int i = 0; i < tnoA; ++i) {
+                    for (int j = 0; j < tnoB; ++j, ++p) {
+                        CDM[0][MA_AN][LB_AN][i][j]  = rDM11[p];
+                        CDM[1][MA_AN][LB_AN][i][j]  = rDM22[p];
+                        CDM[2][MA_AN][LB_AN][i][j]  = rDM12[p];
+                        CDM[3][MA_AN][LB_AN][i][j]  = iDM12[p];
+                        iDM0[0][MA_AN][LB_AN][i][j] = iDM11[p];
+                        iDM0[1][MA_AN][LB_AN][i][j] = iDM22[p];
+                    }
+                }
+            } else {
+                p += (size_t)tnoA * (size_t)tnoB;
+            }
+        }
+    }
+}
+
+static void ClusterNonCol_StoreEDMBuffer(int myid, int size_H1, int * MP, double ***** EDM, const double * edm_buffer)
+{
+    const double * rEDM11 = edm_buffer;
+    const double * rEDM22 = edm_buffer + (size_t)size_H1;
+    const double * rEDM12 = edm_buffer + (size_t)size_H1 * 2;
+    const double * iEDM12 = edm_buffer + (size_t)size_H1 * 3;
+    size_t         p      = 0;
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int MA_AN = F_G2M[GA_AN];
+        int tnoA  = Spe_Total_CNO[WhatSpecies[GA_AN]];
+        int ID    = G2ID[GA_AN];
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
+
+            if (myid == ID) {
+                for (int i = 0; i < tnoA; ++i) {
+                    for (int j = 0; j < tnoB; ++j, ++p) {
+                        EDM[0][MA_AN][LB_AN][i][j] = rEDM11[p];
+                        EDM[1][MA_AN][LB_AN][i][j] = rEDM22[p];
+                        EDM[2][MA_AN][LB_AN][i][j] = rEDM12[p];
+                        EDM[3][MA_AN][LB_AN][i][j] = iEDM12[p];
+                    }
+                }
+            } else {
+                p += (size_t)tnoA * (size_t)tnoB;
+            }
+        }
+    }
+}
+
+static void ClusterNonCol_StorePartialDMBuffer(int myid, int size_H1, int * MP, const double * partial_buffer)
+{
+    const double * pDM11 = partial_buffer;
+    const double * pDM22 = partial_buffer + (size_t)size_H1;
+    size_t         p     = 0;
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int MA_AN = F_G2M[GA_AN];
+        int tnoA  = Spe_Total_CNO[WhatSpecies[GA_AN]];
+        int ID    = G2ID[GA_AN];
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
+
+            if (myid == ID) {
+                for (int i = 0; i < tnoA; ++i) {
+                    for (int j = 0; j < tnoB; ++j, ++p) {
+                        Partial_DM[0][MA_AN][LB_AN][i][j] = pDM11[p];
+                        Partial_DM[1][MA_AN][LB_AN][i][j] = pDM22[p];
+                    }
+                }
+            } else {
+                p += (size_t)tnoA * (size_t)tnoB;
+            }
+        }
+    }
+}
+
+static double ClusterNonCol_CalcEDMAll(int myid, int size_H1, int * is2, int * ie2, int * MP, int n, int n2,
+                                       double ***** EDM, double * ko, dcomplex * EVec1)
+{
+    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
+    int                        local_nk;
+    int                        nk_occ;
+    int                        max_tno;
+    int                        max_cols;
+    double                     stime;
+    double                     etime;
+
+    local_nk = ie2[myid] - is2[myid] + 1;
+    if (local_nk <= 0) {
+        return 0.0;
+    }
+
+    ClusterNonCol_GetDMMaxDims(&max_tno, &max_cols);
+    ClusterNonCol_DMWorkspace_Ensure(max_tno, max_cols, local_nk, (size_t)size_H1 * 6);
+
+    dtime(&stime);
+
+    nk_occ = ClusterNonCol_PrecomputeOccupations(is2[myid], ie2[myid], ko, ws->occ, ws->occ_e);
+
+    memset(ws->dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 4);
+    ClusterNonCol_AccumulateWeightedDensity(n, n2, nk_occ, MP, EVec1, ws->occ_e, ws->dm_buffer,
+                                            ws->dm_buffer + (size_t)size_H1,
+                                            ws->dm_buffer + (size_t)size_H1 * 2,
+                                            ws->dm_buffer + (size_t)size_H1 * 3, NULL, NULL);
+    MPI_Allreduce(MPI_IN_PLACE, ws->dm_buffer, size_H1 * 4, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+    ClusterNonCol_StoreEDMBuffer(myid, size_H1, MP, EDM, ws->dm_buffer);
+
+    dtime(&etime);
+    return etime - stime;
+}
+
+static double ClusterNonCol_CalcPartialDMAll(int myid, int size_H1, int * is2, int * ie2, int * MP, int n, int n2,
+                                             double * ko, dcomplex * EVec1)
+{
+    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
+    int                        local_nk;
+    int                        nk_occ;
+    int                        max_tno;
+    int                        max_cols;
+    double                     stime;
+    double                     etime;
+
+    local_nk = ie2[myid] - is2[myid] + 1;
+    if (local_nk <= 0) {
+        return 0.0;
+    }
+
+    ClusterNonCol_GetDMMaxDims(&max_tno, &max_cols);
+    ClusterNonCol_DMWorkspace_Ensure(max_tno, max_cols, local_nk, (size_t)size_H1 * 6);
+
+    dtime(&stime);
+
+    nk_occ = ClusterNonCol_PrecomputePartialOccupations(is2[myid], ie2[myid], ko, ws->occ);
+
+    memset(ws->dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 2);
+    ClusterNonCol_AccumulateWeightedDensity(n, n2, nk_occ, MP, EVec1, ws->occ, ws->dm_buffer,
+                                            ws->dm_buffer + (size_t)size_H1, NULL, NULL, NULL, NULL);
+    MPI_Allreduce(MPI_IN_PLACE, ws->dm_buffer, size_H1 * 2, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+    ClusterNonCol_StorePartialDMBuffer(myid, size_H1, MP, ws->dm_buffer);
+
+    dtime(&etime);
+    return etime - stime;
+}
+
+static double ClusterNonCol_CalcDMAll(int myid, int size_H1, int * is2, int * ie2, int * MP, int n, int n2,
+                                      double ***** CDM, double ***** iDM0, double ***** EDM, double * ko,
+                                      dcomplex * EVec1, int calc_edm)
+{
+    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
+    int                        local_nk;
+    int                        nk_occ;
+    int                        max_tno;
+    int                        max_cols;
+    double                     stime;
+    double                     etime;
+
+    local_nk = ie2[myid] - is2[myid] + 1;
+    if (local_nk <= 0) {
+        return 0.0;
+    }
+
+    ClusterNonCol_GetDMMaxDims(&max_tno, &max_cols);
+    ClusterNonCol_DMWorkspace_Ensure(max_tno, max_cols, local_nk, (size_t)size_H1 * 6);
+
+    dtime(&stime);
+
+    nk_occ = ClusterNonCol_PrecomputeOccupations(is2[myid], ie2[myid], ko, ws->occ, ws->occ_e);
+
+    memset(ws->dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 6);
+    ClusterNonCol_AccumulateWeightedDensity(n, n2, nk_occ, MP, EVec1, ws->occ, ws->dm_buffer,
+                                            ws->dm_buffer + (size_t)size_H1,
+                                            ws->dm_buffer + (size_t)size_H1 * 2,
+                                            ws->dm_buffer + (size_t)size_H1 * 3,
+                                            ws->dm_buffer + (size_t)size_H1 * 4,
+                                            ws->dm_buffer + (size_t)size_H1 * 5);
+    MPI_Allreduce(MPI_IN_PLACE, ws->dm_buffer, size_H1 * 6, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+    ClusterNonCol_StoreDMBuffer(myid, size_H1, MP, CDM, iDM0, ws->dm_buffer);
+
+    if (calc_edm) {
+        memset(ws->dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 4);
+        ClusterNonCol_AccumulateWeightedDensity(n, n2, nk_occ, MP, EVec1, ws->occ_e, ws->dm_buffer,
+                                                ws->dm_buffer + (size_t)size_H1,
+                                                ws->dm_buffer + (size_t)size_H1 * 2,
+                                                ws->dm_buffer + (size_t)size_H1 * 3, NULL, NULL);
+        MPI_Allreduce(MPI_IN_PLACE, ws->dm_buffer, size_H1 * 4, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+        ClusterNonCol_StoreEDMBuffer(myid, size_H1, MP, EDM, ws->dm_buffer);
+    }
+
+    dtime(&etime);
+    return etime - stime;
+}
 
 double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * ko, double ***** nh, double ***** ImNL,
                           double **** CntOLP, double ***** CDM, double ***** EDM, double Eele0[2], double Eele1[2],
@@ -42,6 +644,19 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                           dcomplex * Hs2, dcomplex * Cs2, double * DM1, int size_H1, dcomplex * EVec1, double * Work1)
 {
     static int firsttime = 1;
+    static size_t persistent_fallback_real_elems = 0;
+    static size_t persistent_fallback_cpx_elems  = 0;
+    static double *persistent_fallback_Ss        = NULL;
+    static double *persistent_fallback_Cs        = NULL;
+    static double *persistent_fallback_rHs11     = NULL;
+    static double *persistent_fallback_rHs12     = NULL;
+    static double *persistent_fallback_rHs22     = NULL;
+    static double *persistent_fallback_iHs11     = NULL;
+    static double *persistent_fallback_iHs12     = NULL;
+    static double *persistent_fallback_iHs22     = NULL;
+    static dcomplex *persistent_fallback_Ss2     = NULL;
+    static dcomplex *persistent_fallback_Hs2     = NULL;
+    static dcomplex *persistent_fallback_Cs2     = NULL;
     int        i, j, l, n, n2, n1, i1, i1s, j1, k1, l1;
     int        ii1, jj1, jj2, ki, kj;
     int        wan, HOMO0, HOMO1;
@@ -60,15 +675,16 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     double     TStime, TEtime;
     double     FermiEps = 1.0e-13;
     char *     Name_Angular[Supported_MaxL + 1][2 * (Supported_MaxL + 1) + 1];
-    char *     Name_Multiple[20];
+    char       Name_Multiple[20][8] = {{0}};
     char       file_EV[YOUSO10] = ".EV";
-    FILE *     fp_EV;
+    FILE *     fp_EV = NULL;
     char       buf[fp_bsize]; /* setvbuf */
     double     time1, time2, time3, time4, time5, time6, time7;
     double     stime, etime;
     double     av_num, tmp;
     int        ig, jg;
     int        numprocs, myid, ID;
+    int        original_scf_eigen_lib_flag, effective_scf_eigen_lib_flag;
     int        ke, ks, nblk_m, nblk_m2;
     int        ID0, IDS, IDR, Max_Num_Snd_EV, Max_Num_Rcv_EV;
     int *      Num_Snd_EV, *Num_Rcv_EV;
@@ -77,6 +693,17 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     int        ZERO = 0, ONE = 1, info;
     dcomplex   alpha = {1.0, 0.0};
     dcomplex   beta  = {0.0, 0.0};
+    double *   fallback_Ss    = NULL;
+    double *   fallback_Cs    = NULL;
+    double *   fallback_rHs11 = NULL;
+    double *   fallback_rHs12 = NULL;
+    double *   fallback_rHs22 = NULL;
+    double *   fallback_iHs11 = NULL;
+    double *   fallback_iHs12 = NULL;
+    double *   fallback_iHs22 = NULL;
+    dcomplex * fallback_Ss2   = NULL;
+    dcomplex * fallback_Hs2   = NULL;
+    dcomplex * fallback_Cs2   = NULL;
 
     MPI_Comm    mpi_comm_rows, mpi_comm_cols;
     int         mpi_comm_rows_int, mpi_comm_cols_int;
@@ -86,6 +713,102 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     /* MPI */
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
+
+    ClusterNonCol_ValidateMode(mode);
+
+    /* Cluster non-collinear calculations are stable on the ELPA1 path. */
+    original_scf_eigen_lib_flag  = scf_eigen_lib_flag;
+    effective_scf_eigen_lib_flag = scf_eigen_lib_flag;
+
+    if (effective_scf_eigen_lib_flag == 0 || effective_scf_eigen_lib_flag == CuSOLVER) {
+        effective_scf_eigen_lib_flag = ELPA1;
+
+        if (myid == Host_ID && 0 < level_stdout) {
+            if (original_scf_eigen_lib_flag == CuSOLVER) {
+                printf("Cluster_DFT_NonCol: fallback scf.eigen.lib from cusolver to elpa1 for cluster non-collinear calculations.\n");
+            } else {
+                printf("Cluster_DFT_NonCol: fallback scf.eigen.lib from lapack to elpa1 for cluster non-collinear calculations.\n");
+            }
+        }
+    }
+
+    if (original_scf_eigen_lib_flag == CuSOLVER) {
+        size_t local_real_elems = ClusterNonCol_CheckedMulCount((size_t)na_rows, (size_t)na_cols,
+                                                                "Cluster_DFT_NonCol ELPA fallback real matrix");
+        size_t local_cpx_elems  = ClusterNonCol_CheckedMulCount((size_t)na_rows2, (size_t)na_cols2,
+                                                               "Cluster_DFT_NonCol ELPA fallback complex matrix");
+
+        if (persistent_fallback_real_elems < local_real_elems) {
+            free(persistent_fallback_Ss);
+            free(persistent_fallback_Cs);
+            free(persistent_fallback_rHs11);
+            free(persistent_fallback_rHs12);
+            free(persistent_fallback_rHs22);
+            free(persistent_fallback_iHs11);
+            free(persistent_fallback_iHs12);
+            free(persistent_fallback_iHs22);
+
+            persistent_fallback_Ss =
+                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback Ss");
+            persistent_fallback_Cs =
+                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback Cs");
+            persistent_fallback_rHs11 =
+                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback rHs11");
+            persistent_fallback_rHs12 =
+                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback rHs12");
+            persistent_fallback_rHs22 =
+                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback rHs22");
+            persistent_fallback_iHs11 =
+                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback iHs11");
+            persistent_fallback_iHs12 =
+                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback iHs12");
+            persistent_fallback_iHs22 =
+                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback iHs22");
+
+            persistent_fallback_real_elems = local_real_elems;
+        }
+
+        if (persistent_fallback_cpx_elems < local_cpx_elems) {
+            free(persistent_fallback_Ss2);
+            free(persistent_fallback_Hs2);
+            free(persistent_fallback_Cs2);
+
+            persistent_fallback_Ss2 =
+                (dcomplex *)ClusterNonCol_MallocArray(local_cpx_elems, sizeof(dcomplex), "persistent fallback Ss2");
+            persistent_fallback_Hs2 =
+                (dcomplex *)ClusterNonCol_MallocArray(local_cpx_elems, sizeof(dcomplex), "persistent fallback Hs2");
+            persistent_fallback_Cs2 =
+                (dcomplex *)ClusterNonCol_MallocArray(local_cpx_elems, sizeof(dcomplex), "persistent fallback Cs2");
+
+            persistent_fallback_cpx_elems = local_cpx_elems;
+        }
+
+        fallback_Ss    = persistent_fallback_Ss;
+        fallback_Cs    = persistent_fallback_Cs;
+        fallback_rHs11 = persistent_fallback_rHs11;
+        fallback_rHs12 = persistent_fallback_rHs12;
+        fallback_rHs22 = persistent_fallback_rHs22;
+        fallback_iHs11 = persistent_fallback_iHs11;
+        fallback_iHs12 = persistent_fallback_iHs12;
+        fallback_iHs22 = persistent_fallback_iHs22;
+        fallback_Ss2   = persistent_fallback_Ss2;
+        fallback_Hs2   = persistent_fallback_Hs2;
+        fallback_Cs2   = persistent_fallback_Cs2;
+
+        Ss    = fallback_Ss;
+        Cs    = fallback_Cs;
+        rHs11 = fallback_rHs11;
+        rHs12 = fallback_rHs12;
+        rHs22 = fallback_rHs22;
+        iHs11 = fallback_iHs11;
+        iHs12 = fallback_iHs12;
+        iHs22 = fallback_iHs22;
+        Ss2   = fallback_Ss2;
+        Hs2   = fallback_Hs2;
+        Cs2   = fallback_Cs2;
+    }
+
+    scf_eigen_lib_flag = effective_scf_eigen_lib_flag;
 
     MPI_Barrier(mpi_comm_level1);
     dtime(&TStime);
@@ -113,11 +836,11 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                   allocation of arrays
   *************************************************** */
 
-    is1 = (int *)malloc(sizeof(int) * numprocs);
-    ie1 = (int *)malloc(sizeof(int) * numprocs);
+    is1 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "is1");
+    ie1 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "ie1");
 
-    Num_Snd_EV = (int *)malloc(sizeof(int) * numprocs);
-    Num_Rcv_EV = (int *)malloc(sizeof(int) * numprocs);
+    Num_Snd_EV = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "Num_Snd_EV");
+    Num_Rcv_EV = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "Num_Rcv_EV");
 
     /* initialize variables of measuring elapsed time */
 
@@ -231,17 +954,8 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
 
         ig = np_rows2 * nblk2 * ((i) / nblk2) + (i) % nblk2 + ((np_rows2 + my_prow2) % np_rows2) * nblk2 + 1;
 
-        po = 0;
-        for (ID = 0; ID < numprocs; ID++) {
-            if (is2[ID] <= ig && ig <= ie2[ID]) {
-                po  = 1;
-                ID0 = ID;
-                break;
-            }
-        }
-
-        if (po == 1)
-            Num_Snd_EV[ID0] += na_cols2;
+        ID0 = ClusterNonCol_FindOwner(ig, numprocs, is2, ie2, "eigenvector row");
+        Num_Snd_EV[ID0] += na_cols2;
     }
 
     for (ID = 0; ID < numprocs; ID++) {
@@ -268,12 +982,14 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     Max_Num_Snd_EV++;
     Max_Num_Rcv_EV++;
 
-    index_Snd_i = (int *)malloc(sizeof(int) * Max_Num_Snd_EV);
-    index_Snd_j = (int *)malloc(sizeof(int) * Max_Num_Snd_EV);
-    EVec_Snd    = (double *)malloc(sizeof(double) * Max_Num_Snd_EV * 2);
-    index_Rcv_i = (int *)malloc(sizeof(int) * Max_Num_Rcv_EV);
-    index_Rcv_j = (int *)malloc(sizeof(int) * Max_Num_Rcv_EV);
-    EVec_Rcv    = (double *)malloc(sizeof(double) * Max_Num_Rcv_EV * 2);
+    index_Snd_i = (int *)ClusterNonCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(int), "index_Snd_i");
+    index_Snd_j = (int *)ClusterNonCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(int), "index_Snd_j");
+    EVec_Snd    = (double *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)Max_Num_Snd_EV, 2u, "EVec_Snd elements"), sizeof(double), "EVec_Snd");
+    index_Rcv_i = (int *)ClusterNonCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(int), "index_Rcv_i");
+    index_Rcv_j = (int *)ClusterNonCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(int), "index_Rcv_j");
+    EVec_Rcv    = (double *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)Max_Num_Rcv_EV, 2u, "EVec_Rcv elements"), sizeof(double), "EVec_Rcv");
 
     /* print memory size */
 
@@ -511,8 +1227,8 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
             for (i = 0; i < n2; i++) {
 #pragma acc loop independent
                 for (j = 0; j < n2; j++) {
-                    Cs2[n * i + j].r = 0.0;
-                    Cs2[n * i + j].i = 0.0;
+                    Cs2[n2 * i + j].r = 0.0;
+                    Cs2[n2 * i + j].i = 0.0;
                 }
             }
 
@@ -899,8 +1615,9 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
         po    = 0;
         loopN = 0;
 
-        ChemP_MAX = 15.0;
-        ChemP_MIN = -15.0;
+        ChemP_MAX       = 15.0;
+        ChemP_MIN       = -15.0;
+        Cluster_HOMO[0] = 0;
 
         do {
             ChemP     = 0.50 * (ChemP_MAX + ChemP_MIN);
@@ -933,8 +1650,9 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
         po    = 0;
         loopN = 0;
 
-        ChemP_MAX = 15.0;
-        ChemP_MIN = -15.0;
+        ChemP_MAX       = 15.0;
+        ChemP_MIN       = -15.0;
+        Cluster_HOMO[0] = 0;
 
         do {
 
@@ -1013,9 +1731,11 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
             double * array0;
             int *    is3, *ie3;
 
-            array0 = (double *)malloc(sizeof(double) * (n2 + 2) * 2);
-            is3    = (int *)malloc(sizeof(int) * numprocs);
-            ie3    = (int *)malloc(sizeof(int) * numprocs);
+            array0 = (double *)ClusterNonCol_MallocArray(
+                ClusterNonCol_CheckedMulCount((size_t)(n2 + 2), 2u, "MO array0 elements"), sizeof(double),
+                "MO array0");
+            is3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "MO is3");
+            ie3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "MO ie3");
 
             /* set is3 and ie3 */
 
@@ -1059,14 +1779,7 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                     }
                 } else {
 
-                    po = 0;
-                    for (ID = 0; ID < numprocs; ID++) {
-                        if (is3[ID] <= j1 && j1 <= ie3[ID]) {
-                            po  = 1;
-                            ID0 = ID;
-                            break;
-                        }
-                    }
+                    ID0 = ClusterNonCol_FindOwner(j1, numprocs, is3, ie3, "MO HOMO eigenvector");
 
                     if (myid == ID0) {
                         for (k = 0; k < n2; k++) {
@@ -1114,14 +1827,7 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                     }
                 } else {
 
-                    po = 0;
-                    for (ID = 0; ID < numprocs; ID++) {
-                        if (is3[ID] <= j1 && j1 <= ie3[ID]) {
-                            po  = 1;
-                            ID0 = ID;
-                            break;
-                        }
-                    }
+                    ID0 = ClusterNonCol_FindOwner(j1, numprocs, is3, ie3, "MO LUMO eigenvector");
 
                     if (myid == ID0) {
                         for (k = 0; k < n2; k++) {
@@ -1174,39 +1880,31 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
         if (measure_time)
             dtime(&stime);
 
-        /* DM */
-
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(1, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM, iDM[0],
-                                                         EDM, ko, DM1, Work1, EVec1);
-
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(2, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM, iDM[0],
-                                                         EDM, ko, DM1, Work1, EVec1);
-
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(3, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM, iDM[0],
-                                                         EDM, ko, DM1, Work1, EVec1);
-
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(4, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM, iDM[0],
-                                                         EDM, ko, DM1, Work1, EVec1);
-
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(5, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM, iDM[0],
-                                                         EDM, ko, DM1, Work1, EVec1);
-
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(6, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM, iDM[0],
-                                                         EDM, ko, DM1, Work1, EVec1);
-
-        /* EDM */
+        /*
+         * The batched DM path changes the summation order enough to move the
+         * self-consistent solution for sensitive non-collinear cluster cases
+         * such as Cr2. Keep the original per-component accumulation here.
+         */
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(1, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(2, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(3, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(4, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(5, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(6, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
 
         if (Cnt_switch == 1) {
-
             time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(7, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
                                                              iDM[0], EDM, ko, DM1, Work1, EVec1);
-
             time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(8, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
                                                              iDM[0], EDM, ko, DM1, Work1, EVec1);
-
             time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(9, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
                                                              iDM[0], EDM, ko, DM1, Work1, EVec1);
-
             time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(10, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
                                                              iDM[0], EDM, ko, DM1, Work1, EVec1);
         }
@@ -1278,9 +1976,12 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
 
         if (myid == Host_ID) {
 
-            sprintf(file_EV, "%s%s.EV", filepath, filename);
+            if (snprintf(file_EV, sizeof(file_EV), "%s%s.EV", filepath, filename) >= (int)sizeof(file_EV)) {
+                ClusterNonCol_AbortWithMessage("Output path is too long for EV file.");
+            }
 
-            if ((fp_EV = fopen(file_EV, "w")) != NULL) {
+            fp_EV = fopen(file_EV, "w");
+            if (fp_EV != NULL) {
 
                 setvbuf(fp_EV, buf, _IOFBF, fp_bsize); /* setvbuf */
 
@@ -1300,25 +2001,30 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                 for (i1 = 1; i1 <= MaxN; i1++) {
                     fprintf(fp_EV, "      %5d %18.14f\n", i1, ko[i1]);
                 }
+                fclose(fp_EV);
+                fp_EV = NULL;
+            } else {
+                printf("Failure of saving the EV file.\n");
             }
-            /* fclose of fp_EV */
-            fclose(fp_EV);
         }
 
         if (2 <= level_fileout) {
 
             if (myid == Host_ID) {
 
-                sprintf(file_EV, "%s%s.EV", filepath, filename);
+                if (snprintf(file_EV, sizeof(file_EV), "%s%s.EV", filepath, filename) >= (int)sizeof(file_EV)) {
+                    ClusterNonCol_AbortWithMessage("Output path is too long for EV file.");
+                }
 
-                if ((fp_EV = fopen(file_EV, "a")) != NULL) {
+                fp_EV = fopen(file_EV, "a");
+                if (fp_EV != NULL) {
                     setvbuf(fp_EV, buf, _IOFBF, fp_bsize); /* setvbuf */
                 } else {
                     printf("Failure of saving the EV file.\n");
                 }
             }
 
-            if (myid == Host_ID) {
+            if (myid == Host_ID && fp_EV != NULL) {
 
                 fprintf(fp_EV, "\n");
                 fprintf(fp_EV, "***********************************************************\n");
@@ -1339,9 +2045,11 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
             double * array0;
             int *    is3, *ie3;
 
-            array0 = (double *)malloc(sizeof(double) * (n2 + 2) * 4);
-            is3    = (int *)malloc(sizeof(int) * numprocs);
-            ie3    = (int *)malloc(sizeof(int) * numprocs);
+            array0 = (double *)ClusterNonCol_MallocArray(
+                ClusterNonCol_CheckedMulCount((size_t)(n2 + 2), 4u, "EV vector array0 elements"), sizeof(double),
+                "EV vector array0");
+            is3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "EV vector is3");
+            ie3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "EV vector ie3");
 
             /* set is3 and ie3 */
 
@@ -1373,7 +2081,7 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
 
             for (i = 1; i <= num1; i++) {
 
-                if (myid == Host_ID) {
+                if (myid == Host_ID && fp_EV != NULL) {
 
                     /* header */
 
@@ -1433,16 +2141,8 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
 
                         j1 = num0 * (i - 1) + j;
 
-                        po = 0;
-                        for (ID = 0; ID < numprocs; ID++) {
-                            if (is3[ID] <= j1 && j1 <= ie3[ID]) {
-                                po  = 1;
-                                ID0 = ID;
-                                break;
-                            }
-                        }
-
                         if (j1 <= MaxN) {
+                            ID0 = ClusterNonCol_FindOwner(j1, numprocs, is3, ie3, "EV output eigenvector");
 
                             if (myid == ID0) {
                                 for (k = 0; k < n2; k++) {
@@ -1487,14 +2187,11 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                 Name_Angular[4][7] = "g8         ";
                 Name_Angular[4][8] = "g9         ";
 
-                Name_Multiple[0] = "0";
-                Name_Multiple[1] = "1";
-                Name_Multiple[2] = "2";
-                Name_Multiple[3] = "3";
-                Name_Multiple[4] = "4";
-                Name_Multiple[5] = "5";
+                for (m = 0; m < 20; m++) {
+                    snprintf(Name_Multiple[m], sizeof(Name_Multiple[m]), "%d", m);
+                }
 
-                if (myid == Host_ID) {
+                if (myid == Host_ID && fp_EV != NULL) {
 
                     i1 = 1;
 
@@ -1507,10 +2204,12 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                                 for (m = 0; m < (2 * l + 1); m++) {
 
                                     if (l == 0 && mul == 0 && m == 0)
-                                        fprintf(fp_EV, "%4d %3s %s %s", Gc_AN, SpeName[wan1], Name_Multiple[mul],
+                                        fprintf(fp_EV, "%4d %3s %s %s", Gc_AN, SpeName[wan1],
+                                                (mul < 20) ? Name_Multiple[mul] : "?",
                                                 Name_Angular[l][m]);
                                     else
-                                        fprintf(fp_EV, "         %s %s", Name_Multiple[mul], Name_Angular[l][m]);
+                                        fprintf(fp_EV, "         %s %s", (mul < 20) ? Name_Multiple[mul] : "?",
+                                                Name_Angular[l][m]);
 
                                     for (j = 1; j <= num0; j++) {
 
@@ -1546,8 +2245,9 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
 
             /* fclose of fp_EV */
 
-            if (myid == Host_ID) {
+            if (myid == Host_ID && fp_EV != NULL) {
                 fclose(fp_EV);
+                fp_EV = NULL;
             }
 
         } /* end of if (2<=level_fileout) */
@@ -1590,6 +2290,8 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     free(index_Rcv_j);
     free(EVec_Rcv);
 
+    scf_eigen_lib_flag = original_scf_eigen_lib_flag;
+
     /* for elapsed time */
 
     MPI_Barrier(mpi_comm_level1);
@@ -1603,6 +2305,8 @@ double Calc_DM_Cluster_non_collinear_ScaLAPACK(int calc_flag, int myid, int nump
                                                double ***** EDM, double * ko, double * DM1, double * Work1,
                                                dcomplex * EVec1)
 {
+    static int edm_cache_valid     = 0;
+    static int partial_cache_valid = 0;
     int         i, j, k, po, p, GA_AN, MA_AN, wanA, tnoA, Anum;
     int         LB_AN, GB_AN, wanB, tnoB, Bnum, i1, j1, ID;
     double      max_x = 60.0, dum;
@@ -1611,6 +2315,48 @@ double Calc_DM_Cluster_non_collinear_ScaLAPACK(int calc_flag, int myid, int nump
     double      stime, etime, time, lumos;
     MPI_Status  stat;
     MPI_Request request;
+
+    if (calc_flag < 7 || 10 < calc_flag) {
+        edm_cache_valid = 0;
+    }
+
+    if (calc_flag < 11 || 12 < calc_flag) {
+        partial_cache_valid = 0;
+    }
+
+    if (7 <= calc_flag && calc_flag <= 10) {
+        double time = 0.0;
+
+        if (calc_flag == 7 || !edm_cache_valid) {
+            time = ClusterNonCol_CalcEDMAll(myid, size_H1, is2, ie2, MP, n, n2, EDM, ko, EVec1);
+            edm_cache_valid = 1;
+        }
+
+        if (calc_flag == 10) {
+            edm_cache_valid = 0;
+        }
+
+        return time;
+    }
+
+    if (11 <= calc_flag && calc_flag <= 12) {
+        double time = 0.0;
+
+        if (!cal_partial_charge) {
+            return 0.0;
+        }
+
+        if (calc_flag == 11 || !partial_cache_valid) {
+            time = ClusterNonCol_CalcPartialDMAll(myid, size_H1, is2, ie2, MP, n, n2, ko, EVec1);
+            partial_cache_valid = 1;
+        }
+
+        if (calc_flag == 12) {
+            partial_cache_valid = 0;
+        }
+
+        return time;
+    }
 
     dtime(&stime);
 
@@ -1825,7 +2571,7 @@ double Calc_DM_Cluster_non_collinear_ScaLAPACK(int calc_flag, int myid, int nump
 
                         /* Partial_DM22 */
                         case 12:
-                            Partial_DM[0][MA_AN][LB_AN][i][j] = DM1[p];
+                            Partial_DM[1][MA_AN][LB_AN][i][j] = DM1[p];
                             break;
                         }
 
@@ -1863,7 +2609,7 @@ void Save_DOS_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcompl
     float * SD, *Re11, *Re22, *Re12, *Im12;
     int *   is3, *ie3;
     char    file_eig[YOUSO10], file_ev[YOUSO10];
-    FILE *  fp_eig, *fp_ev;
+    FILE *  fp_eig = NULL, *fp_ev = NULL;
 
     /* for OpenMP */
     int OMPID, Nthrds, Nprocs;
@@ -1875,14 +2621,26 @@ void Save_DOS_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcompl
 
     /* allocation of arrays */
 
-    array0 = (float *)malloc(sizeof(float) * (n2 + 2) * 2);
-    is3    = (int *)malloc(sizeof(int) * numprocs);
-    ie3    = (int *)malloc(sizeof(int) * numprocs);
-    SD     = (float *)malloc(sizeof(float) * 2 * (atomnum + 1) * List_YOUSO[7]);
-    Re11   = (float *)malloc(sizeof(float) * (atomnum + 1) * List_YOUSO[7]);
-    Re22   = (float *)malloc(sizeof(float) * (atomnum + 1) * List_YOUSO[7]);
-    Re12   = (float *)malloc(sizeof(float) * (atomnum + 1) * List_YOUSO[7]);
-    Im12   = (float *)malloc(sizeof(float) * (atomnum + 1) * List_YOUSO[7]);
+    array0 = (float *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)(n2 + 2), 2u, "DOS array0 elements"), sizeof(float), "DOS array0");
+    is3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "DOS is3");
+    ie3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "DOS ie3");
+    SD = (float *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount(ClusterNonCol_CheckedMulCount(2u, (size_t)(atomnum + 1), "DOS SD atoms"),
+                                      (size_t)List_YOUSO[7], "DOS SD orbitals"),
+        sizeof(float), "DOS SD");
+    Re11 = (float *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)(atomnum + 1), (size_t)List_YOUSO[7], "DOS Re11"), sizeof(float),
+        "DOS Re11");
+    Re22 = (float *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)(atomnum + 1), (size_t)List_YOUSO[7], "DOS Re22"), sizeof(float),
+        "DOS Re22");
+    Re12 = (float *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)(atomnum + 1), (size_t)List_YOUSO[7], "DOS Re12"), sizeof(float),
+        "DOS Re12");
+    Im12 = (float *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)(atomnum + 1), (size_t)List_YOUSO[7], "DOS Im12"), sizeof(float),
+        "DOS Im12");
 
     /* open file pointers */
 
@@ -1973,14 +2731,7 @@ void Save_DOS_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcompl
 
         else {
 
-            po = 0;
-            for (ID = 0; ID < numprocs; ID++) {
-                if (is3[ID] <= p && p <= ie3[ID]) {
-                    po  = 1;
-                    ID0 = ID;
-                    break;
-                }
-            }
+            ID0 = ClusterNonCol_FindOwner(p, numprocs, is3, ie3, "DOS eigenvector");
 
             if (myid == ID0) {
                 for (k = 0; k < n2; k++) {
@@ -2006,7 +2757,7 @@ void Save_DOS_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcompl
         /* write a header */
 
         i_vec[0] = i_vec[1] = i_vec[2] = 0;
-        if (myid == Host_ID)
+        if (myid == Host_ID && fp_ev != NULL)
             fwrite(i_vec, sizeof(int), 3, fp_ev);
 
         /* loop of MA_AN */
@@ -2080,7 +2831,7 @@ void Save_DOS_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcompl
 
         /*  transform to up and down states */
 
-        if (myid == Host_ID) {
+        if (myid == Host_ID && fp_ev != NULL) {
 
             for (GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
 
@@ -2123,7 +2874,7 @@ void Save_DOS_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcompl
                    save *.Dos.val
   ****************************************************/
 
-    if (myid == Host_ID) {
+    if (myid == Host_ID && fp_eig != NULL) {
 
         fprintf(fp_eig, "mode        1\n");
         fprintf(fp_eig, "NonCol      1\n");
@@ -2211,7 +2962,7 @@ void Save_LCAO_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomp
     int *    is3, *ie3;
     double   max_x = 60.0;
     char     operate[YOUSO10];
-    FILE *   fp1;
+    FILE *   fp1 = NULL;
 
     /* for OpenMP */
     int OMPID, Nthrds, Nprocs;
@@ -2223,15 +2974,18 @@ void Save_LCAO_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomp
 
     /* allocation of arrays */
 
-    array0 = (double *)malloc(sizeof(double) * (n2 + 2) * 2);
-    is3    = (int *)malloc(sizeof(int) * numprocs);
-    ie3    = (int *)malloc(sizeof(int) * numprocs);
+    array0 = (double *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)(n2 + 2), 2u, "LCAO array0 elements"), sizeof(double), "LCAO array0");
+    is3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "LCAO is3");
+    ie3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "LCAO ie3");
 
     /* open file pointers */
 
     if (myid == Host_ID) {
 
-        sprintf(operate, "%s%s.lcao", filepath, filename);
+        if (snprintf(operate, sizeof(operate), "%s%s.lcao", filepath, filename) >= (int)sizeof(operate)) {
+            ClusterNonCol_AbortWithMessage("Output path is too long for LCAO file.");
+        }
         fp1 = fopen(operate, "ab");
 
         if (fp1 != NULL) {
@@ -2263,6 +3017,7 @@ void Save_LCAO_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomp
                   find Cluster_HOMO
   ****************************************************/
 
+    HOMO[0] = 0;
     for (i = 1; i <= MaxN; i++) {
         x = (ko[i] - ChemP) * Beta;
         if (x <= -max_x)
@@ -2281,7 +3036,7 @@ void Save_LCAO_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomp
 
     /* Save parameters */
 
-    if (myid == Host_ID) {
+    if (myid == Host_ID && fp1 != NULL) {
         fwrite(&n, sizeof(int), 1, fp1);
         fwrite(&MaxN, sizeof(int), 1, fp1);
         fwrite(HOMO, sizeof(int), 2, fp1);
@@ -2332,14 +3087,7 @@ void Save_LCAO_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomp
 
         else {
 
-            po = 0;
-            for (ID = 0; ID < numprocs; ID++) {
-                if (is3[ID] <= p && p <= ie3[ID]) {
-                    po  = 1;
-                    ID0 = ID;
-                    break;
-                }
-            }
+            ID0 = ClusterNonCol_FindOwner(p, numprocs, is3, ie3, "LCAO eigenvector");
 
             if (myid == ID0) {
                 for (k = 0; k < n2; k++) {
@@ -2356,7 +3104,7 @@ void Save_LCAO_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomp
 
         /* Save array0 */
 
-        if (myid == Host_ID) {
+        if (myid == Host_ID && fp1 != NULL) {
             fwrite(array0, sizeof(double), n2 * 2, fp1);
         }
 
@@ -2394,7 +3142,7 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
     double      dum, tmp, av_num;
     char        operate[YOUSO10];
     char        buf[fp_bsize]; /* setvbuf */
-    FILE *      fp1;
+    FILE *      fp1 = NULL;
     MPI_Status  stat;
     MPI_Request request;
     int *       is3, *ie3, *MP2;
@@ -2404,10 +3152,10 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
     double      sumr, sumi, sumxr, sumxi;
     double      sumyr, sumyi, sumzr, sumzi, tmpr, tmpi;
     double *    array0;
-    dcomplex *  C1, *C2, *Z, *Ax, *Ay, *Az;
+    dcomplex *  C1 = NULL, *C2 = NULL, *Z = NULL, *Ax = NULL, *Ay = NULL, *Az = NULL;
     int         Cluster_HOMO1[2], Num_XANES_Out, numex;
     int *       ind2ind;
-    double *****OLPmo, **XANES_Out;
+    double *****OLPmo = NULL, **XANES_Out = NULL;
     double      XANES_Res[10];
     char        file1[YOUSO10];
 
@@ -2426,10 +3174,13 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
 
     /* allocation of arrays */
 
-    array0 = (double *)malloc(sizeof(dcomplex) * (n2 + 2) * 2);
-    is3    = (int *)malloc(sizeof(int) * numprocs);
-    ie3    = (int *)malloc(sizeof(int) * numprocs);
-    C2     = (dcomplex *)malloc(sizeof(dcomplex) * n2 * MaxN);
+    array0 = (double *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)(n2 + 2), 2u, "XANES array0 elements"), sizeof(double),
+        "XANES array0");
+    is3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "XANES is3");
+    ie3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "XANES ie3");
+    C2 = (dcomplex *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)n2, (size_t)MaxN, "XANES C2 elements"), sizeof(dcomplex), "XANES C2");
 
     /* set iemin and imax */
 
@@ -2480,14 +3231,7 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
             }
         } else {
 
-            po = 0;
-            for (ID = 0; ID < numprocs; ID++) {
-                if (is3[ID] <= p && p <= ie3[ID]) {
-                    po  = 1;
-                    ID0 = ID;
-                    break;
-                }
-            }
+            ID0 = ClusterNonCol_FindOwner(p, numprocs, is3, ie3, "XANES eigenvector");
 
             if (myid == ID0) {
                 for (k = 0; k < n2; k++) {
@@ -2517,35 +3261,44 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
 
     /* open file pointer */
 
-    sprintf(operate, "%s%s", filepath, xanes_gs_file);
+    if (snprintf(operate, sizeof(operate), "%s%s", filepath, xanes_gs_file) >= (int)sizeof(operate)) {
+        ClusterNonCol_AbortWithMessage("Input path is too long for xanes ground-state file.");
+    }
 
     if ((fp1 = fopen(operate, "rb")) != NULL) {
 
         /* read parameters */
 
-        fread(&n1, sizeof(int), 1, fp1);
-        fread(&MaxN1, sizeof(int), 1, fp1);
-        fread(Cluster_HOMO1, sizeof(int), 2, fp1);
-        fread(&SpinP_switch1, sizeof(int), 1, fp1);
-        fread(&Utot1, sizeof(double), 1, fp1);
+        if (fread(&n1, sizeof(int), 1, fp1) != 1 || fread(&MaxN1, sizeof(int), 1, fp1) != 1 ||
+            fread(Cluster_HOMO1, sizeof(int), 2, fp1) != 2 || fread(&SpinP_switch1, sizeof(int), 1, fp1) != 1 ||
+            fread(&Utot1, sizeof(double), 1, fp1) != 1) {
+            fclose(fp1);
+            ClusterNonCol_AbortWithMessage("Failed to read the xanes ground-state header.");
+        }
 
         /* allocation of C1 */
 
-        C1 = (dcomplex *)malloc(sizeof(dcomplex) * n2 * MaxN1);
+        C1 = (dcomplex *)ClusterNonCol_MallocArray(
+            ClusterNonCol_CheckedMulCount((size_t)n2, (size_t)MaxN1, "XANES C1 elements"), sizeof(dcomplex),
+            "XANES C1");
 
         /* read LCAO coefficients */
 
-        fread(C1, sizeof(dcomplex), n2 * MaxN1, fp1);
+        if (fread(C1, sizeof(dcomplex), ClusterNonCol_CheckedMulCount((size_t)n2, (size_t)MaxN1, "XANES C1 read"),
+                  fp1) != ClusterNonCol_CheckedMulCount((size_t)n2, (size_t)MaxN1, "XANES C1 read")) {
+            fclose(fp1);
+            ClusterNonCol_AbortWithMessage("Failed to read the xanes ground-state coefficients.");
+        }
 
         /* close file pointer */
         fclose(fp1);
+        fp1 = NULL;
     }
 
     else {
         if (myid == Host_ID)
             printf("Could not find the xanes.gs.file: %s\n", operate);
-        MPI_Finalize();
-        exit(0);
+        ClusterNonCol_AbortWithMessage("Required xanes.gs.file was not found.");
     }
 
     /****************************************************
@@ -2554,10 +3307,11 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
 
     /* OLPmo: matrix for momentum operator */
 
-    OLPmo = (double *****)malloc(sizeof(double ****) * 3);
+    OLPmo = (double *****)ClusterNonCol_MallocArray(3, sizeof(double ****), "XANES OLPmo directions");
     for (direction = 0; direction < 3; direction++) {
 
-        OLPmo[direction] = (double ****)malloc(sizeof(double ***) * (Matomnum + 1));
+        OLPmo[direction] = (double ****)ClusterNonCol_MallocArray((size_t)(Matomnum + 1), sizeof(double ***),
+                                                                  "XANES OLPmo atom rows");
         FNAN[0]          = 0;
         for (Mc_AN = 0; Mc_AN <= Matomnum; Mc_AN++) {
 
@@ -2570,7 +3324,9 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
                 tno0  = Spe_Total_CNO[Cwan];
             }
 
-            OLPmo[direction][Mc_AN] = (double ***)malloc(sizeof(double **) * (FNAN[Gc_AN] + 1));
+            OLPmo[direction][Mc_AN] = (double ***)ClusterNonCol_MallocArray((size_t)(FNAN[Gc_AN] + 1),
+                                                                             sizeof(double **),
+                                                                             "XANES OLPmo neighbor rows");
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                 if (Mc_AN == 0) {
@@ -2581,9 +3337,12 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
                     tno1  = Spe_Total_CNO[Hwan];
                 }
 
-                OLPmo[direction][Mc_AN][h_AN] = (double **)malloc(sizeof(double *) * tno0);
+                OLPmo[direction][Mc_AN][h_AN] = (double **)ClusterNonCol_MallocArray((size_t)tno0, sizeof(double *),
+                                                                                      "XANES OLPmo basis rows");
                 for (i = 0; i < tno0; i++) {
-                    OLPmo[direction][Mc_AN][h_AN][i] = (double *)malloc(sizeof(double) * tno1);
+                    OLPmo[direction][Mc_AN][h_AN][i] = (double *)ClusterNonCol_MallocArray((size_t)tno1,
+                                                                                            sizeof(double),
+                                                                                            "XANES OLPmo basis cols");
                 }
             }
         }
@@ -2595,7 +3354,7 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
 
     /* set MP */
 
-    MP2 = (int *)malloc(sizeof(int) * (atomnum + 1));
+    MP2 = (int *)ClusterNonCol_MallocArray((size_t)(atomnum + 1), sizeof(int), "XANES MP2");
 
     p = 0;
     for (Gc_AN = 1; Gc_AN <= atomnum; Gc_AN++) {
@@ -2634,17 +3393,25 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
 
     Num_XANES_Out = Num_Excited_States;
 
-    XANES_Out = (double **)malloc(sizeof(double *) * Num_XANES_Out);
+    XANES_Out = (double **)ClusterNonCol_MallocArray((size_t)Num_XANES_Out, sizeof(double *), "XANES output rows");
     for (i = 0; i < Num_XANES_Out; i++) {
-        XANES_Out[i] = (double *)malloc(sizeof(double) * 10);
+        XANES_Out[i] = (double *)ClusterNonCol_MallocArray(10, sizeof(double), "XANES output row");
     }
 
-    Z  = (dcomplex *)malloc(sizeof(dcomplex) * UMOmax * UMOmax);
-    Ax = (dcomplex *)malloc(sizeof(dcomplex) * UMOmax * UMOmax);
-    Ay = (dcomplex *)malloc(sizeof(dcomplex) * UMOmax * UMOmax);
-    Az = (dcomplex *)malloc(sizeof(dcomplex) * UMOmax * UMOmax);
+    Z = (dcomplex *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)UMOmax, (size_t)UMOmax, "XANES overlap matrix"), sizeof(dcomplex),
+        "XANES overlap matrix");
+    Ax = (dcomplex *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)UMOmax, (size_t)UMOmax, "XANES Ax matrix"), sizeof(dcomplex),
+        "XANES Ax matrix");
+    Ay = (dcomplex *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)UMOmax, (size_t)UMOmax, "XANES Ay matrix"), sizeof(dcomplex),
+        "XANES Ay matrix");
+    Az = (dcomplex *)ClusterNonCol_MallocArray(
+        ClusterNonCol_CheckedMulCount((size_t)UMOmax, (size_t)UMOmax, "XANES Az matrix"), sizeof(dcomplex),
+        "XANES Az matrix");
 
-    ind2ind = (int *)malloc(sizeof(int) * UMOmax);
+    ind2ind = (int *)ClusterNonCol_MallocArray((size_t)UMOmax, sizeof(int), "XANES ind2ind");
 
     /**************************************************************
    calculations of the overlap, px, py, and pz matrices between 
@@ -2784,7 +3551,9 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
 
     if (myid == Host_ID) {
 
-        sprintf(file1, "%s%s.xanes", filepath, filename);
+        if (snprintf(file1, sizeof(file1), "%s%s.xanes", filepath, filename) >= (int)sizeof(file1)) {
+            ClusterNonCol_AbortWithMessage("Output path is too long for xanes file.");
+        }
 
         if ((fp1 = fopen(file1, "w")) != NULL) {
 
@@ -2863,13 +3632,13 @@ void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, 
     OLPmo = NULL;
 }
 
-double Calc_Oscillator_Strength(int n, int n2, int UMOmax, int Nocc[2], int * MP2, int * ind2ind, dcomplex * Z0,
-                                dcomplex * A, dcomplex * Z, dcomplex * Ax, dcomplex * Ay, dcomplex * Az, double Utot1,
-                                double Utot2, double XANES_Res[10])
+void Calc_Oscillator_Strength(int n, int n2, int UMOmax, int Nocc[2], int * MP2, int * ind2ind, dcomplex * Z0,
+                              dcomplex * A, dcomplex * Z, dcomplex * Ax, dcomplex * Ay, dcomplex * Az, double Utot1,
+                              double Utot2, double XANES_Res[10])
 {
     int      ii, jj, Gc_AN, spin, Cwan, Hwan, Mc_AN;
     int      i, j, k, ia, ja, ib, jb, Anum, Bnum, h_AN, Gh_AN, Rn, TNO1, TNO2;
-    double   os, osx, osy, osz, p2, px2, py2, pz2;
+    double   os, osx, osy, osz, p2, px2, py2, pz2, delta_e;
     double   fsumr, fsumi;
     double   tmpr, tmpi;
     dcomplex tmp, det, sum, allsum;
@@ -2879,6 +3648,14 @@ double Calc_Oscillator_Strength(int n, int n2, int UMOmax, int Nocc[2], int * MP
 
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
+
+    for (i = 0; i < 5; i++) {
+        XANES_Res[i] = 0.0;
+    }
+
+    if (Nocc[0] <= 0) {
+        return;
+    }
 
     /* set Z0 which is an overlap matrix of two Slater determinants */
 
@@ -2959,14 +3736,18 @@ double Calc_Oscillator_Strength(int n, int n2, int UMOmax, int Nocc[2], int * MP
 
     } /* k */
 
-    p2 = px2 + py2 + pz2;
+    p2      = px2 + py2 + pz2;
+    delta_e = fabs(Utot1 - Utot2);
+    if (delta_e <= 1.0e-14) {
+        return;
+    }
 
-    os  = p2 / fabs(Utot1 - Utot2);
-    osx = px2 / fabs(Utot1 - Utot2);
-    osy = py2 / fabs(Utot1 - Utot2);
-    osz = pz2 / fabs(Utot1 - Utot2);
+    os  = p2 / delta_e;
+    osx = px2 / delta_e;
+    osy = py2 / delta_e;
+    osz = pz2 / delta_e;
 
-    XANES_Res[0] = fabs(Utot1 - Utot2) * 27.2113845;
+    XANES_Res[0] = delta_e * 27.2113845;
     XANES_Res[1] = os;
     XANES_Res[2] = osx;
     XANES_Res[3] = osy;
@@ -2975,15 +3756,22 @@ double Calc_Oscillator_Strength(int n, int n2, int UMOmax, int Nocc[2], int * MP
 
 dcomplex Lapack_LU_Zinverse(int n, dcomplex * A)
 {
-    static char * thisprogram = "Lapack_LU_inverse";
+    static char * thisprogram = "Lapack_LU_Zinverse";
     int *         ipiv;
     dcomplex *    work, tmp, det;
     int           lwork;
     int           info, i, j;
 
+    det.r = 1.0;
+    det.i = 0.0;
+
+    if (n <= 0) {
+        return det;
+    }
+
     /* L*U factorization */
 
-    ipiv = (int *)malloc(sizeof(int) * n);
+    ipiv = (int *)ClusterNonCol_MallocArray((size_t)n, sizeof(int), "Lapack_LU_Zinverse ipiv");
 
     F77_NAME(zgetrf, ZGETRF)(&n, &n, A, &n, ipiv, &info);
 
@@ -2993,8 +3781,6 @@ dcomplex Lapack_LU_Zinverse(int n, dcomplex * A)
 
     /* calculation of determinant */
 
-    det.r = 1.0;
-    det.i = 0.0;
     for (i = 0; i < n; i++) {
         tmp   = det;
         det.r = tmp.r * A[n * (i) + (i)].r - tmp.i * A[n * (i) + (i)].i;
@@ -3019,12 +3805,12 @@ dcomplex Lapack_LU_Zinverse(int n, dcomplex * A)
     /* inverse L*U factorization */
 
     lwork = 4 * n;
-    work  = (dcomplex *)malloc(sizeof(dcomplex) * lwork);
+    work  = (dcomplex *)ClusterNonCol_MallocArray((size_t)lwork, sizeof(dcomplex), "Lapack_LU_Zinverse work");
 
     F77_NAME(zgetri, ZGETRI)(&n, A, &n, ipiv, work, &lwork, &info);
 
     if (info != 0) {
-        printf("zgetrf failed, info=%i, %s\n", info, thisprogram);
+        printf("zgetri failed, info=%i, %s\n", info, thisprogram);
     }
 
     free(work);
