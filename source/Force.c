@@ -14,8 +14,11 @@
 #include "openmx_common.h"
 #include <math.h>
 #include <omp.h>
+#include <openacc.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
 #include <time.h>
 
 #define measure_time 0
@@ -23,6 +26,378 @@
 #define NVHPC_VERSION ( __NVCOMPILER_MAJOR__ * 10000 \
                        + __NVCOMPILER_MINOR__ * 100   \
                        + __NVCOMPILER_PATCHLEVEL__ )
+
+static void* Force_checked_malloc(size_t size, const char* file, int line)
+{
+    void* ptr;
+    int mpi_initialized = 0;
+
+    if (size == 0) {
+        size = 1;
+    }
+
+    ptr = malloc(size);
+    if (ptr != NULL) {
+        return ptr;
+    }
+
+    fprintf(stderr, "Force.c: failed to allocate %zu bytes at %s:%d\n", size, file, line);
+    fflush(stderr);
+
+    if (MPI_Initialized(&mpi_initialized) == MPI_SUCCESS && mpi_initialized) {
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
+
+    abort();
+}
+
+static int** Force_alloc_int_matrix(int rows, int cols)
+{
+    int i;
+    int** matrix;
+    int* data;
+
+    matrix = (int**)malloc(sizeof(int*) * rows);
+    data = (int*)malloc(sizeof(int) * rows * cols);
+
+    for (i = 0; i < rows; i++) {
+        matrix[i] = data + i * cols;
+    }
+
+    return matrix;
+}
+
+static void Force_free_int_matrix(int** matrix)
+{
+    if (matrix != NULL) {
+        free(matrix[0]);
+        free(matrix);
+    }
+}
+
+static double** Force_alloc_double_matrix(int rows, int cols)
+{
+    int i;
+    double** matrix;
+    double* data;
+
+    matrix = (double**)malloc(sizeof(double*) * rows);
+    data = (double*)malloc(sizeof(double) * rows * cols);
+
+    for (i = 0; i < rows; i++) {
+        matrix[i] = data + i * cols;
+    }
+
+    return matrix;
+}
+
+static void Force_free_double_matrix(double** matrix)
+{
+    if (matrix != NULL) {
+        free(matrix[0]);
+        free(matrix);
+    }
+}
+
+#define malloc(size) Force_checked_malloc((size), __FILE__, __LINE__)
+
+static size_t Force_checked_mul_count(size_t a, size_t b, const char* label)
+{
+    if (a != 0 && b > SIZE_MAX / a) {
+        fprintf(stderr, "Force.c: size overflow for %s\n", label);
+        fflush(stderr);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
+
+    return a * b;
+}
+
+static size_t Force_checked_add_count(size_t a, size_t b, const char* label)
+{
+    if (a > SIZE_MAX - b) {
+        fprintf(stderr, "Force.c: size overflow for %s\n", label);
+        fflush(stderr);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
+
+    return a + b;
+}
+
+static void Force_accumulate_atom_time_from_terms(const size_t* atom_terms, size_t total_terms, double elapsed)
+{
+    int Mc_AN, Gc_AN;
+
+    if (atom_terms == NULL || total_terms == 0 || elapsed <= 0.0) {
+        return;
+    }
+
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        Gc_AN = M2G[Mc_AN];
+        time_per_atom[Gc_AN] += elapsed * ((double)atom_terms[Mc_AN] / (double)total_terms);
+    }
+}
+
+static void Force_openacc_reduce_xyz(int num_atoms,
+    const size_t* atom_offsets,
+    size_t total_terms,
+    const double* weights,
+    const double* vx,
+    const double* vy,
+    const double* vz,
+    double* Fx,
+    double* Fy,
+    double* Fz)
+{
+    int Mc_AN;
+
+    for (Mc_AN = 0; Mc_AN <= num_atoms; Mc_AN++) {
+        Fx[Mc_AN] = 0.0;
+        Fy[Mc_AN] = 0.0;
+        Fz[Mc_AN] = 0.0;
+    }
+
+    if (total_terms == 0) {
+        return;
+    }
+
+#pragma acc data copyin(atom_offsets[0 : num_atoms + 1], weights[0 : total_terms], vx[0 : total_terms], vy[0 : total_terms], vz[0 : total_terms]) \
+    copyout(Fx[0 : num_atoms + 1], Fy[0 : num_atoms + 1], Fz[0 : num_atoms + 1])
+    {
+#pragma acc parallel loop gang
+        for (Mc_AN = 0; Mc_AN <= num_atoms; Mc_AN++) {
+            double sumx = 0.0;
+            double sumy = 0.0;
+            double sumz = 0.0;
+
+            if (Mc_AN != 0) {
+                size_t start = atom_offsets[Mc_AN - 1];
+                size_t end = atom_offsets[Mc_AN];
+                size_t idx;
+
+#pragma acc loop vector reduction(+:sumx, sumy, sumz)
+                for (idx = start; idx < end; idx++) {
+                    double weight = weights[idx];
+                    sumx += weight * vx[idx];
+                    sumy += weight * vy[idx];
+                    sumz += weight * vz[idx];
+                }
+            }
+
+            Fx[Mc_AN] = sumx;
+            Fy[Mc_AN] = sumy;
+            Fz[Mc_AN] = sumz;
+        }
+    }
+}
+
+static size_t Force2_Kinetic_OpenACC(double***** H0_src,
+    double***** CDM0,
+    double* Fx,
+    double* Fy,
+    double* Fz,
+    size_t* atom_terms)
+{
+    int Mc_AN, Gc_AN, h_AN, q_AN;
+    int Gh_AN, Mh_AN, Gq_AN;
+    int Hwan, Qwan, i, j, kl;
+    int ian, jan;
+    size_t total_terms = 0;
+    size_t* atom_offsets;
+    double* weights;
+    double* hx;
+    double* hy;
+    double* hz;
+    size_t idx;
+
+    atom_offsets = (size_t*)malloc(sizeof(size_t) * (Matomnum + 1));
+    atom_offsets[0] = 0;
+    if (atom_terms != NULL) {
+        atom_terms[0] = 0;
+    }
+
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        size_t atom_count = 0;
+
+        Gc_AN = M2G[Mc_AN];
+        h_AN = 0;
+        Gh_AN = natn[Gc_AN][h_AN];
+        Hwan = WhatSpecies[Gh_AN];
+        ian = Spe_Total_CNO[Hwan];
+
+        for (q_AN = 0; q_AN <= FNAN[Gc_AN]; q_AN++) {
+            Gq_AN = natn[Gc_AN][q_AN];
+            Qwan = WhatSpecies[Gq_AN];
+            jan = Spe_Total_CNO[Qwan];
+            kl = RMI1[Mc_AN][h_AN][q_AN];
+
+            if (0 <= kl) {
+                atom_count = Force_checked_add_count(atom_count,
+                    Force_checked_mul_count((size_t)ian, (size_t)jan, "Force2 atom block"),
+                    "Force2 atom term count");
+            }
+        }
+
+        total_terms = Force_checked_add_count(total_terms, atom_count, "Force2 total term count");
+        atom_offsets[Mc_AN] = total_terms;
+        if (atom_terms != NULL) {
+            atom_terms[Mc_AN] = atom_count;
+        }
+    }
+
+    if (total_terms == 0) {
+        Force_openacc_reduce_xyz(Matomnum, atom_offsets, 0, NULL, NULL, NULL, NULL, Fx, Fy, Fz);
+        free(atom_offsets);
+        return 0;
+    }
+
+    weights = (double*)malloc(sizeof(double) * total_terms);
+    hx = (double*)malloc(sizeof(double) * total_terms);
+    hy = (double*)malloc(sizeof(double) * total_terms);
+    hz = (double*)malloc(sizeof(double) * total_terms);
+
+    idx = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        double pref;
+
+        Gc_AN = M2G[Mc_AN];
+        h_AN = 0;
+        Gh_AN = natn[Gc_AN][h_AN];
+        Mh_AN = F_G2M[Gh_AN];
+        Hwan = WhatSpecies[Gh_AN];
+        ian = Spe_Total_CNO[Hwan];
+
+        for (q_AN = 0; q_AN <= FNAN[Gc_AN]; q_AN++) {
+            Gq_AN = natn[Gc_AN][q_AN];
+            Qwan = WhatSpecies[Gq_AN];
+            jan = Spe_Total_CNO[Qwan];
+            kl = RMI1[Mc_AN][h_AN][q_AN];
+
+            if (kl < 0) {
+                continue;
+            }
+
+            pref = (SpinP_switch == 0) ? ((q_AN == 0) ? 2.0 : 4.0) : ((q_AN == 0) ? 1.0 : 2.0);
+
+            for (i = 0; i < ian; i++) {
+                for (j = 0; j < jan; j++) {
+                    if (SpinP_switch == 0) {
+                        weights[idx] = pref * CDM0[0][Mh_AN][kl][i][j];
+                    } else {
+                        weights[idx] = pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]);
+                    }
+
+                    hx[idx] = H0_src[1][Mc_AN][q_AN][i][j];
+                    hy[idx] = H0_src[2][Mc_AN][q_AN][i][j];
+                    hz[idx] = H0_src[3][Mc_AN][q_AN][i][j];
+                    idx++;
+                }
+            }
+        }
+    }
+
+    Force_openacc_reduce_xyz(Matomnum, atom_offsets, total_terms, weights, hx, hy, hz, Fx, Fy, Fz);
+
+    free(hz);
+    free(hy);
+    free(hx);
+    free(weights);
+    free(atom_offsets);
+
+    return total_terms;
+}
+
+static size_t Force5_OpenACC(double***** OLP1,
+    double***** EDM1,
+    double* Fx,
+    double* Fy,
+    double* Fz,
+    size_t* atom_terms)
+{
+    int Mc_AN, Gc_AN, Cwan, h_AN, Gh_AN, Hwan;
+    int i, j;
+    size_t total_terms = 0;
+    size_t* atom_offsets;
+    double* weights;
+    double* hx;
+    double* hy;
+    double* hz;
+    size_t idx;
+
+    atom_offsets = (size_t*)malloc(sizeof(size_t) * (Matomnum + 1));
+    atom_offsets[0] = 0;
+    if (atom_terms != NULL) {
+        atom_terms[0] = 0;
+    }
+
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        size_t atom_count = 0;
+
+        Gc_AN = M2G[Mc_AN];
+        Cwan = WhatSpecies[Gc_AN];
+
+        for (h_AN = 1; h_AN <= FNAN[Gc_AN]; h_AN++) {
+            Gh_AN = natn[Gc_AN][h_AN];
+            Hwan = WhatSpecies[Gh_AN];
+
+            atom_count = Force_checked_add_count(atom_count,
+                Force_checked_mul_count((size_t)Spe_Total_CNO[Cwan], (size_t)Spe_Total_CNO[Hwan], "Force5 atom block"),
+                "Force5 atom term count");
+        }
+
+        total_terms = Force_checked_add_count(total_terms, atom_count, "Force5 total term count");
+        atom_offsets[Mc_AN] = total_terms;
+        if (atom_terms != NULL) {
+            atom_terms[Mc_AN] = atom_count;
+        }
+    }
+
+    if (total_terms == 0) {
+        Force_openacc_reduce_xyz(Matomnum, atom_offsets, 0, NULL, NULL, NULL, NULL, Fx, Fy, Fz);
+        free(atom_offsets);
+        return 0;
+    }
+
+    weights = (double*)malloc(sizeof(double) * total_terms);
+    hx = (double*)malloc(sizeof(double) * total_terms);
+    hy = (double*)malloc(sizeof(double) * total_terms);
+    hz = (double*)malloc(sizeof(double) * total_terms);
+
+    idx = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        Gc_AN = M2G[Mc_AN];
+        Cwan = WhatSpecies[Gc_AN];
+
+        for (h_AN = 1; h_AN <= FNAN[Gc_AN]; h_AN++) {
+            Gh_AN = natn[Gc_AN][h_AN];
+            Hwan = WhatSpecies[Gh_AN];
+
+            for (i = 0; i < Spe_Total_CNO[Cwan]; i++) {
+                for (j = 0; j < Spe_Total_CNO[Hwan]; j++) {
+                    if (SpinP_switch == 0) {
+                        weights[idx] = -4.0 * EDM1[0][Mc_AN][h_AN][i][j];
+                    } else {
+                        weights[idx] = -2.0 * (EDM1[0][Mc_AN][h_AN][i][j] + EDM1[1][Mc_AN][h_AN][i][j]);
+                    }
+
+                    hx[idx] = OLP1[1][Mc_AN][h_AN][i][j];
+                    hy[idx] = OLP1[2][Mc_AN][h_AN][i][j];
+                    hz[idx] = OLP1[3][Mc_AN][h_AN][i][j];
+                    idx++;
+                }
+            }
+        }
+    }
+
+    Force_openacc_reduce_xyz(Matomnum, atom_offsets, total_terms, weights, hx, hy, hz, Fx, Fy, Fz);
+
+    free(hz);
+    free(hy);
+    free(hx);
+    free(weights);
+    free(atom_offsets);
+
+    return total_terms;
+}
 
 static void dH_U_full(int Mc_AN, int h_AN, int q_AN,
     double***** OLP, double**** v_eff,
@@ -113,24 +488,24 @@ double Force(double***** H0,
     int wanA, wanB, Gc_BN;
     int XC_P_switch;
     double time0;
-    double dum, dge;
+    double dum = 0.0, dge;
     double dEx, dEy, dEz;
     double Cxyz[4];
     double *Fx, *Fy, *Fz;
     dcomplex*** Hx;
     dcomplex*** Hy;
     dcomplex*** Hz;
-    double*** HUx;
-    double*** HUy;
-    double*** HUz;
-    dcomplex**** NC_HUx;
-    dcomplex**** NC_HUy;
-    dcomplex**** NC_HUz;
+    double*** HUx = NULL;
+    double*** HUy = NULL;
+    double*** HUz = NULL;
+    dcomplex**** NC_HUx = NULL;
+    dcomplex**** NC_HUy = NULL;
+    dcomplex**** NC_HUz = NULL;
     double** HVNAx;
     double** HVNAy;
     double** HVNAz;
     double***** CDM0;
-    double***** iDM0;
+    double***** iDM0 = NULL;
     double* tmp_array;
     double* tmp_array2;
     double Re00x, Re00y, Re00z;
@@ -139,11 +514,23 @@ double Force(double***** H0,
     double Im00x, Im00y, Im00z;
     double Im11x, Im11y, Im11z;
     double Im01x, Im01y, Im01z;
-    int *Snd_CDM0_Size, *Rcv_CDM0_Size;
-    int *Snd_iDM0_Size, *Rcv_iDM0_Size;
+    int *Snd_CDM0_Size = NULL, *Rcv_CDM0_Size = NULL;
+    int *Snd_iDM0_Size = NULL, *Rcv_iDM0_Size = NULL;
     double TStime, TEtime;
     int numprocs, myid, tag = 999, ID, IDS, IDR;
     double Stime_atom, Etime_atom;
+    double***** Force2_source = NULL;
+    double***** Force5_source = NULL;
+    size_t* gpu_atom_terms = NULL;
+    size_t gpu_total_terms;
+    const int use_force_openacc = (scf_eigen_lib_flag == CuSOLVER);
+    const int use_force2_openacc = (use_force_openacc
+        && F_Kin_flag == 1
+        && SO_switch == 0
+        && Hub_U_switch == 0
+        && Constraint_NCS_switch == 0
+        && Zeeman_NCS_switch == 0
+        && Zeeman_NCO_switch == 0);
     /* for OpenMP */
     int OMPID, Nthrds, Nprocs;
     double stime, etime;
@@ -154,6 +541,12 @@ double Force(double***** H0,
     /* MPI */
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
+
+    const int use_iDM0 = (SO_switch == 1
+        || (Hub_U_switch == 1 && F_U_flag == 1 && SpinP_switch == 3)
+        || 1 <= Constraint_NCS_switch
+        || Zeeman_NCS_switch == 1
+        || Zeeman_NCO_switch == 1);
 
     MPI_Barrier(mpi_comm_level1);
     dtime(&TStime);
@@ -223,8 +616,7 @@ double Force(double***** H0,
 
     /* iDM0 */
 
-    if (SO_switch == 1 || (Hub_U_switch == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-        || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+    if (use_iDM0) {
 
         size_iDM0 = 0;
         iDM0 = (double*****)malloc(sizeof(double****) * 2);
@@ -275,8 +667,7 @@ double Force(double***** H0,
         PrintMemory("Force: Hy", sizeof(dcomplex) * List_YOUSO[7] * List_YOUSO[7], NULL);
         PrintMemory("Force: Hz", sizeof(dcomplex) * List_YOUSO[7] * List_YOUSO[7], NULL);
         PrintMemory("Force: CDM0", sizeof(double) * size_CDM0, NULL);
-        if (SO_switch == 1 || (Hub_U_switch == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-            || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+        if (use_iDM0) {
             PrintMemory("Force: iDM0", sizeof(double) * size_iDM0, NULL);
         }
         firsttime = 0;
@@ -312,8 +703,7 @@ double Force(double***** H0,
       iDM to iDM0
     ****************************************************/
 
-    if (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-        || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+    if (use_iDM0) {
 
         for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
@@ -505,8 +895,7 @@ double Force(double***** H0,
      iDM0
     ****************************************************/
 
-    if (SO_switch == 1 || (Hub_U_switch == 1 && F_U_flag == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-        || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+    if (use_iDM0) {
 
         /***********************************
                     set data size
@@ -665,8 +1054,7 @@ double Force(double***** H0,
             }
         }
 
-    } /* if ( SO_switch==1 || (Hub_U_switch==1 && F_U_flag==1 && SpinP_switch==3)
-       || 1<=Constraint_NCS_switch || Zeeman_NCS_switch==1 || Zeeman_NCO_switch==1) */
+    } /* if (use_iDM0) */
 
     /****************************************************
                         #1 of force
@@ -738,6 +1126,8 @@ double Force(double***** H0,
                 dy = Gxyz[Gc_AN][2] - y;
                 dz = Gxyz[Gc_AN][3] - z;
                 r2 = dx * dx + dy * dy + dz * dz;
+                if (r2 < 1.0e-20)
+                    r2 = 1.0e-20;
                 r = sqrt(r2);
                 xx = 0.5 * log(r2);
 
@@ -907,8 +1297,37 @@ double Force(double***** H0,
         fflush(stdout);
     }
 
+    if (use_force2_openacc) {
+
+        Force2_source = (Cnt_switch == 0) ? H0 : CntH0;
+        gpu_atom_terms = (size_t*)malloc(sizeof(size_t) * (Matomnum + 1));
+
+        dtime(&Stime_atom);
+        gpu_total_terms = Force2_Kinetic_OpenACC(Force2_source, CDM0, Fx, Fy, Fz, gpu_atom_terms);
+        dtime(&Etime_atom);
+        Force_accumulate_atom_time_from_terms(gpu_atom_terms, gpu_total_terms, Etime_atom - Stime_atom);
+
+        for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+            Gc_AN = M2G[Mc_AN];
+
+            if (2 <= level_stdout) {
+                printf("<Force>  force(2) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
+                    myid, Mc_AN, Gc_AN, Fx[Mc_AN], Fy[Mc_AN], Fz[Mc_AN]);
+                fflush(stdout);
+            }
+
+            Gxyz[Gc_AN][17] += Fx[Mc_AN];
+            Gxyz[Gc_AN][18] += Fy[Mc_AN];
+            Gxyz[Gc_AN][19] += Fz[Mc_AN];
+        }
+
+        free(gpu_atom_terms);
+        gpu_atom_terms = NULL;
+    }
+
+    else {
 #pragma omp parallel shared(time_per_atom, Gxyz, myid, level_stdout, iDM0, CDM0, CntH0, H0, F_Kin_flag, NC_v_eff, v_eff, OLP, Hub_U_occupation, Cnt_switch, F_NL_flag, List_YOUSO, RMI1, Zeeman_NCO_switch, Zeeman_NCS_switch, Constraint_NCS_switch, F_U_flag, Hub_U_switch, SO_switch, SpinP_switch, Spe_Total_CNO, F_G2M, natn, FNAN, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, Gc_AN, Cwan, dEx, dEy, dEz, h_AN, Gh_AN, Mh_AN, Hwan, ian, start_q_AN, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, so, i, j, k, Hx, Hy, Hz, HUx, HUy, HUz, NC_HUx, NC_HUy, NC_HUz, s1, s2, pref, spinmax, spin)
-    {
+        {
 
         /* allocation of arrays */
 
@@ -1427,7 +1846,8 @@ double Force(double***** H0,
             free(NC_HUz);
         }
 
-    } /* #pragma omp parallel */
+        } /* #pragma omp parallel */
+    }
 
     dtime(&etime);
     if (myid == 0 && measure_time) {
@@ -1502,11 +1922,25 @@ double Force(double***** H0,
         Fy[Mc_AN] = 0.0;
         Fz[Mc_AN] = 0.0;
     }
+    if (use_force_openacc) {
+        Force5_source = (Cnt_switch == 0) ? OLP : CntOLP;
+        gpu_atom_terms = (size_t*)malloc(sizeof(size_t) * (Matomnum + 1));
+
+        dtime(&Stime_atom);
+        gpu_total_terms = Force5_OpenACC(Force5_source, EDM, Fx, Fy, Fz, gpu_atom_terms);
+        dtime(&Etime_atom);
+        Force_accumulate_atom_time_from_terms(gpu_atom_terms, gpu_total_terms, Etime_atom - Stime_atom);
+
+        free(gpu_atom_terms);
+        gpu_atom_terms = NULL;
+    }
+
+    else {
     // comment out June 2nd, 2023 H. Kawai
 #if NVHPC_VERSION >= 250000
-    #pragma omp parallel shared(Dis,time_per_atom,Fx,Fy,Fz,CntOLP,OLP,Cnt_switch,EDM,SpinP_switch,Spe_Total_CNO,natn,FNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,dum,dx,dy,dz)
+        #pragma omp parallel shared(Dis,time_per_atom,Fx,Fy,Fz,CntOLP,OLP,Cnt_switch,EDM,SpinP_switch,Spe_Total_CNO,natn,FNAN,WhatSpecies,M2G,Matomnum) private(OMPID,Nthrds,Nprocs,Mc_AN,Stime_atom,Etime_atom,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,dum,dx,dy,dz)
 #endif
-    {
+        {
 
         /* get info. on OpenMP */
 
@@ -1557,7 +1991,8 @@ double Force(double***** H0,
             time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
         }
 
-    } /* #pragma omp parallel */
+        } /* #pragma omp parallel */
+    }
 
     dtime(&etime);
     if (myid == 0 && measure_time) {
@@ -2127,8 +2562,7 @@ double Force(double***** H0,
     free(Rcv_CDM0_Size);
 
     /* iDM0 */
-    if (SO_switch == 1 || (Hub_U_switch == 1 && SpinP_switch == 3) || 1 <= Constraint_NCS_switch
-        || Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
+    if (use_iDM0) {
 
         for (k = 0; k < 2; k++) {
 
@@ -3395,7 +3829,7 @@ void Force_HNL(double***** CDM0, double***** iDM0)
     int SA_num, q, Sc_AN, GSc_AN, smul;
     int Sc_wan, Sh_AN, GSh_AN, Sh_wan;
     int Sh_AN2, fan, jg, j0, jg0, Mj_AN0;
-    int Original_Mc_AN;
+    int Original_Mc_AN, max_ODNloop;
 
     double rcutA, rcutB, rcut;
     double dEx, dEy, dEz, ene, pref;
@@ -4304,6 +4738,18 @@ void Force_HNL(double***** CDM0, double***** iDM0)
     for (ID = 0; ID < numprocs; ID++)
         Indicator[ID] = 0;
 
+    max_ODNloop = 1;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        Gc_AN = M2G[Mc_AN];
+        i = (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2);
+        if (max_ODNloop < i) {
+            max_ODNloop = i;
+        }
+    }
+
+    OneD2h_AN = (int*)malloc(sizeof(int) * max_ODNloop);
+    OneD2q_AN = (int*)malloc(sizeof(int) * max_ODNloop);
+
     for (Mc_AN = 1; Mc_AN <= Max_Matomnum; Mc_AN++) {
 
         if (Mc_AN <= Matomnum)
@@ -4821,12 +5267,13 @@ void Force4B(double***** CDM0)
     int SA_num, q, Sc_AN, GSc_AN;
     int Sc_wan, Sh_AN, GSh_AN, Sh_wan;
     int Sh_AN2, fan, jg, j0, jg0, Mj_AN0;
-    int Original_Mc_AN;
+    int Original_Mc_AN, max_ODNloop;
 
     double rcutA, rcutB, rcut;
     double dEx, dEy, dEz, ene, pref;
     double Stime_atom, Etime_atom;
     double **HVNAx, **HVNAy, **HVNAz;
+    double *****ActiveHVNA2, *****ActiveHVNA3;
     int* VNA_List;
     int* VNA_List2;
     int *Snd_DS_VNA_Size, *Rcv_DS_VNA_Size;
@@ -4835,11 +5282,8 @@ void Force4B(double***** CDM0)
     Type_DS_VNA* tmp_array2;
 
     /* for OpenMP */
-    int OMPID, Nthrds, Nthrds0, Nprocs, Nloop, ODNloop;
+    int OMPID, Nthrds, Nprocs, Nloop, ODNloop;
     int *OneD2h_AN, *OneD2q_AN;
-    double* dEx_threads;
-    double* dEy_threads;
-    double* dEz_threads;
     double stime, etime;
     double stime1, etime1;
 
@@ -4863,15 +5307,8 @@ void Force4B(double***** CDM0)
 
     Indicator = (int*)malloc(sizeof(int) * numprocs);
 
-    S_array = (int**)malloc(sizeof(int*) * numprocs);
-    for (ID = 0; ID < numprocs; ID++) {
-        S_array[ID] = (int*)malloc(sizeof(int) * 3);
-    }
-
-    R_array = (int**)malloc(sizeof(int*) * numprocs);
-    for (ID = 0; ID < numprocs; ID++) {
-        R_array[ID] = (int*)malloc(sizeof(int) * 3);
-    }
+    S_array = Force_alloc_int_matrix(numprocs, 3);
+    R_array = Force_alloc_int_matrix(numprocs, 3);
 
     Snd_DS_VNA_Size = (int*)malloc(sizeof(int) * numprocs);
     Rcv_DS_VNA_Size = (int*)malloc(sizeof(int) * numprocs);
@@ -4922,6 +5359,9 @@ void Force4B(double***** CDM0)
     }
 
     Num_RVNA = List_YOUSO[34] * (List_YOUSO[35] + 1);
+    tno2 = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
+    ActiveHVNA2 = (Cnt_switch == 0) ? HVNA2 : CntHVNA2;
+    ActiveHVNA3 = (Cnt_switch == 0) ? HVNA3 : CntHVNA3;
 
     dtime(&etime);
     if (myid == 0 && measure_time) {
@@ -5185,33 +5625,17 @@ void Force4B(double***** CDM0)
                        multiplying overlap integrals
                 *****************************************/
 
-#pragma omp parallel shared(List_YOUSO, time_per_atom, Gxyz, CDM0, SpinP_switch, CntHVNA2, HVNA2, DS_VNA, Cnt_switch, RMI1, Original_Mc_AN, IDR, Rcv_GAN, F_Rcv_Num_WK, Spe_Total_CNO, F_G2M, natn, FNAN, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, Mc_AN, Cwan, fan, h_AN, Gh_AN, Mh_AN, Hwan, ian, n, jg, j0, jg0, Mj_AN0, po2, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, HVNAx, HVNAy, HVNAz, i, j)
+#pragma omp parallel shared(List_YOUSO, time_per_atom, Gxyz, CDM0, SpinP_switch, DS_VNA, RMI1, Original_Mc_AN, IDR, Rcv_GAN, F_Rcv_Num_WK, Spe_Total_CNO, F_G2M, natn, FNAN, WhatSpecies, M2G, Matomnum, ActiveHVNA2, ActiveHVNA3) private(Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, Mc_AN, Cwan, fan, h_AN, Gh_AN, Mh_AN, Hwan, ian, n, jg, j0, jg0, Mj_AN0, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, HVNAx, HVNAy, HVNAz, i, j, pref)
                 {
 
                     /* allocation of array */
 
-                    HVNAx = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
-                    for (j = 0; j < List_YOUSO[7]; j++) {
-                        HVNAx[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
-                    }
+                    HVNAx = Force_alloc_double_matrix(List_YOUSO[7], List_YOUSO[7]);
+                    HVNAy = Force_alloc_double_matrix(List_YOUSO[7], List_YOUSO[7]);
+                    HVNAz = Force_alloc_double_matrix(List_YOUSO[7], List_YOUSO[7]);
 
-                    HVNAy = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
-                    for (j = 0; j < List_YOUSO[7]; j++) {
-                        HVNAy[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
-                    }
-
-                    HVNAz = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
-                    for (j = 0; j < List_YOUSO[7]; j++) {
-                        HVNAz[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
-                    }
-
-                    /* get info. on OpenMP */
-
-                    OMPID = omp_get_thread_num();
-                    Nthrds = omp_get_num_threads();
-                    Nprocs = omp_get_num_procs();
-
-                    for (Mc_AN = (OMPID * Matomnum / Nthrds + 1); Mc_AN < ((OMPID + 1) * Matomnum / Nthrds + 1); Mc_AN++) {
+#pragma omp for schedule(static)
+                    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
                         dtime(&Stime_atom);
 
@@ -5237,73 +5661,59 @@ void Force4B(double***** CDM0)
                             jg0 = natn[Gc_AN][j0];
                             Mj_AN0 = F_G2M[jg0];
 
-                            po2 = 0;
-                            if (Original_Mc_AN == Mj_AN0) {
-                                po2 = 1;
-                                q_AN = j0;
+                            if (Original_Mc_AN != Mj_AN0) {
+                                continue;
                             }
 
-                            if (po2 == 1) {
+                            q_AN = j0;
+                            Gq_AN = natn[Gc_AN][q_AN];
+                            Mq_AN = F_G2M[Gq_AN];
+                            Qwan = WhatSpecies[Gq_AN];
+                            jan = Spe_Total_CNO[Qwan];
+                            kl = RMI1[Mc_AN][h_AN][q_AN];
 
-                                Gq_AN = natn[Gc_AN][q_AN];
-                                Mq_AN = F_G2M[Gq_AN];
-                                Qwan = WhatSpecies[Gq_AN];
-                                jan = Spe_Total_CNO[Qwan];
-                                kl = RMI1[Mc_AN][h_AN][q_AN];
+                            dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, ActiveHVNA2, ActiveHVNA3, HVNAx, HVNAy, HVNAz);
 
-                                if (Cnt_switch == 0) {
-                                    dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, HVNA2, HVNA3, HVNAx, HVNAy, HVNAz);
-                                } else {
-                                    dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, CntHVNA2, CntHVNA3, HVNAx, HVNAy, HVNAz);
-                                }
+                            /* contribution of force = Trace(CDM0*dH) */
 
-                                /* contribution of force = Trace(CDM0*dH) */
-                                /* spin non-polarization */
+                            if (SpinP_switch == 0) {
 
-                                if (SpinP_switch == 0) {
+                                pref = (q_AN == h_AN) ? 2.0 : 4.0;
 
-                                    for (i = 0; i < ian; i++) {
-                                        for (j = 0; j < jan; j++) {
-                                            if (q_AN == h_AN) {
+                                for (i = 0; i < ian; i++) {
+                                    double* cdm0_row = CDM0[0][Mh_AN][kl][i];
+                                    double* hvnax_row = HVNAx[i];
+                                    double* hvnay_row = HVNAy[i];
+                                    double* hvnaz_row = HVNAz[i];
 
-                                                dEx += 2.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAx[i][j];
-                                                dEy += 2.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAy[i][j];
-                                                dEz += 2.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAz[i][j];
-                                            } else {
-                                                dEx += 4.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAx[i][j];
-                                                dEy += 4.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAy[i][j];
-                                                dEz += 4.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAz[i][j];
-                                            }
-                                        }
+                                    for (j = 0; j < jan; j++) {
+                                        double cdm = pref * cdm0_row[j];
+                                        dEx += cdm * hvnax_row[j];
+                                        dEy += cdm * hvnay_row[j];
+                                        dEz += cdm * hvnaz_row[j];
                                     }
                                 }
+                            }
 
-                                /* else */
+                            else {
 
-                                else {
+                                pref = (q_AN == h_AN) ? 1.0 : 2.0;
 
-                                    for (i = 0; i < ian; i++) {
-                                        for (j = 0; j < jan; j++) {
-                                            if (q_AN == h_AN) {
-                                                dEx += (CDM0[0][Mh_AN][kl][i][j]
-                                                           + CDM0[1][Mh_AN][kl][i][j])
-                                                    * HVNAx[i][j];
-                                                dEy += (CDM0[0][Mh_AN][kl][i][j]
-                                                           + CDM0[1][Mh_AN][kl][i][j])
-                                                    * HVNAy[i][j];
-                                                dEz += (CDM0[0][Mh_AN][kl][i][j]
-                                                           + CDM0[1][Mh_AN][kl][i][j])
-                                                    * HVNAz[i][j];
-                                            } else {
-                                                dEx += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAx[i][j];
-                                                dEy += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAy[i][j];
-                                                dEz += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAz[i][j];
-                                            }
-                                        }
+                                for (i = 0; i < ian; i++) {
+                                    double* cdm0_row = CDM0[0][Mh_AN][kl][i];
+                                    double* cdm1_row = CDM0[1][Mh_AN][kl][i];
+                                    double* hvnax_row = HVNAx[i];
+                                    double* hvnay_row = HVNAy[i];
+                                    double* hvnaz_row = HVNAz[i];
+
+                                    for (j = 0; j < jan; j++) {
+                                        double cdm = pref * (cdm0_row[j] + cdm1_row[j]);
+                                        dEx += cdm * hvnax_row[j];
+                                        dEy += cdm * hvnay_row[j];
+                                        dEz += cdm * hvnaz_row[j];
                                     }
                                 }
-
-                            } /* if (po2==1) */
+                            }
                         } /* j0 */
 
                         /* force from #4B */
@@ -5320,20 +5730,9 @@ void Force4B(double***** CDM0)
 
                     /* freeing of array */
 
-                    for (j = 0; j < List_YOUSO[7]; j++) {
-                        free(HVNAx[j]);
-                    }
-                    free(HVNAx);
-
-                    for (j = 0; j < List_YOUSO[7]; j++) {
-                        free(HVNAy[j]);
-                    }
-                    free(HVNAy);
-
-                    for (j = 0; j < List_YOUSO[7]; j++) {
-                        free(HVNAz[j]);
-                    }
-                    free(HVNAz);
+                    Force_free_double_matrix(HVNAx);
+                    Force_free_double_matrix(HVNAy);
+                    Force_free_double_matrix(HVNAz);
 
                 } /* #pragma omp parallel */
 
@@ -5392,33 +5791,17 @@ void Force4B(double***** CDM0)
 
     dtime(&stime);
 
-#pragma omp parallel shared(time_per_atom, Gxyz, CDM0, SpinP_switch, CntHVNA2, HVNA2, DS_VNA, Cnt_switch, RMI1, FNAN, Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO) private(HVNAx, HVNAy, HVNAz, OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, i, j, kk)
+#pragma omp parallel shared(time_per_atom, Gxyz, CDM0, SpinP_switch, DS_VNA, RMI1, FNAN, Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO, ActiveHVNA2, ActiveHVNA3) private(HVNAx, HVNAy, HVNAz, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, i, j, pref)
     {
 
         /* allocation of array */
 
-        HVNAx = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
-        for (j = 0; j < List_YOUSO[7]; j++) {
-            HVNAx[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
-        }
+        HVNAx = Force_alloc_double_matrix(List_YOUSO[7], List_YOUSO[7]);
+        HVNAy = Force_alloc_double_matrix(List_YOUSO[7], List_YOUSO[7]);
+        HVNAz = Force_alloc_double_matrix(List_YOUSO[7], List_YOUSO[7]);
 
-        HVNAy = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
-        for (j = 0; j < List_YOUSO[7]; j++) {
-            HVNAy[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
-        }
-
-        HVNAz = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
-        for (j = 0; j < List_YOUSO[7]; j++) {
-            HVNAz[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
-        }
-
-        /* get info. on OpenMP */
-
-        OMPID = omp_get_thread_num();
-        Nthrds = omp_get_num_threads();
-        Nprocs = omp_get_num_procs();
-
-        for (Mc_AN = (OMPID * Matomnum / Nthrds + 1); Mc_AN < ((OMPID + 1) * Matomnum / Nthrds + 1); Mc_AN++) {
+#pragma omp for schedule(static)
+        for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
             dtime(&Stime_atom);
 
@@ -5444,34 +5827,23 @@ void Force4B(double***** CDM0)
                     jan = Spe_Total_CNO[Qwan];
                     kl = RMI1[Mc_AN][h_AN][q_AN];
 
-                    if (Cnt_switch == 0) {
-                        dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, HVNA2, HVNA3, HVNAx, HVNAy, HVNAz);
-                    } else {
-                        dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, CntHVNA2, CntHVNA3, HVNAx, HVNAy, HVNAz);
-                    }
+                    dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, ActiveHVNA2, ActiveHVNA3, HVNAx, HVNAy, HVNAz);
 
                     if (SpinP_switch == 0) {
 
-// #pragma acc kernels
-// #pragma acc loop independent
+                        pref = (q_AN == h_AN) ? 2.0 : 4.0;
+
                         for (i = 0; i < ian; i++) {
-// #pragma acc loop independent
+                            double* cdm0_row = CDM0[0][Mh_AN][kl][i];
+                            double* hvnax_row = HVNAx[i];
+                            double* hvnay_row = HVNAy[i];
+                            double* hvnaz_row = HVNAz[i];
+
                             for (j = 0; j < jan; j++) {
-                                if (q_AN == h_AN) {
-// #pragma acc atomic update
-                                    dEx += 2.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAx[i][j];
-// #pragma acc atomic update
-                                    dEy += 2.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAy[i][j];
-// #pragma acc atomic update
-                                    dEz += 2.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAz[i][j];
-                                } else {
-// #pragma acc atomic update
-                                    dEx += 4.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAx[i][j];
-// #pragma acc atomic update
-                                    dEy += 4.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAy[i][j];
-// #pragma acc atomic update
-                                    dEz += 4.0 * CDM0[0][Mh_AN][kl][i][j] * HVNAz[i][j];
-                                }
+                                double cdm = pref * cdm0_row[j];
+                                dEx += cdm * hvnax_row[j];
+                                dEy += cdm * hvnay_row[j];
+                                dEz += cdm * hvnaz_row[j];
                             }
                         }
                     }
@@ -5480,23 +5852,20 @@ void Force4B(double***** CDM0)
 
                     else {
 
+                        pref = (q_AN == h_AN) ? 1.0 : 2.0;
+
                         for (i = 0; i < ian; i++) {
+                            double* cdm0_row = CDM0[0][Mh_AN][kl][i];
+                            double* cdm1_row = CDM0[1][Mh_AN][kl][i];
+                            double* hvnax_row = HVNAx[i];
+                            double* hvnay_row = HVNAy[i];
+                            double* hvnaz_row = HVNAz[i];
+
                             for (j = 0; j < jan; j++) {
-                                if (q_AN == h_AN) {
-                                    dEx += (CDM0[0][Mh_AN][kl][i][j]
-                                               + CDM0[1][Mh_AN][kl][i][j])
-                                        * HVNAx[i][j];
-                                    dEy += (CDM0[0][Mh_AN][kl][i][j]
-                                               + CDM0[1][Mh_AN][kl][i][j])
-                                        * HVNAy[i][j];
-                                    dEz += (CDM0[0][Mh_AN][kl][i][j]
-                                               + CDM0[1][Mh_AN][kl][i][j])
-                                        * HVNAz[i][j];
-                                } else {
-                                    dEx += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAx[i][j];
-                                    dEy += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAy[i][j];
-                                    dEz += 2.0 * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAz[i][j];
-                                }
+                                double cdm = pref * (cdm0_row[j] + cdm1_row[j]);
+                                dEx += cdm * hvnax_row[j];
+                                dEy += cdm * hvnay_row[j];
+                                dEz += cdm * hvnaz_row[j];
                             }
                         }
                     }
@@ -5517,20 +5886,9 @@ void Force4B(double***** CDM0)
 
         /* freeing of array */
 
-        for (j = 0; j < List_YOUSO[7]; j++) {
-            free(HVNAx[j]);
-        }
-        free(HVNAx);
-
-        for (j = 0; j < List_YOUSO[7]; j++) {
-            free(HVNAy[j]);
-        }
-        free(HVNAy);
-
-        for (j = 0; j < List_YOUSO[7]; j++) {
-            free(HVNAz[j]);
-        }
-        free(HVNAz);
+        Force_free_double_matrix(HVNAx);
+        Force_free_double_matrix(HVNAy);
+        Force_free_double_matrix(HVNAz);
 
     } /* #pragma omp parallel */
 
@@ -5556,6 +5914,18 @@ void Force4B(double***** CDM0)
 
     for (ID = 0; ID < numprocs; ID++)
         Indicator[ID] = 0;
+
+    max_ODNloop = 1;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        Gc_AN = M2G[Mc_AN];
+        i = (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2);
+        if (max_ODNloop < i) {
+            max_ODNloop = i;
+        }
+    }
+
+    OneD2h_AN = (int*)malloc(sizeof(int) * max_ODNloop);
+    OneD2q_AN = (int*)malloc(sizeof(int) * max_ODNloop);
 
     for (Mc_AN = 1; Mc_AN <= Max_Matomnum; Mc_AN++) {
 
@@ -5775,30 +6145,7 @@ void Force4B(double***** CDM0)
 
         if (Mc_AN <= Matomnum) {
 
-            /* get Nthrds0 */
-            // comment out April 25th, 2023 H. Kawai
-#if NVHPC_VERSION >= 250000
-            #pragma omp parallel shared(Nthrds0)
-#endif
-            {
-                Nthrds0 = omp_get_num_threads();
-            }
-
-            /* allocation of arrays */
-            dEx_threads = (double*)malloc(sizeof(double) * Nthrds0);
-            dEy_threads = (double*)malloc(sizeof(double) * Nthrds0);
-            dEz_threads = (double*)malloc(sizeof(double) * Nthrds0);
-
-            for (Nloop = 0; Nloop < Nthrds0; Nloop++) {
-                dEx_threads[Nloop] = 0.0;
-                dEy_threads[Nloop] = 0.0;
-                dEz_threads[Nloop] = 0.0;
-            }
-
             /* one-dimensionalize the h_AN and q_AN loops */
-
-            OneD2h_AN = (int*)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
-            OneD2q_AN = (int*)malloc(sizeof(int) * (FNAN[Gc_AN] + 1) * (FNAN[Gc_AN] + 2));
 
             ODNloop = 0;
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
@@ -5820,36 +6167,23 @@ void Force4B(double***** CDM0)
                 }
             }
 
-            // comment out April 25th, 2023 H. Kawai
+            dEx = 0.0;
+            dEy = 0.0;
+            dEz = 0.0;
+
 #if NVHPC_VERSION >= 250000
-            #pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,dEx_threads,dEy_threads,dEz_threads,CDM0,SpinP_switch,CntHVNA2,HVNA2,DS_VNA,Cnt_switch,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver) private(OMPID,Nthrds,Nprocs,HVNAx,HVNAy,HVNAz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop,pref)
+            #pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,CDM0,SpinP_switch,DS_VNA,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver,ActiveHVNA2,ActiveHVNA3) private(HVNAx,HVNAy,HVNAz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop,pref) reduction(+:dEx,dEy,dEz)
 #endif
             {
 
                 /* allocation of arrays */
 
-                HVNAx = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
-                for (j = 0; j < List_YOUSO[7]; j++) {
-                    HVNAx[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
-                }
+                HVNAx = Force_alloc_double_matrix(List_YOUSO[7], List_YOUSO[7]);
+                HVNAy = Force_alloc_double_matrix(List_YOUSO[7], List_YOUSO[7]);
+                HVNAz = Force_alloc_double_matrix(List_YOUSO[7], List_YOUSO[7]);
 
-                HVNAy = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
-                for (j = 0; j < List_YOUSO[7]; j++) {
-                    HVNAy[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
-                }
-
-                HVNAz = (double**)malloc(sizeof(double*) * List_YOUSO[7]);
-                for (j = 0; j < List_YOUSO[7]; j++) {
-                    HVNAz[j] = (double*)malloc(sizeof(double) * List_YOUSO[7]);
-                }
-
-                /* get info. on OpenMP */
-
-                OMPID = omp_get_thread_num();
-                Nthrds = omp_get_num_threads();
-                Nprocs = omp_get_num_procs();
-
-                for (Nloop = OMPID * ODNloop / Nthrds; Nloop < (OMPID + 1) * ODNloop / Nthrds; Nloop++) {
+#pragma omp for schedule(static)
+                for (Nloop = 0; Nloop < ODNloop; Nloop++) {
 
                     /* get h_AN and q_AN */
 
@@ -5873,10 +6207,7 @@ void Force4B(double***** CDM0)
 
                     if (0 <= kl) {
 
-                        if (Cnt_switch == 0)
-                            dHVNA(1, Mc_AN, h_AN, q_AN, DS_VNA, HVNA2, HVNA3, HVNAx, HVNAy, HVNAz);
-                        else
-                            dHVNA(1, Mc_AN, h_AN, q_AN, DS_VNA, CntHVNA2, CntHVNA3, HVNAx, HVNAy, HVNAz);
+                        dHVNA(1, Mc_AN, h_AN, q_AN, DS_VNA, ActiveHVNA2, ActiveHVNA3, HVNAx, HVNAy, HVNAz);
 
                         /* contribution of force = Trace(CDM0*dH) */
 
@@ -5884,20 +6215,19 @@ void Force4B(double***** CDM0)
 
                         if (SpinP_switch == 0) {
 
-                            if (Solver == 5 || Solver == 8 || Solver == 11) {
-                                pref = 2.0;
-                            } else {
-                                if (q_AN == h_AN)
-                                    pref = 2.0;
-                                else
-                                    pref = 4.0;
-                            }
+                            pref = ((Solver == 5 || Solver == 8 || Solver == 11) || q_AN == h_AN) ? 2.0 : 4.0;
 
                             for (i = 0; i < ian; i++) {
+                                double* cdm0_row = CDM0[0][Mh_AN][kl][i];
+                                double* hvnax_row = HVNAx[i];
+                                double* hvnay_row = HVNAy[i];
+                                double* hvnaz_row = HVNAz[i];
+
                                 for (j = 0; j < jan; j++) {
-                                    dEx_threads[OMPID] += pref * CDM0[0][Mh_AN][kl][i][j] * HVNAx[i][j];
-                                    dEy_threads[OMPID] += pref * CDM0[0][Mh_AN][kl][i][j] * HVNAy[i][j];
-                                    dEz_threads[OMPID] += pref * CDM0[0][Mh_AN][kl][i][j] * HVNAz[i][j];
+                                    double cdm = pref * cdm0_row[j];
+                                    dEx += cdm * hvnax_row[j];
+                                    dEy += cdm * hvnay_row[j];
+                                    dEz += cdm * hvnaz_row[j];
                                 }
                             }
                         }
@@ -5906,20 +6236,20 @@ void Force4B(double***** CDM0)
 
                         else {
 
-                            if (Solver == 5 || Solver == 8 || Solver == 11) {
-                                pref = 1.0;
-                            } else {
-                                if (q_AN == h_AN)
-                                    pref = 1.0;
-                                else
-                                    pref = 2.0;
-                            }
+                            pref = ((Solver == 5 || Solver == 8 || Solver == 11) || q_AN == h_AN) ? 1.0 : 2.0;
 
                             for (i = 0; i < ian; i++) {
+                                double* cdm0_row = CDM0[0][Mh_AN][kl][i];
+                                double* cdm1_row = CDM0[1][Mh_AN][kl][i];
+                                double* hvnax_row = HVNAx[i];
+                                double* hvnay_row = HVNAy[i];
+                                double* hvnaz_row = HVNAz[i];
+
                                 for (j = 0; j < jan; j++) {
-                                    dEx_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAx[i][j];
-                                    dEy_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAy[i][j];
-                                    dEz_threads[OMPID] += pref * (CDM0[0][Mh_AN][kl][i][j] + CDM0[1][Mh_AN][kl][i][j]) * HVNAz[i][j];
+                                    double cdm = pref * (cdm0_row[j] + cdm1_row[j]);
+                                    dEx += cdm * hvnax_row[j];
+                                    dEy += cdm * hvnay_row[j];
+                                    dEz += cdm * hvnaz_row[j];
                                 }
                             }
                         }
@@ -5930,34 +6260,11 @@ void Force4B(double***** CDM0)
 
                 /* freeing of arrays */
 
-                for (j = 0; j < List_YOUSO[7]; j++) {
-                    free(HVNAx[j]);
-                }
-                free(HVNAx);
-
-                for (j = 0; j < List_YOUSO[7]; j++) {
-                    free(HVNAy[j]);
-                }
-                free(HVNAy);
-
-                for (j = 0; j < List_YOUSO[7]; j++) {
-                    free(HVNAz[j]);
-                }
-                free(HVNAz);
+                Force_free_double_matrix(HVNAx);
+                Force_free_double_matrix(HVNAy);
+                Force_free_double_matrix(HVNAz);
 
             } /* #pragma omp parallel */
-
-            /* sum of dEx_threads */
-
-            dEx = 0.0;
-            dEy = 0.0;
-            dEz = 0.0;
-
-            for (Nloop = 0; Nloop < Nthrds0; Nloop++) {
-                dEx += dEx_threads[Nloop];
-                dEy += dEy_threads[Nloop];
-                dEz += dEz_threads[Nloop];
-            }
 
             /* force from #4B */
 
@@ -5969,13 +6276,6 @@ void Force4B(double***** CDM0)
             dtime(&Etime_atom);
             time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
 
-            /* freeing of array */
-            free(OneD2q_AN);
-            free(OneD2h_AN);
-            free(dEx_threads);
-            free(dEy_threads);
-            free(dEz_threads);
-
         } /* if (Mc_AN<=Matomnum) */
 
         dtime(&etime1);
@@ -5985,6 +6285,9 @@ void Force4B(double***** CDM0)
         }
 
     } /* Mc_AN */
+
+    free(OneD2q_AN);
+    free(OneD2h_AN);
 
     dtime(&etime);
     if (myid == 0 && measure_time) {
@@ -6011,16 +6314,8 @@ void Force4B(double***** CDM0)
     ************************************/
 
     free(Indicator);
-
-    for (ID = 0; ID < numprocs; ID++) {
-        free(S_array[ID]);
-    }
-    free(S_array);
-
-    for (ID = 0; ID < numprocs; ID++) {
-        free(R_array[ID]);
-    }
-    free(R_array);
+    Force_free_int_matrix(S_array);
+    Force_free_int_matrix(R_array);
 
     free(Snd_DS_VNA_Size);
     free(Rcv_DS_VNA_Size);
