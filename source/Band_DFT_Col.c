@@ -48,6 +48,7 @@ typedef struct
     int                initialized;
     int                device_id;
     int                matrix_dim;
+    int                scale_dim;
     int                transformed_s_valid;
     int                transformed_s_dim;
     size_t             d_work_bytes;
@@ -62,6 +63,7 @@ typedef struct
     int32_t *          d_info;
     void *             d_work;
     void *             h_work;
+    dcomplex *         h_scale;
 } BandColCuSolverCtx;
 
 static BandColCuSolverCtx BandCol_cusolver_ctx = {0};
@@ -75,6 +77,7 @@ typedef struct
     double * buf_Re1;
     double * buf_Im1;
     double * TmpEIGEN;
+    double * OccWeight;
     double **ReEVec0;
     double **ImEVec0;
     double **ReEVec1;
@@ -142,6 +145,7 @@ static unsigned long long BandCol_ConstructFingerprint(int *order_GA, int *MP)
         BANDCOL_HASH_INT(GA_AN);
         BANDCOL_HASH_INT(MP[GA_AN]);
         BANDCOL_HASH_INT(WhatSpecies[GA_AN]);
+        BANDCOL_HASH_INT(Spe_Total_CNO[WhatSpecies[GA_AN]]);
         BANDCOL_HASH_INT(FNAN[GA_AN]);
         for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
             BANDCOL_HASH_INT(natn[GA_AN][LB_AN]);
@@ -317,6 +321,7 @@ static void BandCol_DMWorkspace_Reset(void)
     free(ws->buf_Re1);
     free(ws->buf_Im1);
     free(ws->TmpEIGEN);
+    free(ws->OccWeight);
     free(ws->ReEVec0);
     free(ws->ImEVec0);
     free(ws->ReEVec1);
@@ -347,13 +352,14 @@ static void BandCol_DMWorkspace_Ensure(int max_tno, int nk)
     ws->buf_Re1  = (double *)malloc(vec_bytes);
     ws->buf_Im1  = (double *)malloc(vec_bytes);
     ws->TmpEIGEN = (double *)malloc(sizeof(double) * (size_t)nk);
+    ws->OccWeight = (double *)malloc(sizeof(double) * (size_t)nk);
     ws->ReEVec0  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
     ws->ImEVec0  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
     ws->ReEVec1  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
     ws->ImEVec1  = (double **)malloc(sizeof(double *) * (size_t)max_tno);
 
     if (ws->buf_Re0 == NULL || ws->buf_Im0 == NULL || ws->buf_Re1 == NULL || ws->buf_Im1 == NULL ||
-        ws->TmpEIGEN == NULL || ws->ReEVec0 == NULL || ws->ImEVec0 == NULL || ws->ReEVec1 == NULL ||
+        ws->TmpEIGEN == NULL || ws->OccWeight == NULL || ws->ReEVec0 == NULL || ws->ImEVec0 == NULL || ws->ReEVec1 == NULL ||
         ws->ImEVec1 == NULL) {
         BandCol_DMWorkspace_Reset();
         BandCol_AbortWithMessage("Failed to allocate DM workspace in Band_DFT_Col.c.");
@@ -361,6 +367,136 @@ static void BandCol_DMWorkspace_Ensure(int max_tno, int nk)
 
     ws->max_tno = max_tno;
     ws->max_nk  = nk;
+}
+
+static void BandCol_ZeroComplex(dcomplex *a, size_t count)
+{
+    memset(a, 0, sizeof(dcomplex) * count);
+}
+
+static void BandCol_DMWorkspace_SetPointers(BandColDMWorkspace *ws, int max_tno, int nk)
+{
+    for (int i = 0; i < max_tno; ++i) {
+        ws->ReEVec0[i] = ws->buf_Re0 + (size_t)i * (size_t)nk;
+        ws->ImEVec0[i] = ws->buf_Im0 + (size_t)i * (size_t)nk;
+        ws->ReEVec1[i] = ws->buf_Re1 + (size_t)i * (size_t)nk;
+        ws->ImEVec1[i] = ws->buf_Im1 + (size_t)i * (size_t)nk;
+    }
+}
+
+static void BandCol_AccumulateDenseTransposedDM(int n, int nk, int max_tno, int spin, int kloop, double k1,
+                                                double k2, double k3, const dcomplex *evec_t, int evec_stride,
+                                                int *MP, double ***EIGEN, const double *occ_weight, double *CDM1,
+                                                double *EDM1)
+{
+    BandColDMWorkspace *ws;
+    double *            TmpEIGEN_local;
+    double **           ReEVec0_local;
+    double **           ImEVec0_local;
+    double **           ReEVec1_local;
+    double **           ImEVec1_local;
+    size_t              p = 0;
+
+    BandCol_DMWorkspace_Ensure(max_tno, nk);
+
+    ws = &BandCol_dm_workspace;
+    BandCol_DMWorkspace_SetPointers(ws, max_tno, nk);
+
+    TmpEIGEN_local = ws->TmpEIGEN;
+    ReEVec0_local  = ws->ReEVec0;
+    ImEVec0_local  = ws->ImEVec0;
+    ReEVec1_local  = ws->ReEVec1;
+    ImEVec1_local  = ws->ImEVec1;
+
+    for (int k = 0; k < nk; ++k) {
+        TmpEIGEN_local[k] = EIGEN[spin][kloop][k + 1];
+    }
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        const int wanA = WhatSpecies[GA_AN];
+        const int tnoA = Spe_Total_CNO[wanA];
+        const int Anum = MP[GA_AN];
+
+        for (int i = 0; i < tnoA; ++i) {
+            const dcomplex * restrict v  = &evec_t[(size_t)(Anum + i - 1) * (size_t)evec_stride];
+            double * restrict          r  = ReEVec0_local[i];
+            double * restrict          im = ImEVec0_local[i];
+
+            for (int k = 0; k < nk; ++k) {
+                const double w = occ_weight[k];
+                r[k]           = v[k].r * w;
+                im[k]          = v[k].i * w;
+            }
+        }
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            const int GB_AN = natn[GA_AN][LB_AN];
+            const int Rn    = ncn[GA_AN][LB_AN];
+            const int wanB  = WhatSpecies[GB_AN];
+            const int tnoB  = Spe_Total_CNO[wanB];
+            const int Bnum  = MP[GB_AN];
+
+            const int    l1  = atv_ijk[Rn][1];
+            const int    l2  = atv_ijk[Rn][2];
+            const int    l3  = atv_ijk[Rn][3];
+            const double kRn = k1 * l1 + k2 * l2 + k3 * l3;
+            const double si  = sin(2.0 * PI * kRn);
+            const double co  = cos(2.0 * PI * kRn);
+
+            for (int j = 0; j < tnoB; ++j) {
+                const dcomplex * restrict v  = &evec_t[(size_t)(Bnum + j - 1) * (size_t)evec_stride];
+                double * restrict          r  = ReEVec1_local[j];
+                double * restrict          im = ImEVec1_local[j];
+
+                for (int k = 0; k < nk; ++k) {
+                    const double w = occ_weight[k];
+                    r[k]           = v[k].r * w;
+                    im[k]          = v[k].i * w;
+                }
+            }
+
+            for (int i = 0; i < tnoA; ++i) {
+                const double * restrict r0  = ReEVec0_local[i];
+                const double * restrict im0 = ImEVec0_local[i];
+
+                for (int j = 0; j < tnoB; ++j, ++p) {
+                    const double * restrict r1  = ReEVec1_local[j];
+                    const double * restrict im1 = ImEVec1_local[j];
+                    double                  d1 = 0.0, d2 = 0.0, d3 = 0.0, d4 = 0.0;
+                    int                     k = 0;
+
+                    for (; k + 3 < nk; k += 4) {
+#define KSTEP(idx)                                                                                                     \
+    do {                                                                                                               \
+        double reA = r0[idx] * r1[idx] + im0[idx] * im1[idx];                                                          \
+        double imA = r0[idx] * im1[idx] - im0[idx] * r1[idx];                                                          \
+        d1 += reA;                                                                                                     \
+        d2 += imA;                                                                                                     \
+        d3 += reA * TmpEIGEN_local[idx];                                                                               \
+        d4 += imA * TmpEIGEN_local[idx];                                                                               \
+    } while (0)
+                        KSTEP(k);
+                        KSTEP(k + 1);
+                        KSTEP(k + 2);
+                        KSTEP(k + 3);
+#undef KSTEP
+                    }
+
+                    for (; k < nk; ++k) {
+                        double reA = r0[k] * r1[k] + im0[k] * im1[k];
+                        double imA = r0[k] * im1[k] - im0[k] * r1[k];
+                        d1 += reA;
+                        d2 += imA;
+                        d3 += reA * TmpEIGEN_local[k];
+                        d4 += imA * TmpEIGEN_local[k];
+                    }
+
+                    CDM1[p] += co * d1 - si * d2;
+                    EDM1[p] += co * d3 - si * d4;
+                }
+            }
+        }
+    }
 }
 
 static void BandCol_CuSolver_Destroy(void)
@@ -383,6 +519,8 @@ static void BandCol_CuSolver_Destroy(void)
         wait_cudafunc(cudaFree(ctx->d_work));
     if (ctx->h_work != NULL)
         free(ctx->h_work);
+    if (ctx->h_scale != NULL)
+        free(ctx->h_scale);
     if (ctx->cusolver != NULL)
         wait_cudafunc(cusolverDnDestroy(ctx->cusolver));
     if (ctx->cublas != NULL)
@@ -476,7 +614,7 @@ static void BandCol_CuSolver_EnsureWorkspace(int m, int maxn, dcomplex * d_A)
 
     BandCol_CuSolver_EnsureMatrixCapacity(m);
 
-    range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+    range = CUSOLVER_EIG_RANGE_I;
 
     wait_cudafunc(cusolverDnXsyevdx_bufferSize(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_C_64F,
                                                (cuDoubleComplex *)d_A, m, &vl, &vu, 1L, maxn, &h_meig, CUDA_R_64F,
@@ -521,7 +659,7 @@ static void BandCol_CuSolver_Eigen(dcomplex * d_A, int m, int maxn, double * W_h
     char                 msg[256];
 
     BandCol_CuSolver_EnsureWorkspace(m, maxn, d_A);
-    range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+    range = CUSOLVER_EIG_RANGE_I;
 
     wait_cudafunc(cusolverDnXsyevdx(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_C_64F, (cuDoubleComplex *)d_A, m,
                                     &vl, &vu, 1L, maxn, &h_meig, CUDA_R_64F, ctx->d_W, CUDA_C_64F, ctx->d_work,
@@ -546,7 +684,6 @@ static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, 
 {
     BandColCuSolverCtx * ctx = &BandCol_cusolver_ctx;
     size_t               matrix_bytes;
-    dcomplex *           scale_host;
     int                  l;
 
     BandCol_CuSolver_EnsureMatrixCapacity(n);
@@ -561,9 +698,13 @@ static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, 
         wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
         BandCol_CuSolver_Eigen(ctx->d_S, n, n, ko + 1);
 
-        scale_host = (dcomplex *)malloc(sizeof(dcomplex) * (size_t)n);
-        if (scale_host == NULL) {
-            BandCol_AbortWithMessage("Failed to allocate overlap scale buffer in Band_DFT_Col.c.");
+        if (n > ctx->scale_dim) {
+            dcomplex *new_scale = (dcomplex *)realloc(ctx->h_scale, sizeof(dcomplex) * (size_t)n);
+            if (new_scale == NULL) {
+                BandCol_AbortWithMessage("Failed to allocate overlap scale buffer in Band_DFT_Col.c.");
+            }
+            ctx->h_scale  = new_scale;
+            ctx->scale_dim = n;
         }
 
         for (l = 1; l <= n; l++) {
@@ -571,12 +712,11 @@ static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, 
                 ko[l] = 1.0e-10;
             }
             koS[l]              = ko[l];
-            scale_host[l - 1].r = 1.0 / sqrt(ko[l]);
-            scale_host[l - 1].i = 0.0;
+            ctx->h_scale[l - 1].r = 1.0 / sqrt(ko[l]);
+            ctx->h_scale[l - 1].i = 0.0;
         }
 
-        wait_cudafunc(cudaMemcpy(ctx->d_scale, scale_host, sizeof(dcomplex) * (size_t)n, cudaMemcpyHostToDevice));
-        free(scale_host);
+        wait_cudafunc(cudaMemcpy(ctx->d_scale, ctx->h_scale, sizeof(dcomplex) * (size_t)n, cudaMemcpyHostToDevice));
 
         wait_cudafunc(cublasZdgmm(ctx->cublas, CUBLAS_SIDE_RIGHT, n, n, (cuDoubleComplex *)ctx->d_S, n,
                                   (cuDoubleComplex *)ctx->d_scale, 1, (cuDoubleComplex *)ctx->d_tmp, n));
@@ -587,7 +727,6 @@ static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, 
             ctx->d_tmp          = swap_tmp;
         }
 
-        wait_cudafunc(cudaMemcpy(Ss, ctx->d_S, matrix_bytes, cudaMemcpyDeviceToHost));
     } else {
         wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
     }
@@ -652,9 +791,12 @@ static void BandCol_CuSolver_SolveHamiltonian(int n, int maxn, const dcomplex * 
 
     BandCol_CuSolver_Eigen(ctx->d_H, n, maxn, ko + 1);
 
+    if (C_out == NULL) {
+        return;
+    }
+
     wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_H, n,
                               (cuDoubleComplex *)ctx->d_S, n, &beta, (cuDoubleComplex *)ctx->d_tmp, n));
-
     wait_cudafunc(cudaMemcpy(C_out, ctx->d_tmp, matrix_bytes, cudaMemcpyDeviceToHost));
 }
 
@@ -731,8 +873,9 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
     double time84, time85;
     double time51, time11A = 0.0, time11B = 0.0;
 
-    MPI_Comm mpi_comm_rows, mpi_comm_cols;
-    int      mpi_comm_rows_int, mpi_comm_cols_int;
+    MPI_Comm mpi_comm_rows = MPI_COMM_NULL, mpi_comm_cols = MPI_COMM_NULL;
+    int      mpi_comm_rows_int = 0, mpi_comm_cols_int = 0;
+    int      mpi_eigen_comms_ready = 0;
     int      info, ig, jg, il, jl, prow, pcol, brow, bcol;
     int      ZERO = 0, ONE = 1;
     dcomplex alpha = {1.0, 0.0};
@@ -745,7 +888,7 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
     int *   Num_Snd_EV, *Num_Rcv_EV;
     int *   index_Snd_i, *index_Snd_j, *index_Rcv_i, *index_Rcv_j;
     double *EVec_Snd, *EVec_Rcv;
-    double *TmpEIGEN, **ReEVec0, **ImEVec0, **ReEVec1, **ImEVec1;
+    int     max_tno;
     int     owns_global_dense_rank;
     int     transformed_s_ready;
 
@@ -812,10 +955,14 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
      find the number of basis functions, n
     ****************************************************/
 
-    n = 0;
+    n       = 0;
+    max_tno = 0;
     for (i = 1; i <= atomnum; i++) {
         wanA = WhatSpecies[i];
-        n += Spe_Total_CNO[wanA];
+        tnoA = Spe_Total_CNO[wanA];
+        n += tnoA;
+        if (max_tno < tnoA)
+            max_tno = tnoA;
     }
 
     /****************************************************
@@ -846,12 +993,6 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
     My_NZeros = (int *)malloc(sizeof(int) * numprocs0);
     SP_NZeros = (int *)malloc(sizeof(int) * numprocs0);
     SP_Atoms  = (int *)malloc(sizeof(int) * numprocs0);
-    TmpEIGEN  = NULL;
-    ReEVec0   = NULL;
-    ImEVec0   = NULL;
-    ReEVec1   = NULL;
-    ImEVec1   = NULL;
-
     /***********************************************
                 k-points by regular mesh
     ***********************************************/
@@ -1149,9 +1290,13 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
         if (n != na_cols || n != na_rows) {
             BandCol_AbortWithMessage("CuSOLVER band path requires full dense matrices in Band_DFT_Col.c.");
         }
+    } else if (scf_eigen_lib_flag != CuSOLVER) {
+        MPI_Comm_split(MPI_CommWD2[myworld2], my_pcol, my_prow, &mpi_comm_rows);
+        MPI_Comm_split(MPI_CommWD2[myworld2], my_prow, my_pcol, &mpi_comm_cols);
 
-#pragma acc enter data create(Ss[0 : n * n], Hs[0 : n * n], Cs[0 : n * n])
-#pragma acc enter data create(ko[0 : n + 1])
+        mpi_comm_rows_int     = MPI_Comm_c2f(mpi_comm_rows);
+        mpi_comm_cols_int     = MPI_Comm_c2f(mpi_comm_cols);
+        mpi_eigen_comms_ready = 1;
     }
 
     /****************************************************
@@ -1285,30 +1430,6 @@ double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_
 
     } /* if (all_knum==1) */
 
-    if (all_knum != 1) {
-        TmpEIGEN = (double *)malloc(sizeof(double) * (MaxN + 1));
-
-        ReEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            ReEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-        }
-
-        ImEVec0 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            ImEVec0[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-        }
-
-        ReEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            ReEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-        }
-
-        ImEVec1 = (double **)malloc(sizeof(double *) * List_YOUSO[7]);
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            ImEVec1[i] = (double *)malloc(sizeof(double) * (MaxN + 1));
-        }
-    }
-
     /****************************************************
        PrintMemory
     ****************************************************/
@@ -1424,43 +1545,12 @@ diagonalize1:
             if (measure_time)
                 dtime(&Stime);
 
-            /* diagonalize S */
-
-            BandCol_CuSolver_EigenHost(Ss, ko, n, n);
+            BandCol_CuSolver_PrepareTransformedS(1, n, Ss, ko, koS);
 
             if (measure_time) {
                 dtime(&Etime);
                 time2 += Etime - Stime;
             }
-
-            /* minus eigenvalues to 1.0e-14 */
-
-            for (int l = 1; l <= n; l++) {
-                if (ko[l] < 0.0)
-                    ko[l] = 1.0e-10;
-            }
-
-            for (int l = 1; l <= n; l++) {
-                koS[l] = ko[l];
-            }
-
-            /* calculate S*1/sqrt(ko) */
-
-            for (int l = 1; l <= n; l++)
-                ko[l] = 1.0 / sqrt(ko[l]);
-
-            {
-
-                for (int i1 = 1; i1 <= n; i1++) {
-                    for (int j1 = 1; j1 <= n; j1++) {
-                        Ss[(j1 - 1) * n + i1 - 1].r *= ko[j1];
-                        Ss[(j1 - 1) * n + i1 - 1].i *= ko[j1];
-                    }
-                }
-
-            } /* #pragma omp parallel */
-
-            /* S * 1.0/sqrt(ko[l])  */
 
             /****************************************************
              1.0/sqrt(ko[l]) * U^t * H * U * 1.0/sqrt(ko[l])
@@ -1469,31 +1559,11 @@ diagonalize1:
             if (measure_time)
                 dtime(&Stime);
 
-            my_cublasZgemm(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, Hs, Ss, Cs);
-
-            /* pzgemm */
-
-            /* H * U * 1/sqrt(ko) */
-
-            /* 1/sqrt(ko) * U^+ H * U * 1/sqrt(ko) */
-
-            my_cublasZgemm(CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, Ss, Cs, Hs);
+            BandCol_CuSolver_SolveHamiltonian(n, MaxN, Hs, ko, NULL);
 
             if (measure_time) {
                 dtime(&Etime);
                 time3 += Etime - Stime;
-            }
-
-            /* diagonalize H' */
-
-            if (measure_time)
-                dtime(&Stime);
-
-            BandCol_CuSolver_EigenHost(Hs, ko, n, MaxN);
-
-            if (measure_time) {
-                dtime(&Etime);
-                time4 += Etime - Stime;
             }
 
             for (int l = 1; l <= MaxN; l++) {
@@ -1639,13 +1709,6 @@ diagonalize1:
                     dtime(&Stime);
 
                 if (parallel_mode == 0 || (SCF_iter == 1 || all_knum != 1)) {
-
-                    MPI_Comm_split(MPI_CommWD2[myworld2], my_pcol, my_prow, &mpi_comm_rows);
-                    MPI_Comm_split(MPI_CommWD2[myworld2], my_prow, my_pcol, &mpi_comm_cols);
-
-                    mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
-                    mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
-
                     if (scf_eigen_lib_flag == 1) {
                         F77_NAME(solve_evp_complex, SOLVE_EVP_COMPLEX)
                         (&n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
@@ -1659,9 +1722,6 @@ diagonalize1:
                          &mpi_comm_cols_int, &mpiworld);
 #endif
                     }
-
-                    MPI_Comm_free(&mpi_comm_rows);
-                    MPI_Comm_free(&mpi_comm_cols);
                 }
 
                 if (measure_time) {
@@ -1710,13 +1770,14 @@ diagonalize1:
 
                     // #pragma acc kernels
                     // #pragma acc loop independent
-                    for (i = 0; i < na_rows; i++) {
-                        // #pragma acc loop independent
-                        for (j = 0; j < na_cols; j++) {
-                            int jg =
-                                np_cols * nblk * ((j) / nblk) + (j) % nblk + ((np_cols + my_pcol) % np_cols) * nblk + 1;
-                            Ss[j * na_rows + i].r = Ss[j * na_rows + i].r * ko[jg];
-                            Ss[j * na_rows + i].i = Ss[j * na_rows + i].i * ko[jg];
+                    for (j = 0; j < na_cols; j++) {
+                        const int jg = np_cols * nblk * (j / nblk) + (j % nblk) + ((np_cols + my_pcol) % np_cols) * nblk + 1;
+                        const double scale = ko[jg];
+                        dcomplex * restrict col = &Ss[j * na_rows];
+
+                        for (i = 0; i < na_rows; i++) {
+                            col[i].r *= scale;
+                            col[i].i *= scale;
                         }
                     }
                 }
@@ -1744,13 +1805,6 @@ diagonalize1:
 
                 /* H * U * 1.0/sqrt(ko[l]) */
 
-                // #pragma acc kernels
-                // #pragma acc loop independent
-                for (i = 0; i < na_rows * na_cols; i++) {
-                    Cs[i].r = 0.0;
-                    Cs[i].i = 0.0;
-                }
-
                 // cublasmp_zgemm(CUBLAS_OP_N, CUBLAS_OP_N, Hs, Ss, Cs, &opts, &opts2);
 
                 Cblacs_barrier(ictxt2, "A");
@@ -1761,13 +1815,6 @@ diagonalize1:
                 // printf("BLAS_C[1][1] = %.7f BLAS_C[1][2] = %.7f BLAS_C[1][3] = %.7f\n", Cs[0].r, Cs[n].r, Cs[2 * n].r);
 
                 /* 1.0/sqrt(ko[l]) * U^+ H * U * 1.0/sqrt(ko[l]) */
-
-                // #pragma acc kernels
-                // #pragma acc loop independent
-                for (i = 0; i < na_rows * na_cols; i++) {
-                    Hs[i].r = 0.0;
-                    Hs[i].i = 0.0;
-                }
 
                 // cublasmp_zgemm(CUBLAS_OP_C, CUBLAS_OP_N, Ss, Cs, Hs, &opts, &opts2);
 
@@ -1790,12 +1837,6 @@ diagonalize1:
                 if (measure_time)
                     dtime(&Stime);
 
-                MPI_Comm_split(MPI_CommWD2[myworld2], my_pcol, my_prow, &mpi_comm_rows);
-                MPI_Comm_split(MPI_CommWD2[myworld2], my_prow, my_pcol, &mpi_comm_cols);
-
-                mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
-                mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
-
                 if (scf_eigen_lib_flag == 1) {
                     F77_NAME(solve_evp_complex, SOLVE_EVP_COMPLEX)
                     (&n, &MaxN, Hs, &na_rows, &ko[1], Cs, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
@@ -1809,9 +1850,6 @@ diagonalize1:
                      &mpi_comm_cols_int, &mpiworld);
 #endif
                 }
-
-                MPI_Comm_free(&mpi_comm_rows);
-                MPI_Comm_free(&mpi_comm_cols);
 
                 if (measure_time) {
                     dtime(&Etime);
@@ -1851,13 +1889,6 @@ diagonalize1:
                     dtime(&Stime);
 
                 if (all_knum == 1) {
-                    // #pragma acc kernels
-                    // #pragma acc loop independent
-                    for (i = 0; i < na_rows * na_cols; i++) {
-                        Hs[i].r = 0.0;
-                        Hs[i].i = 0.0;
-                    }
-
                     // cublasmp_zgemm(CUBLAS_OP_T, CUBLAS_OP_T, Cs, Ss, Hs, &opts, &opts2);
                     // #pragma acc update self(Ss[0 : na_rows * na_cols], Hs[0 : na_rows * na_cols], Cs[0 : na_rows * na_cols])
 
@@ -2316,14 +2347,6 @@ diagonalize1:
 
         if (kmin <= kmax) {
             const int nk      = kmax - kmin + 1;
-            int       max_tno = 0;
-            for (int GA = 1; GA <= atomnum; ++GA) {
-                const int wan = WhatSpecies[GA];
-                const int tno = Spe_Total_CNO[wan];
-                if (tno > max_tno)
-                    max_tno = tno;
-            }
-
             double * TmpEIGEN_local;
             double **ReEVec0_local;
             double **ImEVec0_local;
@@ -2338,12 +2361,7 @@ diagonalize1:
             ReEVec1_local  = BandCol_dm_workspace.ReEVec1;
             ImEVec1_local  = BandCol_dm_workspace.ImEVec1;
 
-            for (int i = 0; i < max_tno; ++i) {
-                ReEVec0_local[i] = BandCol_dm_workspace.buf_Re0 + (size_t)i * nk;
-                ImEVec0_local[i] = BandCol_dm_workspace.buf_Im0 + (size_t)i * nk;
-                ReEVec1_local[i] = BandCol_dm_workspace.buf_Re1 + (size_t)i * nk;
-                ImEVec1_local[i] = BandCol_dm_workspace.buf_Im1 + (size_t)i * nk;
-            }
+            BandCol_DMWorkspace_SetPointers(&BandCol_dm_workspace, max_tno, nk);
 
             {
                 const double * src = &EIGEN[spin][kloop][kmin];
@@ -2696,7 +2714,7 @@ diagonalize1:
                 if (measure_time)
                     dtime(&Stime);
 
-                BandCol_CuSolver_EigenHost(Ss, ko, n, n);
+                BandCol_CuSolver_PrepareTransformedS(1, n, Ss, ko, koS);
 
                 if (measure_time) {
                     dtime(&Etime);
@@ -2711,34 +2729,6 @@ diagonalize1:
                     }
                 }
 
-                /* minus eigenvalues to 1.0e-14 */
-
-                for (int l = 1; l <= n; l++) {
-                    if (ko[l] < 0.0) {
-                        ko[l] = 1.0e-10;
-                    }
-                }
-
-                for (int l = 1; l <= n; l++) {
-                    koS[l] = ko[l];
-                }
-
-                // #pragma acc update device(ko[0 : n + 1])
-
-                /* calculate S*1/sqrt(ko) */
-
-                for (int l = 1; l <= n; l++)
-                    ko[l] = 1.0 / sqrt(ko[l]);
-
-                for (int i1 = 1; i1 <= n; i1++) {
-                    for (int j1 = 1; j1 <= n; j1++) {
-                        Ss[(j1 - 1) * n + i1 - 1].r *= ko[j1];
-                        Ss[(j1 - 1) * n + i1 - 1].i *= ko[j1];
-                    }
-                }
-
-                /* S * 1.0/sqrt(ko[l])  */
-
                 /****************************************************
                       1/sqrt(ko) * U^t * H * U * 1/sqrt(ko)
                 ****************************************************/
@@ -2747,22 +2737,10 @@ diagonalize1:
                     BandCol_AbortWithMessage("CuSOLVER DM path requires full dense matrices in Band_DFT_Col.c.");
                 }
 
-                my_cublasZgemm(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, Hs, Ss, Cs);
-
-                /* pzgemm */
-
-                /* H * U * 1/sqrt(ko) */
-
-                /* 1/sqrt(ko) * U^+ H * U * 1/sqrt(ko) */
-
-                my_cublasZgemm(CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, Ss, Cs, Hs);
-
-                /* diagonalize H' */
-
                 if (measure_time)
                     dtime(&Stime);
 
-                BandCol_CuSolver_EigenHost(Hs, ko, n, MaxN);
+                BandCol_CuSolver_SolveHamiltonian(n, MaxN, Hs, ko, Cs);
 
                 if (measure_time) {
                     dtime(&Etime);
@@ -2778,27 +2756,6 @@ diagonalize1:
                 }
 
                 /****************************************************
-                  transformation to the original eigenvectors.
-                   NOTE JRCAT-244p and JAIST-2122p
-                ****************************************************/
-                /* note for BLAS, A[M*K] * B[K*N] = C[M*N] */
-
-                my_cublasZgemm(CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, Hs, Ss, Cs);
-
-                /* Hs are stored to EVec1 */
-
-                int ktmp = 0;
-                for (int j = 0; j < n; j++) {
-                    for (int i = 0; i < n; i++) {
-
-                        EVec1[spin][ktmp].r = Cs[j * n + i].r;
-                        EVec1[spin][ktmp].i = Cs[j * n + i].i;
-
-                        ktmp++;
-                    }
-                }
-
-                /****************************************************
                                calculate DM and EDM
                 ****************************************************/
 
@@ -2810,8 +2767,10 @@ diagonalize1:
                 double kw = (double)T_k_op[kloop];
 
                 int po   = 0;
-                int kmin = 1;
                 int kmax = MaxN;
+
+                BandCol_DMWorkspace_Ensure(max_tno, MaxN);
+                double *occ_weight = BandCol_dm_workspace.OccWeight;
 
                 if (measure_time)
                     dtime(&Stime1);
@@ -2832,13 +2791,7 @@ diagonalize1:
                         x = x_cut;
                     double FermiF = FermiFunc(x, spin, k, &k, &x);
 
-                    double tmp1 = sqrt(kw * FermiF);
-
-                    for (int i1 = 1; i1 <= n; i1++) {
-                        int i = (i1 - 1) * n + k - 1;
-                        EVec1[spin][i].r *= tmp1;
-                        EVec1[spin][i].i *= tmp1;
-                    }
+                    occ_weight[k - 1] = sqrt(kw * FermiF);
 
                     /* find kmax */
 
@@ -2854,118 +2807,8 @@ diagonalize1:
                     dtime(&Stime1);
                 }
 
-                {
-                    const int nk = MaxN;
-                    int       max_tno = 0;
-                    for (int GA = 1; GA <= atomnum; ++GA) {
-                        const int wan = WhatSpecies[GA];
-                        const int tno = Spe_Total_CNO[wan];
-                        if (tno > max_tno)
-                            max_tno = tno;
-                    }
-
-                    BandCol_DMWorkspace_Ensure(max_tno, nk);
-
-                    double * TmpEIGEN_local = BandCol_dm_workspace.TmpEIGEN;
-                    double **ReEVec0_local  = BandCol_dm_workspace.ReEVec0;
-                    double **ImEVec0_local  = BandCol_dm_workspace.ImEVec0;
-                    double **ReEVec1_local  = BandCol_dm_workspace.ReEVec1;
-                    double **ImEVec1_local  = BandCol_dm_workspace.ImEVec1;
-
-                    for (int i = 0; i < max_tno; ++i) {
-                        ReEVec0_local[i] = BandCol_dm_workspace.buf_Re0 + (size_t)i * nk;
-                        ImEVec0_local[i] = BandCol_dm_workspace.buf_Im0 + (size_t)i * nk;
-                        ReEVec1_local[i] = BandCol_dm_workspace.buf_Re1 + (size_t)i * nk;
-                        ImEVec1_local[i] = BandCol_dm_workspace.buf_Im1 + (size_t)i * nk;
-                    }
-
-                    for (int k = 0; k < nk; ++k) {
-                        TmpEIGEN_local[k] = EIGEN[spin][kloop][k + 1];
-                    }
-
-                    size_t p = 0;
-                    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
-                        const int wanA = WhatSpecies[GA_AN];
-                        const int tnoA = Spe_Total_CNO[wanA];
-                        const int Anum = MP[GA_AN];
-
-                        for (int i = 0; i < tnoA; ++i) {
-                            const dcomplex * v = &EVec1[spin][(size_t)(Anum + i - 1) * (size_t)n];
-                            double * restrict r = ReEVec0_local[i];
-                            double * restrict im = ImEVec0_local[i];
-                            for (int k = 0; k < nk; ++k) {
-                                r[k]  = v[k].r;
-                                im[k] = v[k].i;
-                            }
-                        }
-
-                        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
-                            const int GB_AN = natn[GA_AN][LB_AN];
-                            const int Rn    = ncn[GA_AN][LB_AN];
-                            const int wanB  = WhatSpecies[GB_AN];
-                            const int tnoB  = Spe_Total_CNO[wanB];
-                            const int Bnum  = MP[GB_AN];
-
-                            const int    l1  = atv_ijk[Rn][1];
-                            const int    l2  = atv_ijk[Rn][2];
-                            const int    l3  = atv_ijk[Rn][3];
-                            const double kRn = k1 * l1 + k2 * l2 + k3 * l3;
-                            const double si  = sin(2.0 * PI * kRn);
-                            const double co  = cos(2.0 * PI * kRn);
-
-                            for (int j = 0; j < tnoB; ++j) {
-                                const dcomplex * v = &EVec1[spin][(size_t)(Bnum + j - 1) * (size_t)n];
-                                double * restrict r = ReEVec1_local[j];
-                                double * restrict im = ImEVec1_local[j];
-                                for (int k = 0; k < nk; ++k) {
-                                    r[k]  = v[k].r;
-                                    im[k] = v[k].i;
-                                }
-                            }
-
-                            for (int i = 0; i < tnoA; ++i) {
-                                const double * restrict r0  = ReEVec0_local[i];
-                                const double * restrict im0 = ImEVec0_local[i];
-
-                                for (int j = 0; j < tnoB; ++j, ++p) {
-                                    const double * restrict r1  = ReEVec1_local[j];
-                                    const double * restrict im1 = ImEVec1_local[j];
-
-                                    double d1 = 0.0, d2 = 0.0, d3 = 0.0, d4 = 0.0;
-                                    int    k = 0;
-
-                                    for (; k + 3 < nk; k += 4) {
-#define KSTEP(idx)                                                                                                 \
-    do {                                                                                                           \
-        double reA = r0[idx] * r1[idx] + im0[idx] * im1[idx];                                                      \
-        double imA = r0[idx] * im1[idx] - im0[idx] * r1[idx];                                                      \
-        d1 += reA;                                                                                                 \
-        d2 += imA;                                                                                                 \
-        d3 += reA * TmpEIGEN_local[idx];                                                                           \
-        d4 += imA * TmpEIGEN_local[idx];                                                                           \
-    } while (0)
-                                        KSTEP(k);
-                                        KSTEP(k + 1);
-                                        KSTEP(k + 2);
-                                        KSTEP(k + 3);
-#undef KSTEP
-                                    }
-                                    for (; k < nk; ++k) {
-                                        double reA = r0[k] * r1[k] + im0[k] * im1[k];
-                                        double imA = r0[k] * im1[k] - im0[k] * r1[k];
-                                        d1 += reA;
-                                        d2 += imA;
-                                        d3 += reA * TmpEIGEN_local[k];
-                                        d4 += imA * TmpEIGEN_local[k];
-                                    }
-
-                                    CDM1[p] += co * d1 - si * d2;
-                                    EDM1[p] += co * d3 - si * d4;
-                                }
-                            }
-                        }
-                    } /* GA_AN */
-                }
+                BandCol_AccumulateDenseTransposedDM(n, MaxN, max_tno, spin, kloop, k1, k2, k3, Cs, n, MP, EIGEN,
+                                                     occ_weight, CDM1, EDM1);
 
                 if (measure_time) {
                     dtime(&Etime1);
@@ -2998,11 +2841,6 @@ diagonalize1:
                 if (measure_time)
                     dtime(&Stime);
 
-                MPI_Comm_split(MPI_CommWD2[myworld2], my_pcol, my_prow, &mpi_comm_rows);
-                MPI_Comm_split(MPI_CommWD2[myworld2], my_prow, my_pcol, &mpi_comm_cols);
-
-                mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
-                mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
                 if (scf_eigen_lib_flag == 1) {
                     F77_NAME(solve_evp_complex, SOLVE_EVP_COMPLEX)
                     (&n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk, &mpi_comm_rows_int, &mpi_comm_cols_int);
@@ -3016,9 +2854,6 @@ diagonalize1:
                      &mpi_comm_cols_int, &mpiworld);
 #endif
                 }
-
-                MPI_Comm_free(&mpi_comm_rows);
-                MPI_Comm_free(&mpi_comm_cols);
 
                 if (measure_time) {
                     dtime(&Etime);
@@ -3055,13 +2890,14 @@ diagonalize1:
 
                 // #pragma acc kernels
                 // #pragma acc loop independent
-                for (i = 0; i < na_rows; i++) {
-                    // #pragma acc loop independent
-                    for (j = 0; j < na_cols; j++) {
-                        int jg =
-                            np_cols * nblk * ((j) / nblk) + (j) % nblk + ((np_cols + my_pcol) % np_cols) * nblk + 1;
-                        Ss[j * na_rows + i].r = Ss[j * na_rows + i].r * ko[jg];
-                        Ss[j * na_rows + i].i = Ss[j * na_rows + i].i * ko[jg];
+                for (j = 0; j < na_cols; j++) {
+                    const int jg = np_cols * nblk * (j / nblk) + (j % nblk) + ((np_cols + my_pcol) % np_cols) * nblk + 1;
+                    const double scale = ko[jg];
+                    dcomplex * restrict col = &Ss[j * na_rows];
+
+                    for (i = 0; i < na_rows; i++) {
+                        col[i].r *= scale;
+                        col[i].i *= scale;
                     }
                 }
 
@@ -3073,13 +2909,6 @@ diagonalize1:
 
                 /* H * U * 1/sqrt(ko) */
 
-                // #pragma acc kernels
-                // #pragma acc loop independent
-                for (i = 0; i < na_rows * na_cols; i++) {
-                    Cs[i].r = 0.0;
-                    Cs[i].i = 0.0;
-                }
-
                 // cublasmp_zgemm(CUBLAS_OP_N, CUBLAS_OP_N, Hs, Ss, Cs, &opts, &opts2);
 
                 Cblacs_barrier(ictxt2, "A");
@@ -3088,13 +2917,6 @@ diagonalize1:
                  descC);
 
                 /* 1/sqrt(ko) * U^+ H * U * 1/sqrt(ko) */
-
-                // #pragma acc kernels
-                // #pragma acc loop independent
-                for (i = 0; i < na_rows * na_cols; i++) {
-                    Hs[i].r = 0.0;
-                    Hs[i].i = 0.0;
-                }
 
                 // cublasmp_zgemm(CUBLAS_OP_C, CUBLAS_OP_N, Ss, Cs, Hs, &opts, &opts2);
 
@@ -3107,12 +2929,6 @@ diagonalize1:
 
                 if (measure_time)
                     dtime(&Stime);
-
-                MPI_Comm_split(MPI_CommWD2[myworld2], my_pcol, my_prow, &mpi_comm_rows);
-                MPI_Comm_split(MPI_CommWD2[myworld2], my_prow, my_pcol, &mpi_comm_cols);
-
-                mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
-                mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
 
                 if (scf_eigen_lib_flag == 1) {
                     F77_NAME(solve_evp_complex, SOLVE_EVP_COMPLEX)
@@ -3127,9 +2943,6 @@ diagonalize1:
                      &mpi_comm_cols_int, &mpiworld);
 #endif
                 }
-
-                MPI_Comm_free(&mpi_comm_rows);
-                MPI_Comm_free(&mpi_comm_cols);
 
                 if (measure_time) {
                     dtime(&Etime);
@@ -3149,32 +2962,14 @@ diagonalize1:
                    NOTE JRCAT-244p and JAIST-2122p
                 ****************************************************/
 
-                // #pragma acc kernels
-                // #pragma acc loop independent
-                for (i = 0; i < na_rows * na_cols; i++) {
-                    Hs[i].r = 0.0;
-                    Hs[i].i = 0.0;
-                }
-
                 // cublasmp_zgemm(CUBLAS_OP_T, CUBLAS_OP_T, Cs, Ss, Hs, &opts, &opts2);
 
                 F77_NAME(pzgemm, PZGEMM)
-                ("T", "T", &n, &n, &n, &alpha, Cs, &ONE, &ONE, descS, Ss, &ONE, &ONE, descC, &beta, Hs, &ONE, &ONE,
-                 descH);
+                ("T", "T", &MaxN, &n, &n, &alpha, Cs, &ONE, &ONE, descS, Ss, &ONE, &ONE, descC, &beta, Hs, &ONE,
+                 &ONE, descH);
                 Cblacs_barrier(ictxt2, "A");
-                // #pragma acc update self(Hs[0 : na_rows * na_cols])
-
-                /* Hs are stored to EVec1 */
-
-                k = 0;
-                for (j = 0; j < na_cols; j++) {
-                    for (i = 0; i < na_rows; i++) {
-
-                        EVec1[spin][k].r = Hs[j * na_rows + i].r;
-                        EVec1[spin][k].i = Hs[j * na_rows + i].i;
-
-                        k++;
-                    }
+                if (na_rows < MaxN || na_cols < n) {
+                    BandCol_AbortWithMessage("CPU all_knum!=1 DM path requires local dense eigenvectors in Band_DFT_Col.c.");
                 }
 
                 /****************************************************
@@ -3189,8 +2984,10 @@ diagonalize1:
                 kw = (double)T_k_op[kloop];
 
                 po   = 0;
-                kmin = 1;
                 kmax = MaxN;
+
+                BandCol_DMWorkspace_Ensure(max_tno, MaxN);
+                double *occ_weight = BandCol_dm_workspace.OccWeight;
 
                 if (measure_time)
                     dtime(&Stime1);
@@ -3210,13 +3007,7 @@ diagonalize1:
                         x = x_cut;
                     FermiF = FermiFunc(x, spin, k, &k, &x);
 
-                    tmp1 = sqrt(kw * FermiF);
-
-                    for (i1 = 1; i1 <= n; i1++) {
-                        i = (i1 - 1) * n + k - 1;
-                        EVec1[spin][i].r *= tmp1;
-                        EVec1[spin][i].i *= tmp1;
-                    }
+                    occ_weight[k - 1] = sqrt(kw * FermiF);
 
                     /* find kmax */
 
@@ -3232,170 +3023,8 @@ diagonalize1:
                     dtime(&Stime1);
                 }
 
-                /* store EIGEN to a temporary array */
-
-                for (k = 1; k <= MaxN; k++) {
-                    TmpEIGEN[k] = EIGEN[spin][kloop][k];
-                }
-
-                /* calculation of CDM1 and EDM1 */
-
-                // int wanAmax = 1;
-                // int tnoAmax = 1;
-                // int tnoBmax = 1;
-                // int i1max = 1;
-                // int j1max = 1;
-                // int LB_ANmax = 1;
-                // int Rnmax = 1;
-                // int GB_ANmax = 1;
-                // int pmax = 1;
-                // for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                //     if (wanAmax < WhatSpecies[GA_AN]) {
-                //         wanAmax = WhatSpecies[GA_AN];
-                //     }
-
-                //     if (tnoAmax < Spe_Total_CNO[WhatSpecies[GA_AN]]) {
-                //         tnoAmax = Spe_Total_CNO[WhatSpecies[GA_AN]];
-                //     }
-
-                //     int wanA = WhatSpecies[GA_AN];
-                //     int tnoA = Spe_Total_CNO[wanA];
-                //     int Anum = MP[GA_AN];
-
-                //     for (int i = 0; i < tnoA; i++) {
-                //         int i1 = (Anum + i - 1) * n - 1;
-
-                //         if (i1max < i1) {
-                //             i1max = i1;
-                //         }
-                //     }
-
-                //     if (LB_ANmax < FNAN[GA_AN]) {
-                //         LB_ANmax = FNAN[GA_AN];
-                //     }
-
-                //     for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                //         if (Rnmax < ncn[GA_AN][LB_AN]) {
-                //             Rnmax = ncn[GA_AN][LB_AN];
-                //         }
-
-                //         if (GB_ANmax < natn[GA_AN][LB_AN]) {
-                //             GB_ANmax = natn[GA_AN][LB_AN];
-                //         }
-
-                //         int GB_AN = natn[GA_AN][LB_AN];
-                //         int wanB = WhatSpecies[GB_AN];
-                //         int tnoB = Spe_Total_CNO[wanB];
-                //         int Bnum = MP[GB_AN];
-
-                //         if (tnoBmax < tnoB) {
-                //             tnoBmax = tnoB;
-                //         }
-
-                //         for (i = 0; i < tnoA; i++) {
-                //             for (j = 0; j < tnoB; j++) {
-                //                 /* increment of p */
-                //                 pmax++;
-                //             }
-                //         }
-                //     }
-                // }
-
-                // int ijmax = i1max > j1max ? i1max : j1max;
-
-                // #pragma acc data copy(ReEVec0[:tnoAmax][:MaxN + 1], ImEVec0[:tnoAmax][:MaxN + 1])
-                // #pragma acc data copy(FNAN[:atomnum + 1])
-                // #pragma acc data copy(EVec1[:2][:ijmax + MaxN + 1])
-                // #pragma acc data copy(Spe_Total_CNO[:wanAmax])
-                // #pragma acc data copy(natn[:atomnum + 1][:LB_ANmax], ncn[:atomnum + 1][:LB_ANmax], atv_ijk[:Rnmax][:4])
-                // #pragma acc data copy(ReEVec1[:tnoBmax][:MaxN + 1], ImEVec1[:tnoBmax][:MaxN + 1])
-                // #pragma acc data copy(MP[:atomnum + 1], WhatSpecies[:atomnum + 1], TmpEIGEN[:MaxN + 1])
-                // #pragma acc data copy(CDM1[:pmax], EDM1[:pmax])
-                // #pragma acc kernels
-                // #pragma acc loop independent gang
-
-                int p = 0;
-                for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                    int wanA = WhatSpecies[GA_AN];
-                    int tnoA = Spe_Total_CNO[wanA];
-                    int Anum = MP[GA_AN];
-
-                    /* store EVec1 to temporary arrays */
-
-                    for (int i = 0; i < tnoA; i++) {
-                        int i1 = (Anum + i - 1) * n - 1;
-                        for (int k = 1; k <= MaxN; k++) {
-                            ReEVec0[i][k] = EVec1[spin][i1 + k].r;
-                            ImEVec0[i][k] = EVec1[spin][i1 + k].i;
-                        }
-                    }
-
-                    // #pragma acc loop independent vector(1024)
-                    for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                        int GB_AN = natn[GA_AN][LB_AN];
-                        int Rn    = ncn[GA_AN][LB_AN];
-                        int wanB  = WhatSpecies[GB_AN];
-                        int tnoB  = Spe_Total_CNO[wanB];
-                        int Bnum  = MP[GB_AN];
-
-                        int    l1  = atv_ijk[Rn][1];
-                        int    l2  = atv_ijk[Rn][2];
-                        int    l3  = atv_ijk[Rn][3];
-                        double kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
-
-                        double si = sin(2.0 * PI * kRn);
-                        double co = cos(2.0 * PI * kRn);
-
-                        /* store EVec1 to temporary arrays */
-
-                        for (int j = 0; j < tnoB; j++) {
-                            int j1 = (Bnum + j - 1) * n - 1;
-                            for (int k = 1; k <= MaxN; k++) {
-                                ReEVec1[j][k] = EVec1[spin][j1 + k].r;
-                                ImEVec1[j][k] = EVec1[spin][j1 + k].i;
-                            }
-                        }
-
-                        for (int i = 0; i < tnoA; i++) {
-                            for (int j = 0; j < tnoB; j++) {
-                                /***************************************************************
-                                 Note that the imaginary part is zero,
-                                 since
-
-                                 at k
-                                 A = (co + i si)(Re + i Im) = (co*Re - si*Im) + i (co*Im + si*Re)
-                                 at -k
-                                 B = (co - i si)(Re - i Im) = (co*Re - si*Im) - i (co*Im + si*Re)
-                                 Thus, Re(A+B) = 2*(co*Re - si*Im)
-                                       Im(A+B) = 0
-                                ***************************************************************/
-
-                                double d1 = 0.0;
-                                double d2 = 0.0;
-                                double d3 = 0.0;
-                                double d4 = 0.0;
-
-                                // #pragma acc loop reduction(+:d1) reduction(+:d2) reduction(+:d3) reduction(+:d4)
-                                for (int k = 1; k <= MaxN; k++) {
-                                    ReA = ReEVec0[i][k] * ReEVec1[j][k] + ImEVec0[i][k] * ImEVec1[j][k];
-                                    ImA = ReEVec0[i][k] * ImEVec1[j][k] - ImEVec0[i][k] * ReEVec1[j][k];
-
-                                    d1 += ReA;
-                                    d2 += ImA;
-                                    d3 += ReA * TmpEIGEN[k];
-                                    d4 += ImA * TmpEIGEN[k];
-                                }
-
-                                // int p = (((GA_AN - 1) * (FNAN[GA_AN] + 1) + LB_AN) * tnoA + i) * tnoB + j;
-
-                                CDM1[p] += co * d1 - si * d2;
-                                EDM1[p] += co * d3 - si * d4;
-
-                                p++;
-                            }
-                        }
-                    }
-                } /* GA_AN */
+                BandCol_AccumulateDenseTransposedDM(n, MaxN, max_tno, spin, kloop, k1, k2, k3, Hs, na_rows, MP,
+                                                     EIGEN, occ_weight, CDM1, EDM1);
 
                 if (measure_time) {
                     dtime(&Etime1);
@@ -3680,10 +3309,6 @@ diagonalize1:
                          free arrays
     ****************************************************/
 
-    if (all_knum != 1 && scf_eigen_lib_flag == CuSOLVER) {
-#pragma acc exit data delete(Ss[0 : n * n], Hs[0 : n * n], Cs[0 : n * n], ko[0 : n + 1])
-    }
-
     if (all_knum == 1) {
 
         free(EVec_Rcv);
@@ -3705,30 +3330,6 @@ diagonalize1:
     free(SP_Atoms);
     free(SP_NZeros);
     free(My_NZeros);
-
-    if (all_knum != 1) {
-        free(TmpEIGEN);
-
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            free(ReEVec0[i]);
-        }
-        free(ReEVec0);
-
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            free(ImEVec0[i]);
-        }
-        free(ImEVec0);
-
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            free(ReEVec1[i]);
-        }
-        free(ReEVec1);
-
-        for (i = 0; i < List_YOUSO[7]; i++) {
-            free(ImEVec1[i]);
-        }
-        free(ImEVec1);
-    }
 
     /* for PrintMemory and allocation */
     firsttime = 0;
@@ -3849,6 +3450,11 @@ diagonalize1:
     //     fflush(stdout);
     // }
 
+    if (mpi_eigen_comms_ready) {
+        MPI_Comm_free(&mpi_comm_rows);
+        MPI_Comm_free(&mpi_comm_cols);
+    }
+
     MPI_Barrier(mpi_comm_level1);
     dtime(&TEtime);
     time0 = TEtime - TStime;
@@ -3858,232 +3464,97 @@ diagonalize1:
 void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, double * S1, double * H1, double k1,
                          double k2, double k3, dcomplex * Cs, dcomplex * Hs, int n, int owns_global_dense_rank)
 {
-    /* make S and H */
+    const int need_s = (SCF_iter == 1 || all_knum != 1);
+    const int dense_cusolver_owner =
+        (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank);
 
-    if (SCF_iter == 1 || all_knum != 1) {
-        if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank) {
-            for (int i = 0; i < n * n; i++) {
-                Cs[i].r = 0.0;
-                Cs[i].i = 0.0;
-            }
-        } else if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1) {
-        } else {
-            for (int i = 0; i < na_rows; i++) {
-                for (int j = 0; j < na_cols; j++) {
-                    Cs[j * na_rows + i].r = 0.0;
-                    Cs[j * na_rows + i].i = 0.0;
-                }
-            }
-        }
+    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && !owns_global_dense_rank) {
+        return;
     }
 
-    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank) {
-        for (int i = 0; i < n * n; i++) {
-            Hs[i].r = 0.0;
-            Hs[i].i = 0.0;
+    BandCol_ConstructCache_Ensure(order_GA, MP, n);
+
+    if (dense_cusolver_owner) {
+        const BandColConstructEntry *entries = BandCol_construct_cache.dense_entries;
+        const int count = BandCol_construct_cache.dense_count;
+        int prev_l1 = 0x7fffffff, prev_l2 = 0x7fffffff, prev_l3 = 0x7fffffff;
+        double phase_real = 0.0, phase_imag = 0.0;
+
+        BandCol_ZeroComplex(Hs, (size_t)n * (size_t)n);
+        if (need_s) {
+            BandCol_ZeroComplex(Cs, (size_t)n * (size_t)n);
         }
-    } else if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1) {
+
+        for (int idx = 0; idx < count; ++idx) {
+            const BandColConstructEntry *entry = &entries[idx];
+
+            if (entry->l1 != prev_l1 || entry->l2 != prev_l2 || entry->l3 != prev_l3) {
+                double kRn = k1 * (double)entry->l1 + k2 * (double)entry->l2 + k3 * (double)entry->l3;
+                phase_imag = sin(2.0 * PI * kRn);
+                phase_real = cos(2.0 * PI * kRn);
+                prev_l1 = entry->l1;
+                prev_l2 = entry->l2;
+                prev_l3 = entry->l3;
+            }
+
+            {
+                const int h_index = entry->h_index;
+                const double real_val = H1[h_index] * phase_real;
+                const double imag_val = H1[h_index] * phase_imag;
+
+                Hs[entry->index0].r += real_val;
+                Hs[entry->index0].i += imag_val;
+
+                if (0 <= entry->index1) {
+                    Hs[entry->index1].r += real_val;
+                    Hs[entry->index1].i -= imag_val;
+                }
+
+                if (need_s) {
+                    const double real_val_s = S1[h_index] * phase_real;
+                    const double imag_val_s = S1[h_index] * phase_imag;
+
+                    Cs[entry->index0].r += real_val_s;
+                    Cs[entry->index0].i += imag_val_s;
+
+                    if (0 <= entry->index1) {
+                        Cs[entry->index1].r += real_val_s;
+                        Cs[entry->index1].i -= imag_val_s;
+                    }
+                }
+            }
+        }
     } else {
-        for (int i = 0; i < na_rows; i++) {
-            for (int j = 0; j < na_cols; j++) {
-                Hs[j * na_rows + i].r = 0.0;
-                Hs[j * na_rows + i].i = 0.0;
-            }
+        const BandColConstructEntry *entries = BandCol_construct_cache.local_entries;
+        const int count = BandCol_construct_cache.local_count;
+        int prev_l1 = 0x7fffffff, prev_l2 = 0x7fffffff, prev_l3 = 0x7fffffff;
+        double co = 0.0, si = 0.0;
+
+        BandCol_ZeroComplex(Hs, (size_t)na_rows * (size_t)na_cols);
+        if (need_s) {
+            BandCol_ZeroComplex(Cs, (size_t)na_rows * (size_t)na_cols);
         }
-    }
 
-    int k = 0;
-    if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank) {
-        if (SCF_iter == 1) {
-            for (int AN = 1; AN <= atomnum; AN++) {
-                int GA_AN = order_GA[AN];
-                int wanA  = WhatSpecies[GA_AN];
-                int tnoA  = Spe_Total_CNO[wanA];
-                int Anum  = MP[GA_AN];
+        for (int idx = 0; idx < count; ++idx) {
+            const BandColConstructEntry *entry = &entries[idx];
+            const int h_index = entry->h_index;
 
-                for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                    int GB_AN = natn[GA_AN][LB_AN];
-                    int Rn    = ncn[GA_AN][LB_AN];
-                    int wanB  = WhatSpecies[GB_AN];
-                    int tnoB  = Spe_Total_CNO[wanB];
-                    int Bnum  = MP[GB_AN];
-
-                    int    l1  = atv_ijk[Rn][1];
-                    int    l2  = atv_ijk[Rn][2];
-                    int    l3  = atv_ijk[Rn][3];
-                    double kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
-
-                    double phase_imag = sin(2.0 * PI * kRn);
-                    double phase_real = cos(2.0 * PI * kRn);
-
-                    for (int i = 0; i < tnoA; i++) {
-                        int ig = Anum + i;
-
-                        int j_start = ig - Bnum;
-                        if (j_start < 0) {
-                            j_start = 0;
-                        } else if (j_start > tnoB) {
-                            j_start = tnoB;
-                        }
-
-                        k += j_start;
-
-                        for (int j = j_start; j < tnoB; j++) {
-                            int jg = Bnum + j;
-
-                            double real_val = H1[k] * phase_real;
-                            double imag_val = H1[k] * phase_imag;
-
-                            int idx_jg_ig = (jg - 1) * n + (ig - 1);
-                            Hs[idx_jg_ig].r += real_val;
-                            Hs[idx_jg_ig].i += imag_val;
-
-                            if (jg > ig) {
-                                int idx_ig_jg = (ig - 1) * n + (jg - 1);
-                                Hs[idx_ig_jg].r += real_val;
-                                Hs[idx_ig_jg].i -= imag_val;
-                            }
-
-                            double real_val_S = S1[k] * phase_real;
-                            double imag_val_S = S1[k] * phase_imag;
-
-                            int idxC_jg_ig = (jg - 1) * n + (ig - 1);
-                            Cs[idxC_jg_ig].r += real_val_S;
-                            Cs[idxC_jg_ig].i += imag_val_S;
-
-                            if (jg > ig) {
-                                int idxC_ig_jg = (ig - 1) * n + (jg - 1);
-                                Cs[idxC_ig_jg].r += real_val_S;
-                                Cs[idxC_ig_jg].i -= imag_val_S;
-                            }
-
-                            k++;
-                        }
-                    }
-                }
+            if (entry->l1 != prev_l1 || entry->l2 != prev_l2 || entry->l3 != prev_l3) {
+                double kRn = k1 * (double)entry->l1 + k2 * (double)entry->l2 + k3 * (double)entry->l3;
+                si = sin(2.0 * PI * kRn);
+                co = cos(2.0 * PI * kRn);
+                prev_l1 = entry->l1;
+                prev_l2 = entry->l2;
+                prev_l3 = entry->l3;
             }
-        } else {
-            for (int AN = 1; AN <= atomnum; AN++) {
-                int GA_AN = order_GA[AN];
-                int wanA  = WhatSpecies[GA_AN];
-                int tnoA  = Spe_Total_CNO[wanA];
-                int Anum  = MP[GA_AN];
 
-                for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                    int GB_AN = natn[GA_AN][LB_AN];
-                    int Rn    = ncn[GA_AN][LB_AN];
-                    int wanB  = WhatSpecies[GB_AN];
-                    int tnoB  = Spe_Total_CNO[wanB];
-                    int Bnum  = MP[GB_AN];
-
-                    int    l1  = atv_ijk[Rn][1];
-                    int    l2  = atv_ijk[Rn][2];
-                    int    l3  = atv_ijk[Rn][3];
-                    double kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
-
-                    double phase_imag = sin(2.0 * PI * kRn);
-                    double phase_real = cos(2.0 * PI * kRn);
-
-                    for (int i = 0; i < tnoA; i++) {
-                        int ig = Anum + i;
-
-                        int j_start = ig - Bnum;
-                        if (j_start < 0) {
-                            j_start = 0;
-                        } else if (j_start > tnoB) {
-                            j_start = tnoB;
-                        }
-
-                        k += j_start;
-
-                        for (int j = j_start; j < tnoB; j++) {
-                            int jg = Bnum + j;
-
-                            double real_val = H1[k] * phase_real;
-                            double imag_val = H1[k] * phase_imag;
-
-                            int idx_jg_ig = (jg - 1) * n + (ig - 1);
-                            Hs[idx_jg_ig].r += real_val;
-                            Hs[idx_jg_ig].i += imag_val;
-
-                            if (jg > ig) {
-                                int idx_ig_jg = (ig - 1) * n + (jg - 1);
-                                Hs[idx_ig_jg].r += real_val;
-                                Hs[idx_ig_jg].i -= imag_val;
-                            }
-                            k++;
-                        }
-                    }
-                }
+            if (need_s) {
+                Cs[entry->index0].r += S1[h_index] * co;
+                Cs[entry->index0].i += S1[h_index] * si;
             }
-        }
-    } else if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1) {
-    } else {
-        for (int AN = 1; AN <= atomnum; AN++) {
-            int GA_AN = order_GA[AN];
-            int wanA  = WhatSpecies[GA_AN];
-            int tnoA  = Spe_Total_CNO[wanA];
-            int Anum  = MP[GA_AN];
 
-            for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                int GB_AN = natn[GA_AN][LB_AN];
-                int Rn    = ncn[GA_AN][LB_AN];
-                int wanB  = WhatSpecies[GB_AN];
-                int tnoB  = Spe_Total_CNO[wanB];
-                int Bnum  = MP[GB_AN];
-
-                int    l1  = atv_ijk[Rn][1];
-                int    l2  = atv_ijk[Rn][2];
-                int    l3  = atv_ijk[Rn][3];
-                double kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
-
-                double si = sin(2.0 * PI * kRn);
-                double co = cos(2.0 * PI * kRn);
-
-                for (int i = 0; i < tnoA; i++) {
-
-                    int ig   = Anum + i;
-                    int brow = (ig - 1) / nblk;
-                    int prow = brow % np_rows;
-
-                    for (int j = 0; j < tnoB; j++) {
-
-                        int jg   = Bnum + j;
-                        int bcol = (jg - 1) / nblk;
-                        int pcol = bcol % np_cols;
-
-                        if (my_prow == prow && my_pcol == pcol) {
-
-                            int il = (brow / np_rows + 1) * nblk + 1;
-                            int jl = (bcol / np_cols + 1) * nblk + 1;
-
-                            if (((my_prow + np_rows) % np_rows) >= (brow % np_rows)) {
-                                if (my_prow == prow) {
-                                    il = il + (ig - 1) % nblk;
-                                }
-                                il = il - nblk;
-                            }
-
-                            if (((my_pcol + np_cols) % np_cols) >= (bcol % np_cols)) {
-                                if (my_pcol == pcol) {
-                                    jl = jl + (jg - 1) % nblk;
-                                }
-                                jl = jl - nblk;
-                            }
-
-                            if (SCF_iter == 1 || all_knum != 1) {
-                                Cs[(jl - 1) * na_rows + il - 1].r += S1[k] * co;
-                                Cs[(jl - 1) * na_rows + il - 1].i += S1[k] * si;
-                            }
-
-                            Hs[(jl - 1) * na_rows + il - 1].r += H1[k] * co;
-                            Hs[(jl - 1) * na_rows + il - 1].i += H1[k] * si;
-                        }
-
-                        k++;
-                    }
-                }
-            }
+            Hs[entry->index0].r += H1[h_index] * co;
+            Hs[entry->index0].i += H1[h_index] * si;
         }
     }
 }
