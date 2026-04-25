@@ -48,7 +48,21 @@ static void *Set_ProExpn_VNA_malloc(size_t size, int line)
 
 static int Set_ProExpn_VNA_Use_OpenACC(void)
 {
-    return (scf_eigen_lib_flag == CuSOLVER);
+    int AN, total_basis;
+
+    if (scf_eigen_lib_flag != CuSOLVER) {
+        return 0;
+    }
+
+    total_basis = 0;
+    for (AN = 1; AN <= atomnum; AN++) {
+        total_basis += Spe_Total_CNO[WhatSpecies[AN]];
+        if (GPU_CPU_SWITCH_NUM <= total_basis) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 static size_t Set_ProExpn_VNA_CheckedMul(size_t a, size_t b, const char *label)

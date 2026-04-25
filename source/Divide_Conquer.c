@@ -833,35 +833,39 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
             }
             NUM = Anum - 1;
 
-            size_t free_memory, total_memory;
-            size_t needmemsize = 0;
-            needmemsize += sizeof(double) * (SpinP_switch + 1) * (NUM + 1) * (NUM + 1);
-            needmemsize += sizeof(double) * (NUM + 1) * (NUM + 1);
-            needmemsize += sizeof(double) * (NUM + 1);
-            needmemsize += sizeof(double) * (NUM + 1) * (NUM + 1);
+            int use_dc_openacc = (scf_eigen_lib_flag == CuSOLVER && GPU_CPU_SWITCH_NUM <= NUM);
 
-            while (true) {
-                cudaMemGetInfo(&free_memory, &total_memory);
-                if (free_memory > needmemsize) {
-                    break;
-                }
+            if (use_dc_openacc) {
+                size_t free_memory, total_memory;
+                size_t needmemsize = 0;
+                needmemsize += sizeof(double) * (SpinP_switch + 1) * (NUM + 1) * (NUM + 1);
+                needmemsize += sizeof(double) * (NUM + 1) * (NUM + 1);
+                needmemsize += sizeof(double) * (NUM + 1);
+                needmemsize += sizeof(double) * (NUM + 1) * (NUM + 1);
 
-                double wait_time    = (double)rand() / (double)RAND_MAX * WAITTIME;
-                double start_time   = MPI_Wtime();
-                double current_time = start_time;
-                while ((current_time - start_time) < wait_time) {
-                    current_time = MPI_Wtime();
+                while (true) {
+                    cudaMemGetInfo(&free_memory, &total_memory);
+                    if (free_memory > needmemsize) {
+                        break;
+                    }
+
+                    double wait_time    = (double)rand() / (double)RAND_MAX * WAITTIME;
+                    double start_time   = MPI_Wtime();
+                    double current_time = start_time;
+                    while ((current_time - start_time) < wait_time) {
+                        current_time = MPI_Wtime();
+                    }
                 }
             }
 
-#pragma acc data copyin(H_DC[0 : SpinP_switch + 1][0 : NUM + 1][0 : NUM + 1], S_DC[0 : NUM + 1][0 : NUM + 1])
-#pragma acc data create(ko[0 : NUM + 1], C[0 : NUM + 1][0 : NUM + 1])
+#pragma acc data if(use_dc_openacc) copyin(H_DC[0 : SpinP_switch + 1][0 : NUM + 1][0 : NUM + 1], S_DC[0 : NUM + 1][0 : NUM + 1])
+#pragma acc data if(use_dc_openacc) create(ko[0 : NUM + 1], C[0 : NUM + 1][0 : NUM + 1])
             for (spin = 0; spin <= SpinP_switch; spin++) {
 
                 if (measure_time)
                     dtime(&stime);
 
-                if (scf_eigen_lib_flag == CuSOLVER) {
+                if (use_dc_openacc) {
                     // OpenACC
 
                     /* transpose S */
@@ -2667,7 +2671,9 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                    transform Hamiltonian matrix
             ************************************************/
 
-            if (scf_eigen_lib_flag == CuSOLVER) {
+            int use_dc_openacc = (scf_eigen_lib_flag == CuSOLVER && GPU_CPU_SWITCH_NUM <= 2*NUM);
+
+            if (use_dc_openacc) {
                 // compiler's bug
 
                 Anum = 1;

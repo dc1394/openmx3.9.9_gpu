@@ -62,6 +62,7 @@ scf.Max.Mixing.Weight      0.400       # default=0.40
 scf.Mixing.History          7          # default=5
 scf.Mixing.StartPulay       5          # default=6
 scf.criterion             1.0e-9       # default=1.0e-6 (Hartree) 
+scf.eigen.lib             cusolver
 
 #
 # MD or Geometry Optimization

@@ -40,7 +40,21 @@ static void Set_Hamiltonian_abort(const char *where, const char *message, int my
 
 static int Set_Hamiltonian_Use_OpenACC(void)
 {
-    return (scf_eigen_lib_flag == CuSOLVER);
+    int AN, total_basis;
+
+    if (scf_eigen_lib_flag != CuSOLVER) {
+        return 0;
+    }
+
+    total_basis = 0;
+    for (AN = 1; AN <= atomnum; AN++) {
+        total_basis += Spe_Total_CNO[WhatSpecies[AN]];
+        if (GPU_CPU_SWITCH_NUM <= total_basis) {
+            return 1;
+        }
+    }
+
+    return 0;
 }
 
 static int Set_Hamiltonian_Base_Use_OpenACC(void)
