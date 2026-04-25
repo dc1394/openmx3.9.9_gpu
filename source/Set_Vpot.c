@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include <string.h>
 #include "openmx_common.h"
 #include "mpi.h"
 #include <omp.h>
@@ -86,9 +87,7 @@ void Set_Vpot(int MD_iter,
   Ng3 = Max_Grid_Index_D[3] - Min_Grid_Index_D[3] + 1;
 
   for (spin=0; spin<=SpinP_switch; spin++){
-    for (BN=0; BN<My_NumGridB_AB; BN++){
-      Vxc_Grid_B[spin][BN] = 0.0;
-    }
+    memset(Vxc_Grid_B[spin], 0, sizeof(double)*(size_t)My_NumGridB_AB);
   }
 
   for (n=0; n<Num_Rcv_Grid_B2D[myid]; n++){

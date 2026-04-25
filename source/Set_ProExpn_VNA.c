@@ -191,10 +191,10 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
     double        tmp0, tmp3, tmp4, tmp5, tmp10;
     double ****   Bessel_Pro00;
     double ****   Bessel_Pro01;
-    double *      Bessel_Pro00_Flat;
-    double *      Bessel_Pro01_Flat;
-    double *      VNA_Bessel_Flat;
-    int *         Spe_Num_Basis_Flat;
+    double *      Bessel_Pro00_Flat = NULL;
+    double *      Bessel_Pro01_Flat = NULL;
+    double *      VNA_Bessel_Flat = NULL;
+    int *         Spe_Num_Basis_Flat = NULL;
     double        ene, sum, h, coe0, sj, sy, sjp, syp;
     double        rcutA, rcutB, rcut;
     double        TStime, TEtime;
@@ -209,8 +209,8 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
     double *      Pro_Gaunt;
     int           max_pro_l0, max_pro_l1, max_pro_ll, pro_dim_m, pro_dim_m0;
     int           use_openacc;
-    int           pro_l_dim, pro_mul_dim, pro_rf_stride, vna_l_dim, vna_mul_dim, vna_stride;
-    size_t        pro_rf_elems, vna_elems;
+    int           pro_l_dim = 0, pro_mul_dim = 0, pro_rf_stride = 0, vna_l_dim = 0, vna_mul_dim = 0, vna_stride = 0;
+    size_t        pro_rf_elems = 0, vna_elems = 0;
     dcomplex      sum0, sum1, sum2;
 
     MPI_Status  stat;
@@ -259,25 +259,27 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
         }
     }
 
-    pro_l_dim    = List_YOUSO[25] + 1;
-    pro_mul_dim  = List_YOUSO[24];
-    pro_rf_stride = pro_l_dim * pro_mul_dim * GL_Mesh;
-    pro_rf_elems = Set_ProExpn_VNA_CheckedMul((size_t)SpeciesNum, (size_t)pro_rf_stride, "Bessel_Pro flat cache");
-    Bessel_Pro00_Flat = (double *)malloc(sizeof(double) * pro_rf_elems);
-    Bessel_Pro01_Flat = (double *)malloc(sizeof(double) * pro_rf_elems);
-    Spe_Num_Basis_Flat = (int *)malloc(sizeof(int) * SpeciesNum * pro_l_dim);
-    for (spe = 0; spe < SpeciesNum; spe++) {
-        for (L0 = 0; L0 < pro_l_dim; L0++) {
-            Spe_Num_Basis_Flat[spe * pro_l_dim + L0] =
-                (L0 <= Spe_MaxL_Basis[spe]) ? Spe_Num_Basis[spe][L0] : 0;
+    if (use_openacc) {
+        pro_l_dim    = List_YOUSO[25] + 1;
+        pro_mul_dim  = List_YOUSO[24];
+        pro_rf_stride = pro_l_dim * pro_mul_dim * GL_Mesh;
+        pro_rf_elems = Set_ProExpn_VNA_CheckedMul((size_t)SpeciesNum, (size_t)pro_rf_stride, "Bessel_Pro flat cache");
+        Bessel_Pro00_Flat = (double *)malloc(sizeof(double) * pro_rf_elems);
+        Bessel_Pro01_Flat = (double *)malloc(sizeof(double) * pro_rf_elems);
+        Spe_Num_Basis_Flat = (int *)malloc(sizeof(int) * SpeciesNum * pro_l_dim);
+        for (spe = 0; spe < SpeciesNum; spe++) {
+            for (L0 = 0; L0 < pro_l_dim; L0++) {
+                Spe_Num_Basis_Flat[spe * pro_l_dim + L0] =
+                    (L0 <= Spe_MaxL_Basis[spe]) ? Spe_Num_Basis[spe][L0] : 0;
+            }
         }
-    }
 
-    vna_l_dim   = List_YOUSO[35] + 1;
-    vna_mul_dim = List_YOUSO[34];
-    vna_stride  = vna_l_dim * vna_mul_dim * GL_Mesh;
-    vna_elems   = Set_ProExpn_VNA_CheckedMul((size_t)SpeciesNum, (size_t)vna_stride, "VNA Bessel flat cache");
-    VNA_Bessel_Flat = (double *)malloc(sizeof(double) * vna_elems);
+        vna_l_dim   = List_YOUSO[35] + 1;
+        vna_mul_dim = List_YOUSO[34];
+        vna_stride  = vna_l_dim * vna_mul_dim * GL_Mesh;
+        vna_elems   = Set_ProExpn_VNA_CheckedMul((size_t)SpeciesNum, (size_t)vna_stride, "VNA Bessel flat cache");
+        VNA_Bessel_Flat = (double *)malloc(sizeof(double) * vna_elems);
+    }
 
     size_TmpNL =
         (List_YOUSO[25] + 1) * List_YOUSO[24] * (2 * (List_YOUSO[25] + 1) + 1) * Num_RVNA * (2 * List_YOUSO[30] + 1);
@@ -318,12 +320,14 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
         }
     }
 
-    for (spe = 0; spe < SpeciesNum; spe++) {
-        for (L1 = 0; L1 <= List_YOUSO[35]; L1++) {
-            for (Mul1 = 0; Mul1 < List_YOUSO[34]; Mul1++) {
-                size_t base = (size_t)spe * vna_stride + ((size_t)L1 * vna_mul_dim + Mul1) * GL_Mesh;
-                for (i = 0; i < GL_Mesh; i++) {
-                    VNA_Bessel_Flat[base + i] = Spe_VNA_Bessel[spe][L1][Mul1][i];
+    if (use_openacc) {
+        for (spe = 0; spe < SpeciesNum; spe++) {
+            for (L1 = 0; L1 <= List_YOUSO[35]; L1++) {
+                for (Mul1 = 0; Mul1 < List_YOUSO[34]; Mul1++) {
+                    size_t base = (size_t)spe * vna_stride + ((size_t)L1 * vna_mul_dim + Mul1) * GL_Mesh;
+                    for (i = 0; i < GL_Mesh; i++) {
+                        VNA_Bessel_Flat[base + i] = Spe_VNA_Bessel[spe][L1][Mul1][i];
+                    }
                 }
             }
         }
@@ -368,12 +372,14 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
 
                         Bessel_Pro00[spe][L0][Mul0][i] = RF_BesselF(spe, L0, Mul0, Normk) * tmp10;
                         Bessel_Pro01[spe][L0][Mul0][i] = Bessel_Pro00[spe][L0][Mul0][i] * Normk;
-                        Bessel_Pro00_Flat[(size_t)spe * pro_rf_stride +
-                                           ((size_t)L0 * pro_mul_dim + Mul0) * GL_Mesh + i] =
-                            Bessel_Pro00[spe][L0][Mul0][i];
-                        Bessel_Pro01_Flat[(size_t)spe * pro_rf_stride +
-                                           ((size_t)L0 * pro_mul_dim + Mul0) * GL_Mesh + i] =
-                            Bessel_Pro01[spe][L0][Mul0][i];
+                        if (use_openacc) {
+                            Bessel_Pro00_Flat[(size_t)spe * pro_rf_stride +
+                                               ((size_t)L0 * pro_mul_dim + Mul0) * GL_Mesh + i] =
+                                Bessel_Pro00[spe][L0][Mul0][i];
+                            Bessel_Pro01_Flat[(size_t)spe * pro_rf_stride +
+                                               ((size_t)L0 * pro_mul_dim + Mul0) * GL_Mesh + i] =
+                                Bessel_Pro01[spe][L0][Mul0][i];
+                        }
                     }
 
 #pragma omp flush(Bessel_Pro00, Bessel_Pro01)
