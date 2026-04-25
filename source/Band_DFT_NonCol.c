@@ -57,10 +57,325 @@ typedef struct
 
 static BandNonColDMWorkspace BandNonCol_dm_workspace = {0};
 
+typedef struct
+{
+    int    tnoA;
+    int    Anum;
+    int    first_pair;
+    int    pair_count;
+    int    total_cols;
+    size_t dm_offset;
+} BandNonColDMAtomInfo;
+
+typedef struct
+{
+    int    tnoB;
+    int    Bnum;
+    int    col_offset;
+    int    l1;
+    int    l2;
+    int    l3;
+    size_t dm_offset;
+} BandNonColDMPairInfo;
+
+typedef struct
+{
+    int                    valid;
+    int                    n;
+    int                    atom_count;
+    int                    pair_count;
+    int                    max_tno;
+    int                    max_cols;
+    unsigned long long     fingerprint;
+    BandNonColDMAtomInfo * atoms;
+    BandNonColDMPairInfo * pairs;
+} BandNonColDMLayout;
+
+static BandNonColDMLayout BandNonCol_dm_layout = {0};
+
+typedef struct
+{
+    int            initialized;
+    int            device_id;
+    int            max_tno;
+    int            max_cols;
+    int            max_nk;
+    cudaStream_t   stream;
+    cublasHandle_t cublas;
+    dcomplex *     d_vec_up;
+    dcomplex *     d_vec_up_e;
+    dcomplex *     d_vec_dn;
+    dcomplex *     d_vec_dn_e;
+    dcomplex *     d_cols_up;
+    dcomplex *     d_cols_dn;
+    dcomplex *     d_mat11;
+    dcomplex *     d_mat22;
+    dcomplex *     d_mat12;
+    dcomplex *     d_mat11e;
+    dcomplex *     d_mat22e;
+} BandNonColDMGpuWorkspace;
+
+static BandNonColDMGpuWorkspace BandNonCol_dm_gpu_workspace = {0};
+
 static void BandNonCol_AbortWithMessage(const char * msg)
 {
     fprintf(stderr, "%s\n", msg);
     exit(1);
+}
+
+static unsigned long long BandNonCol_HashInt(unsigned long long h, int value)
+{
+    h ^= (unsigned long long)(unsigned int)value;
+    h *= 1099511628211ULL;
+    return h;
+}
+
+static void BandNonCol_DMLayout_Reset(void)
+{
+    free(BandNonCol_dm_layout.atoms);
+    free(BandNonCol_dm_layout.pairs);
+    memset(&BandNonCol_dm_layout, 0, sizeof(BandNonCol_dm_layout));
+}
+
+static unsigned long long BandNonCol_DMLayoutFingerprint(int * MP, int n)
+{
+    unsigned long long h = 1469598103934665603ULL;
+
+    h = BandNonCol_HashInt(h, n);
+    h = BandNonCol_HashInt(h, atomnum);
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int wanA = WhatSpecies[GA_AN];
+
+        h = BandNonCol_HashInt(h, GA_AN);
+        h = BandNonCol_HashInt(h, wanA);
+        h = BandNonCol_HashInt(h, Spe_Total_CNO[wanA]);
+        h = BandNonCol_HashInt(h, MP[GA_AN]);
+        h = BandNonCol_HashInt(h, FNAN[GA_AN]);
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+
+            h = BandNonCol_HashInt(h, GB_AN);
+            h = BandNonCol_HashInt(h, ncn[GA_AN][LB_AN]);
+            h = BandNonCol_HashInt(h, wanB);
+            h = BandNonCol_HashInt(h, Spe_Total_CNO[wanB]);
+            h = BandNonCol_HashInt(h, MP[GB_AN]);
+        }
+    }
+
+    return h;
+}
+
+static void BandNonCol_DMLayout_Ensure(int * MP, int n)
+{
+    BandNonColDMLayout *layout = &BandNonCol_dm_layout;
+    unsigned long long  fingerprint;
+    int                 pair_count = 0;
+    int                 pair_index = 0;
+    size_t              dm_offset  = 0;
+
+    fingerprint = BandNonCol_DMLayoutFingerprint(MP, n);
+
+    if (layout->valid && layout->n == n && layout->fingerprint == fingerprint) {
+        return;
+    }
+
+    BandNonCol_DMLayout_Reset();
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        pair_count += FNAN[GA_AN] + 1;
+    }
+
+    layout->atoms = (BandNonColDMAtomInfo *)malloc(sizeof(BandNonColDMAtomInfo) * (size_t)(atomnum + 1));
+    layout->pairs = (BandNonColDMPairInfo *)malloc(sizeof(BandNonColDMPairInfo) * (size_t)(pair_count + 1));
+
+    if (layout->atoms == NULL || layout->pairs == NULL) {
+        BandNonCol_DMLayout_Reset();
+        BandNonCol_AbortWithMessage("Failed to allocate DM layout in Band_DFT_NonCol.c.");
+    }
+
+    memset(layout->atoms, 0, sizeof(BandNonColDMAtomInfo) * (size_t)(atomnum + 1));
+
+    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+        int                    wanA       = WhatSpecies[GA_AN];
+        int                    tnoA       = Spe_Total_CNO[wanA];
+        int                    total_cols = 0;
+        BandNonColDMAtomInfo * atom       = &layout->atoms[GA_AN];
+
+        atom->tnoA       = tnoA;
+        atom->Anum       = MP[GA_AN];
+        atom->first_pair = pair_index;
+        atom->dm_offset  = dm_offset;
+
+        if (layout->max_tno < tnoA) {
+            layout->max_tno = tnoA;
+        }
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN, ++pair_index) {
+            int                    GB_AN = natn[GA_AN][LB_AN];
+            int                    Rn    = ncn[GA_AN][LB_AN];
+            int                    wanB  = WhatSpecies[GB_AN];
+            int                    tnoB  = Spe_Total_CNO[wanB];
+            BandNonColDMPairInfo * pair  = &layout->pairs[pair_index];
+
+            pair->tnoB       = tnoB;
+            pair->Bnum       = MP[GB_AN];
+            pair->col_offset = total_cols;
+            pair->l1         = atv_ijk[Rn][1];
+            pair->l2         = atv_ijk[Rn][2];
+            pair->l3         = atv_ijk[Rn][3];
+            pair->dm_offset  = dm_offset;
+
+            dm_offset += (size_t)tnoA * (size_t)tnoB;
+            total_cols += tnoB;
+        }
+
+        atom->pair_count = pair_index - atom->first_pair;
+        atom->total_cols = total_cols;
+
+        if (layout->max_cols < total_cols) {
+            layout->max_cols = total_cols;
+        }
+    }
+
+    layout->valid       = 1;
+    layout->n           = n;
+    layout->atom_count  = atomnum;
+    layout->pair_count  = pair_count;
+    layout->fingerprint = fingerprint;
+}
+
+static void BandNonCol_DMGpuWorkspace_Reset(void)
+{
+    BandNonColDMGpuWorkspace *ctx = &BandNonCol_dm_gpu_workspace;
+
+    if (ctx->d_vec_up != NULL)
+        wait_cudafunc(cudaFree(ctx->d_vec_up));
+    if (ctx->d_vec_up_e != NULL)
+        wait_cudafunc(cudaFree(ctx->d_vec_up_e));
+    if (ctx->d_vec_dn != NULL)
+        wait_cudafunc(cudaFree(ctx->d_vec_dn));
+    if (ctx->d_vec_dn_e != NULL)
+        wait_cudafunc(cudaFree(ctx->d_vec_dn_e));
+    if (ctx->d_cols_up != NULL)
+        wait_cudafunc(cudaFree(ctx->d_cols_up));
+    if (ctx->d_cols_dn != NULL)
+        wait_cudafunc(cudaFree(ctx->d_cols_dn));
+    if (ctx->d_mat11 != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat11));
+    if (ctx->d_mat22 != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat22));
+    if (ctx->d_mat12 != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat12));
+    if (ctx->d_mat11e != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat11e));
+    if (ctx->d_mat22e != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat22e));
+    if (ctx->cublas != NULL)
+        wait_cudafunc(cublasDestroy(ctx->cublas));
+    if (ctx->stream != NULL)
+        wait_cudafunc(cudaStreamDestroy(ctx->stream));
+
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->device_id = -1;
+}
+
+static void BandNonCol_DMGpuWorkspace_Init(void)
+{
+    BandNonColDMGpuWorkspace *ctx = &BandNonCol_dm_gpu_workspace;
+    int                       current_device;
+
+    wait_cudafunc(cudaGetDevice(&current_device));
+
+    if (ctx->initialized && ctx->device_id == current_device) {
+        return;
+    }
+
+    if (ctx->initialized) {
+        BandNonCol_DMGpuWorkspace_Reset();
+    }
+
+    wait_cudafunc(cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking));
+    wait_cudafunc(cublasCreate(&ctx->cublas));
+    wait_cudafunc(cublasSetStream(ctx->cublas, ctx->stream));
+
+    ctx->initialized = 1;
+    ctx->device_id   = current_device;
+}
+
+static void BandNonCol_DMGpuWorkspace_Ensure(int max_tno, int max_cols, int nk)
+{
+    BandNonColDMGpuWorkspace *ctx = &BandNonCol_dm_gpu_workspace;
+    size_t                    vec_bytes;
+    size_t                    cols_bytes;
+    size_t                    mat_bytes;
+
+    if (max_tno <= 0 || max_cols <= 0 || nk <= 0) {
+        BandNonCol_AbortWithMessage("Invalid GPU DM workspace size in Band_DFT_NonCol.c.");
+    }
+
+    BandNonCol_DMGpuWorkspace_Init();
+
+    if (ctx->max_tno >= max_tno && ctx->max_cols >= max_cols && ctx->max_nk >= nk) {
+        return;
+    }
+
+    if (ctx->d_vec_up != NULL)
+        wait_cudafunc(cudaFree(ctx->d_vec_up));
+    if (ctx->d_vec_up_e != NULL)
+        wait_cudafunc(cudaFree(ctx->d_vec_up_e));
+    if (ctx->d_vec_dn != NULL)
+        wait_cudafunc(cudaFree(ctx->d_vec_dn));
+    if (ctx->d_vec_dn_e != NULL)
+        wait_cudafunc(cudaFree(ctx->d_vec_dn_e));
+    if (ctx->d_cols_up != NULL)
+        wait_cudafunc(cudaFree(ctx->d_cols_up));
+    if (ctx->d_cols_dn != NULL)
+        wait_cudafunc(cudaFree(ctx->d_cols_dn));
+    if (ctx->d_mat11 != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat11));
+    if (ctx->d_mat22 != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat22));
+    if (ctx->d_mat12 != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat12));
+    if (ctx->d_mat11e != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat11e));
+    if (ctx->d_mat22e != NULL)
+        wait_cudafunc(cudaFree(ctx->d_mat22e));
+
+    ctx->d_vec_up = NULL;
+    ctx->d_vec_up_e = NULL;
+    ctx->d_vec_dn = NULL;
+    ctx->d_vec_dn_e = NULL;
+    ctx->d_cols_up = NULL;
+    ctx->d_cols_dn = NULL;
+    ctx->d_mat11 = NULL;
+    ctx->d_mat22 = NULL;
+    ctx->d_mat12 = NULL;
+    ctx->d_mat11e = NULL;
+    ctx->d_mat22e = NULL;
+
+    vec_bytes  = sizeof(dcomplex) * (size_t)max_tno * (size_t)nk;
+    cols_bytes = sizeof(dcomplex) * (size_t)max_cols * (size_t)nk;
+    mat_bytes  = sizeof(dcomplex) * (size_t)max_tno * (size_t)max_cols;
+
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_vec_up, vec_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_vec_up_e, vec_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_vec_dn, vec_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_vec_dn_e, vec_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_cols_up, cols_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_cols_dn, cols_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_mat11, mat_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_mat22, mat_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_mat12, mat_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_mat11e, mat_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_mat22e, mat_bytes));
+
+    ctx->max_tno  = max_tno;
+    ctx->max_cols = max_cols;
+    ctx->max_nk   = nk;
 }
 
 static void BandNonCol_DMWorkspace_Reset(void)
@@ -127,34 +442,69 @@ static void BandNonCol_DMWorkspace_Ensure(int max_tno, int max_cols, int nk)
     ws->max_nk   = nk;
 }
 
-static void BandNonCol_GetDMMaxDims(int * max_tno, int * max_cols)
+static int BandNonCol_DMUseGpu(const BandNonColDMLayout * layout, int nk)
 {
-    int max_tno_local  = 0;
-    int max_cols_local = 0;
+    long long block_work;
 
-    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
-        int cols = 0;
-        int wanA = WhatSpecies[GA_AN];
-        int tnoA = Spe_Total_CNO[wanA];
-
-        if (max_tno_local < tnoA) {
-            max_tno_local = tnoA;
-        }
-
-        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
-            int GB_AN = natn[GA_AN][LB_AN];
-            int wanB  = WhatSpecies[GB_AN];
-
-            cols += Spe_Total_CNO[wanB];
-        }
-
-        if (max_cols_local < cols) {
-            max_cols_local = cols;
-        }
+    if (scf_eigen_lib_flag != CuSOLVER) {
+        return 0;
     }
 
-    *max_tno  = max_tno_local;
-    *max_cols = max_cols_local;
+    block_work = (long long)layout->max_tno * (long long)layout->max_cols * (long long)nk;
+
+    return (32 <= nk && 65536LL <= block_work);
+}
+
+static int BandNonCol_DMGpuGemm(BandNonColDMWorkspace * ws, int tnoA, int total_cols, int nk)
+{
+    BandNonColDMGpuWorkspace *ctx = &BandNonCol_dm_gpu_workspace;
+    cuDoubleComplex           alpha = make_cuDoubleComplex(1.0, 0.0);
+    cuDoubleComplex           beta  = make_cuDoubleComplex(0.0, 0.0);
+    size_t                    vec_bytes;
+    size_t                    cols_bytes;
+    size_t                    mat_bytes;
+
+    BandNonCol_DMGpuWorkspace_Ensure(tnoA, total_cols, nk);
+
+    vec_bytes  = sizeof(dcomplex) * (size_t)tnoA * (size_t)nk;
+    cols_bytes = sizeof(dcomplex) * (size_t)total_cols * (size_t)nk;
+    mat_bytes  = sizeof(dcomplex) * (size_t)tnoA * (size_t)total_cols;
+
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_vec_up, ws->vec_up, vec_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_vec_up_e, ws->vec_up_e, vec_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_vec_dn, ws->vec_dn, vec_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_vec_dn_e, ws->vec_dn_e, vec_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_cols_up, ws->cols_up, cols_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_cols_dn, ws->cols_dn, cols_bytes, cudaMemcpyHostToDevice, ctx->stream));
+
+    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                              (cuDoubleComplex *)ctx->d_vec_up, nk, (cuDoubleComplex *)ctx->d_cols_up, nk, &beta,
+                              (cuDoubleComplex *)ctx->d_mat11, tnoA));
+
+    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                              (cuDoubleComplex *)ctx->d_vec_dn, nk, (cuDoubleComplex *)ctx->d_cols_dn, nk, &beta,
+                              (cuDoubleComplex *)ctx->d_mat22, tnoA));
+
+    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                              (cuDoubleComplex *)ctx->d_vec_up, nk, (cuDoubleComplex *)ctx->d_cols_dn, nk, &beta,
+                              (cuDoubleComplex *)ctx->d_mat12, tnoA));
+
+    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                              (cuDoubleComplex *)ctx->d_vec_up_e, nk, (cuDoubleComplex *)ctx->d_cols_up, nk, &beta,
+                              (cuDoubleComplex *)ctx->d_mat11e, tnoA));
+
+    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                              (cuDoubleComplex *)ctx->d_vec_dn_e, nk, (cuDoubleComplex *)ctx->d_cols_dn, nk, &beta,
+                              (cuDoubleComplex *)ctx->d_mat22e, tnoA));
+
+    wait_cudafunc(cudaMemcpyAsync(ws->mat11, ctx->d_mat11, mat_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ws->mat22, ctx->d_mat22, mat_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ws->mat12, ctx->d_mat12, mat_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ws->mat11e, ctx->d_mat11e, mat_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(ws->mat22e, ctx->d_mat22e, mat_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+
+    return tnoA;
 }
 
 static void BandNonCol_ZeroDensityMatrices(double ***** CDM, double ***** iDM0, double ***** EDM)
@@ -236,32 +586,33 @@ static void BandNonCol_AccumulateWeightedDM(int basis_stride, int nk, int kmin, 
                                             double * iDM22, double * rEDM11, double * rEDM22)
 {
     BandNonColDMWorkspace *ws = &BandNonCol_dm_workspace;
+    BandNonColDMLayout *   layout = &BandNonCol_dm_layout;
     dcomplex               alpha = {1.0, 0.0};
     dcomplex               beta = {0.0, 0.0};
     char                   trans_c = 'C';
     char                   trans_n = 'N';
-    int                    max_tno, max_cols;
-    int                    lda, ldb, ldc;
-    size_t                 dm_offset = 0;
+    int                    lda, ldb;
+    int                    use_gpu;
 
     if (nk <= 0 || basis_stride <= 0) {
         return;
     }
 
-    BandNonCol_GetDMMaxDims(&max_tno, &max_cols);
-    BandNonCol_DMWorkspace_Ensure(max_tno, max_cols, nk);
+    BandNonCol_DMLayout_Ensure(MP, n);
+    BandNonCol_DMWorkspace_Ensure(layout->max_tno, layout->max_cols, nk);
 
     lda = nk;
     ldb = nk;
-    ldc = max_tno;
+    use_gpu = BandNonCol_DMUseGpu(layout, nk);
 
     for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
-        int wanA       = WhatSpecies[GA_AN];
-        int tnoA       = Spe_Total_CNO[wanA];
-        int Anum       = MP[GA_AN];
-        int total_cols = 0;
-        int m_blk      = tnoA;
-        int k_blk      = nk;
+        const BandNonColDMAtomInfo *atom       = &layout->atoms[GA_AN];
+        int                         tnoA       = atom->tnoA;
+        int                         Anum       = atom->Anum;
+        int                         total_cols = atom->total_cols;
+        int                         m_blk      = tnoA;
+        int                         k_blk      = nk;
+        int                         ldc        = layout->max_tno;
 
         for (int i = 0; i < tnoA; ++i) {
             const dcomplex * src_up = evec + (size_t)(Anum + i - 1) * (size_t)basis_stride;
@@ -284,63 +635,61 @@ static void BandNonCol_AccumulateWeightedDM(int basis_stride, int nk, int kmin, 
             }
         }
 
-        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
-            int GB_AN = natn[GA_AN][LB_AN];
-            int wanB  = WhatSpecies[GB_AN];
-            int tnoB  = Spe_Total_CNO[wanB];
-            int Bnum  = MP[GB_AN];
+        for (int pair_id = atom->first_pair; pair_id < atom->first_pair + atom->pair_count; ++pair_id) {
+            const BandNonColDMPairInfo *pair = &layout->pairs[pair_id];
+            int                         tnoB = pair->tnoB;
+            int                         Bnum = pair->Bnum;
 
             for (int j = 0; j < tnoB; ++j) {
                 const dcomplex * src_up = evec + (size_t)(Bnum + j - 1) * (size_t)basis_stride;
                 const dcomplex * src_dn = evec + (size_t)(Bnum + j + n - 1) * (size_t)basis_stride;
-                dcomplex *       dst_up = ws->cols_up + (size_t)(total_cols + j) * (size_t)nk;
-                dcomplex *       dst_dn = ws->cols_dn + (size_t)(total_cols + j) * (size_t)nk;
+                dcomplex *       dst_up = ws->cols_up + (size_t)(pair->col_offset + j) * (size_t)nk;
+                dcomplex *       dst_dn = ws->cols_dn + (size_t)(pair->col_offset + j) * (size_t)nk;
 
                 memcpy(dst_up, src_up, sizeof(dcomplex) * (size_t)nk);
                 memcpy(dst_dn, src_dn, sizeof(dcomplex) * (size_t)nk);
             }
-
-            total_cols += tnoB;
         }
 
-        F77_NAME(zgemm, ZGEMM)
-        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_up, &lda, ws->cols_up, &ldb, &beta,
-         ws->mat11, &ldc);
+        if (use_gpu && 65536LL <= (long long)tnoA * (long long)total_cols * (long long)nk) {
+            ldc = BandNonCol_DMGpuGemm(ws, tnoA, total_cols, nk);
+        } else {
+            F77_NAME(zgemm, ZGEMM)
+            (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_up, &lda, ws->cols_up, &ldb, &beta,
+             ws->mat11, &ldc);
 
-        F77_NAME(zgemm, ZGEMM)
-        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_dn, &lda, ws->cols_dn, &ldb, &beta,
-         ws->mat22, &ldc);
+            F77_NAME(zgemm, ZGEMM)
+            (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_dn, &lda, ws->cols_dn, &ldb, &beta,
+             ws->mat22, &ldc);
 
-        F77_NAME(zgemm, ZGEMM)
-        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_up, &lda, ws->cols_dn, &ldb, &beta,
-         ws->mat12, &ldc);
+            F77_NAME(zgemm, ZGEMM)
+            (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_up, &lda, ws->cols_dn, &ldb, &beta,
+             ws->mat12, &ldc);
 
-        F77_NAME(zgemm, ZGEMM)
-        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_up_e, &lda, ws->cols_up, &ldb, &beta,
-         ws->mat11e, &ldc);
+            F77_NAME(zgemm, ZGEMM)
+            (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_up_e, &lda, ws->cols_up, &ldb, &beta,
+             ws->mat11e, &ldc);
 
-        F77_NAME(zgemm, ZGEMM)
-        (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_dn_e, &lda, ws->cols_dn, &ldb, &beta,
-         ws->mat22e, &ldc);
+            F77_NAME(zgemm, ZGEMM)
+            (&trans_c, &trans_n, &m_blk, &total_cols, &k_blk, &alpha, ws->vec_dn_e, &lda, ws->cols_dn, &ldb, &beta,
+             ws->mat22e, &ldc);
+        }
 
-        total_cols = 0;
-        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
-            int    GB_AN = natn[GA_AN][LB_AN];
-            int    Rn    = ncn[GA_AN][LB_AN];
-            int    wanB  = WhatSpecies[GB_AN];
-            int    tnoB  = Spe_Total_CNO[wanB];
-            int    l1    = atv_ijk[Rn][1];
-            int    l2    = atv_ijk[Rn][2];
-            int    l3    = atv_ijk[Rn][3];
-            double kRn   = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
+        for (int pair_id = atom->first_pair; pair_id < atom->first_pair + atom->pair_count; ++pair_id) {
+            const BandNonColDMPairInfo *pair = &layout->pairs[pair_id];
+            int                         tnoB = pair->tnoB;
+            double kRn   = k1 * (double)pair->l1 + k2 * (double)pair->l2 + k3 * (double)pair->l3;
             double phase_im;
             double phase_re;
 
             sincos(2.0 * PI * kRn, &phase_im, &phase_re);
 
             for (int i = 0; i < tnoA; ++i) {
-                for (int j = 0; j < tnoB; ++j, ++dm_offset) {
-                    size_t         mat_idx = (size_t)i + (size_t)(total_cols + j) * (size_t)ldc;
+                size_t dm_row_offset = pair->dm_offset + (size_t)i * (size_t)tnoB;
+
+                for (int j = 0; j < tnoB; ++j) {
+                    size_t         dm_offset = dm_row_offset + (size_t)j;
+                    size_t         mat_idx = (size_t)i + (size_t)(pair->col_offset + j) * (size_t)ldc;
                     const dcomplex dm11    = ws->mat11[mat_idx];
                     const dcomplex dm22    = ws->mat22[mat_idx];
                     const dcomplex dm12    = ws->mat12[mat_idx];
@@ -357,8 +706,6 @@ static void BandNonCol_AccumulateWeightedDM(int basis_stride, int nk, int kmin, 
                     rEDM22[dm_offset] += phase_re * edm22.r - phase_im * edm22.i;
                 }
             }
-
-            total_cols += tnoB;
         }
     }
 }
@@ -419,15 +766,24 @@ static void BandNonCol_CalcDMAllK1(int myid0, int myid2, int size_H1, int * is2,
 
             if (myid0 == ID) {
                 for (int i = 0; i < tnoA; ++i) {
+                    double * restrict cdm0 = CDM[0][MA_AN][LB_AN][i];
+                    double * restrict cdm1 = CDM[1][MA_AN][LB_AN][i];
+                    double * restrict cdm2 = CDM[2][MA_AN][LB_AN][i];
+                    double * restrict cdm3 = CDM[3][MA_AN][LB_AN][i];
+                    double * restrict idm0 = iDM0[0][MA_AN][LB_AN][i];
+                    double * restrict idm1 = iDM0[1][MA_AN][LB_AN][i];
+                    double * restrict edm0 = EDM[0][MA_AN][LB_AN][i];
+                    double * restrict edm1 = EDM[1][MA_AN][LB_AN][i];
+
                     for (int j = 0; j < tnoB; ++j, ++p) {
-                        CDM[0][MA_AN][LB_AN][i][j]    = rDM11[p];
-                        CDM[1][MA_AN][LB_AN][i][j]    = rDM22[p];
-                        CDM[2][MA_AN][LB_AN][i][j]    = rDM12[p];
-                        CDM[3][MA_AN][LB_AN][i][j]    = iDM12[p];
-                        iDM0[0][MA_AN][LB_AN][i][j]   = iDM11[p];
-                        iDM0[1][MA_AN][LB_AN][i][j]   = iDM22[p];
-                        EDM[0][MA_AN][LB_AN][i][j]    = rEDM11[p];
-                        EDM[1][MA_AN][LB_AN][i][j]    = rEDM22[p];
+                        cdm0[j] = rDM11[p];
+                        cdm1[j] = rDM22[p];
+                        cdm2[j] = rDM12[p];
+                        cdm3[j] = iDM12[p];
+                        idm0[j] = iDM11[p];
+                        idm1[j] = iDM22[p];
+                        edm0[j] = rEDM11[p];
+                        edm1[j] = rEDM22[p];
                     }
                 }
             } else {
@@ -3514,17 +3870,28 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
             Bnum  = MP[GB_AN];
 
             for (i = 0; i < tnoA; i++) {
+                double * restrict cdm0 = CDM[0][MA_AN][LB_AN][i];
+                double * restrict cdm1 = CDM[1][MA_AN][LB_AN][i];
+                double * restrict cdm2 = CDM[2][MA_AN][LB_AN][i];
+                double * restrict cdm3 = CDM[3][MA_AN][LB_AN][i];
+                double * restrict edm0 = EDM[0][MA_AN][LB_AN][i];
+                double * restrict edm1 = EDM[1][MA_AN][LB_AN][i];
+                double * restrict edm2 = EDM[2][MA_AN][LB_AN][i];
+                double * restrict edm3 = EDM[3][MA_AN][LB_AN][i];
+                double * restrict idm0 = iDM[0][0][MA_AN][LB_AN][i];
+                double * restrict idm1 = iDM[0][1][MA_AN][LB_AN][i];
+
                 for (j = 0; j < tnoB; j++) {
-                    CDM[0][MA_AN][LB_AN][i][j]    = CDM[0][MA_AN][LB_AN][i][j] * dum;
-                    CDM[1][MA_AN][LB_AN][i][j]    = CDM[1][MA_AN][LB_AN][i][j] * dum;
-                    CDM[2][MA_AN][LB_AN][i][j]    = CDM[2][MA_AN][LB_AN][i][j] * dum;
-                    CDM[3][MA_AN][LB_AN][i][j]    = CDM[3][MA_AN][LB_AN][i][j] * dum;
-                    EDM[0][MA_AN][LB_AN][i][j]    = EDM[0][MA_AN][LB_AN][i][j] * dum;
-                    EDM[1][MA_AN][LB_AN][i][j]    = EDM[1][MA_AN][LB_AN][i][j] * dum;
-                    EDM[2][MA_AN][LB_AN][i][j]    = EDM[2][MA_AN][LB_AN][i][j] * dum;
-                    EDM[3][MA_AN][LB_AN][i][j]    = EDM[3][MA_AN][LB_AN][i][j] * dum;
-                    iDM[0][0][MA_AN][LB_AN][i][j] = iDM[0][0][MA_AN][LB_AN][i][j] * dum;
-                    iDM[0][1][MA_AN][LB_AN][i][j] = iDM[0][1][MA_AN][LB_AN][i][j] * dum;
+                    cdm0[j] *= dum;
+                    cdm1[j] *= dum;
+                    cdm2[j] *= dum;
+                    cdm3[j] *= dum;
+                    edm0[j] *= dum;
+                    edm1[j] *= dum;
+                    edm2[j] *= dum;
+                    edm3[j] *= dum;
+                    idm0[j] *= dum;
+                    idm1[j] *= dum;
                 }
             }
         }
@@ -4122,176 +4489,21 @@ double Calc_DM_Band_non_collinear(int calc_flag, int store_flag, int myid0, int 
                                   double * Work1, dcomplex * EVec1, double * rDM11, double * rDM22, double * rDM12,
                                   double * iDM12, double * iDM11, double * iDM22, double * rEDM11, double * rEDM22)
 {
-    int         i, j, k, po, p, GA_AN, MA_AN, wanA, tnoA, Anum, Rn, kmin, kmax;
-    int         LB_AN, GB_AN, wanB, tnoB, Bnum, i1, j0, j1, i2, j2, ID, l1, l2, l3;
-    double      max_x = 60.0, dum, co, si, kRn, tmp1, tmp2;
-    double      FermiF, x, x2, ReA, ReB, ReC, ImA, ImB, ImC;
-    double      d1, d2, d3, d4, d5, d6, d7, d8, d9, d10;
-    double      FermiEps = 1.0e-13;
-    double      Stime, Etime, stime, etime, time, lumos;
-    MPI_Status  stat;
-    MPI_Request request;
+    double stime, etime;
 
     dtime(&stime);
 
+    (void)MaxN;
     (void)DM1;
     (void)Work1;
-
-    if (measure_time) {
-        dtime(&Stime);
-    }
 
     /******************************
         calculation of DM, EDM
     *******************************/
 
     if (calc_flag == 1) {
-
-        /* pre-calculation of the Fermi function */
-
-        po   = 0;
-        kmin = is2[myid2];
-        kmax = ie2[myid2];
-
-        for (k = is2[myid2]; k <= ie2[myid2]; k++) {
-
-            x = (ko[k] - ChemP) * Beta;
-            if (x <= -max_x)
-                x = -max_x;
-            if (max_x <= x)
-                x = max_x;
-            FermiF = FermiFunc_NC(x, k);
-            tmp1   = sqrt(FermiF);
-
-            for (i1 = 1; i1 <= n2; i1++) {
-                i = (i1 - 1) * (ie2[myid2] - is2[myid2] + 1) + k - is2[myid2];
-
-                EVec1[i].r *= tmp1;
-                EVec1[i].i *= tmp1;
-            }
-
-            /* find kmax */
-
-            if (FermiF < FermiEps && po == 0) {
-                kmax = k;
-                po   = 1;
-            }
-        }
-
-        /* loop for GA_AN */
-
-        p = 0;
-
-        for (GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-
-            wanA = WhatSpecies[GA_AN];
-            tnoA = Spe_Total_CNO[wanA];
-            Anum = MP[GA_AN];
-
-            for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-
-                GB_AN = natn[GA_AN][LB_AN];
-                Rn    = ncn[GA_AN][LB_AN];
-                wanB  = WhatSpecies[GB_AN];
-                tnoB  = Spe_Total_CNO[wanB];
-                Bnum  = MP[GB_AN];
-
-                l1  = atv_ijk[Rn][1];
-                l2  = atv_ijk[Rn][2];
-                l3  = atv_ijk[Rn][3];
-                kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
-                si  = sin(2.0 * PI * kRn);
-                co  = cos(2.0 * PI * kRn);
-
-                for (i = 0; i < tnoA; i++) {
-                    i1 = (Anum + i - 1) * (ie2[myid2] - is2[myid2] + 1) - is2[myid2];
-                    i2 = (Anum + i + n - 1) * (ie2[myid2] - is2[myid2] + 1) - is2[myid2];
-
-                    for (j = 0; j < tnoB; j++) {
-                        j1 = (Bnum + j - 1) * (ie2[myid2] - is2[myid2] + 1) - is2[myid2];
-                        j2 = (Bnum + j + n - 1) * (ie2[myid2] - is2[myid2] + 1) - is2[myid2];
-
-                        d1  = 0.0;
-                        d2  = 0.0;
-                        d3  = 0.0;
-                        d4  = 0.0;
-                        d5  = 0.0;
-                        d6  = 0.0;
-                        d7  = 0.0;
-                        d8  = 0.0;
-                        d9  = 0.0;
-                        d10 = 0.0;
-
-                        for (k = kmin; k <= kmax; k++) {
-                            ReA = EVec1[i1 + k].r * EVec1[j1 + k].r + EVec1[i1 + k].i * EVec1[j1 + k].i;
-                            d1 += ReA;
-                            d7 += ReA * ko[k];
-                        }
-
-                        for (k = kmin; k <= kmax; k++) {
-                            ImA = EVec1[i1 + k].r * EVec1[j1 + k].i - EVec1[i1 + k].i * EVec1[j1 + k].r;
-                            d2 += ImA;
-                            d8 += ImA * ko[k];
-                        }
-
-                        for (k = kmin; k <= kmax; k++) {
-                            ReB = EVec1[i2 + k].r * EVec1[j2 + k].r + EVec1[i2 + k].i * EVec1[j2 + k].i;
-                            d3 += ReB;
-                            d9 += ReB * ko[k];
-                        }
-
-                        for (k = kmin; k <= kmax; k++) {
-                            ImB = EVec1[i2 + k].r * EVec1[j2 + k].i - EVec1[i2 + k].i * EVec1[j2 + k].r;
-                            d4 += ImB;
-                            d10 += ImB * ko[k];
-                        }
-
-                        for (k = kmin; k <= kmax; k++) {
-                            ReC = EVec1[i1 + k].r * EVec1[j2 + k].r + EVec1[i1 + k].i * EVec1[j2 + k].i;
-                            d5 += ReC;
-                        }
-
-                        for (k = kmin; k <= kmax; k++) {
-                            ImC = EVec1[i1 + k].r * EVec1[j2 + k].i - EVec1[i1 + k].i * EVec1[j2 + k].r;
-                            d6 += ImC;
-                        }
-
-                        /* Re DM11 */
-                        rDM11[p] += co * d1 - si * d2;
-
-                        /* Re DM22 */
-                        rDM22[p] += co * d3 - si * d4;
-
-                        /* Re DM12 */
-                        rDM12[p] += co * d5 - si * d6;
-
-                        /* Im DM12 */
-                        iDM12[p] += co * d6 + si * d5;
-
-                        /* Im DM11 */
-                        iDM11[p] += co * d2 + si * d1;
-
-                        /* Im DM22 */
-                        iDM22[p] += co * d4 + si * d3;
-
-                        /* ReEDM11 */
-                        rEDM11[p] += co * d7 - si * d8;
-
-                        /* rEDM22 */
-                        rEDM22[p] += co * d9 - si * d10;
-
-                        /* increment of p */
-                        p++;
-                    }
-                }
-            }
-        } /* GA_AN */
-    } /* if (calc_flag==1) */
-
-    if (measure_time) {
-        dtime(&Etime);
-        // printf("timeA1 myid0=%2d myid2=%2d ie2-is2+1=%2d  %15.12f\n", myid0, myid2, ie2[myid2] - is2[myid2] + 1,
-        //        Etime - Stime);
+        BandNonCol_AccumulateDMKPoint(myid2, is2, ie2, MP, n, n2, k1, k2, k3, ko, EVec1, rDM11, rDM22, rDM12,
+                                      iDM12, iDM11, iDM22, rEDM11, rEDM22);
     }
 
     /***********************************
@@ -4299,78 +4511,48 @@ double Calc_DM_Band_non_collinear(int calc_flag, int store_flag, int myid0, int 
     ************************************/
 
     if (store_flag == 1) {
-
-        /* MPI_Allreduce */
-
-        if (measure_time) {
-            dtime(&Stime);
-        }
-
         MPI_Allreduce(MPI_IN_PLACE, rDM11, size_H1 * 8, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
-        if (measure_time) {
-            dtime(&Etime);
-            ////printf("timeA2 %15.12f\n", Etime - Stime);
-        }
+        size_t p = 0;
+        for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
+            int MA_AN = F_G2M[GA_AN];
+            int wanA  = WhatSpecies[GA_AN];
+            int tnoA  = Spe_Total_CNO[wanA];
+            int ID    = G2ID[GA_AN];
 
-        /* store DM1 to a proper place */
-
-        if (measure_time) {
-            dtime(&Stime);
-        }
-
-        p = 0;
-        for (GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-
-            MA_AN = F_G2M[GA_AN];
-            wanA  = WhatSpecies[GA_AN];
-            tnoA  = Spe_Total_CNO[wanA];
-            Anum  = MP[GA_AN];
-            ID    = G2ID[GA_AN];
-
-            for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                GB_AN = natn[GA_AN][LB_AN];
-                wanB  = WhatSpecies[GB_AN];
-                tnoB  = Spe_Total_CNO[wanB];
-                Bnum  = MP[GB_AN];
+            for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+                int GB_AN = natn[GA_AN][LB_AN];
+                int wanB  = WhatSpecies[GB_AN];
+                int tnoB  = Spe_Total_CNO[wanB];
 
                 if (myid0 == ID) {
+                    for (int i = 0; i < tnoA; i++) {
+                        double * restrict cdm0 = CDM[0][MA_AN][LB_AN][i];
+                        double * restrict cdm1 = CDM[1][MA_AN][LB_AN][i];
+                        double * restrict cdm2 = CDM[2][MA_AN][LB_AN][i];
+                        double * restrict cdm3 = CDM[3][MA_AN][LB_AN][i];
+                        double * restrict idm0 = iDM0[0][MA_AN][LB_AN][i];
+                        double * restrict idm1 = iDM0[1][MA_AN][LB_AN][i];
+                        double * restrict edm0 = EDM[0][MA_AN][LB_AN][i];
+                        double * restrict edm1 = EDM[1][MA_AN][LB_AN][i];
 
-                    for (i = 0; i < tnoA; i++) {
-                        for (j = 0; j < tnoB; j++) {
-
-                            CDM[0][MA_AN][LB_AN][i][j] += rDM11[p];  /* Re11 */
-                            CDM[1][MA_AN][LB_AN][i][j] += rDM22[p];  /* Re22 */
-                            CDM[2][MA_AN][LB_AN][i][j] += rDM12[p];  /* Re12 */
-                            CDM[3][MA_AN][LB_AN][i][j] += iDM12[p];  /* Im12 */
-                            iDM0[0][MA_AN][LB_AN][i][j] += iDM11[p]; /* Im11 */
-                            iDM0[1][MA_AN][LB_AN][i][j] += iDM22[p]; /* Im22 */
-
-                            EDM[0][MA_AN][LB_AN][i][j] += rEDM11[p]; /* ReEDM11 */
-                            EDM[1][MA_AN][LB_AN][i][j] += rEDM22[p]; /* ReEDM22 */
-
-                            /* increment of p */
-                            p++;
+                        for (int j = 0; j < tnoB; j++, p++) {
+                            cdm0[j] += rDM11[p];
+                            cdm1[j] += rDM22[p];
+                            cdm2[j] += rDM12[p];
+                            cdm3[j] += iDM12[p];
+                            idm0[j] += iDM11[p];
+                            idm1[j] += iDM22[p];
+                            edm0[j] += rEDM11[p];
+                            edm1[j] += rEDM22[p];
                         }
                     }
                 } else {
-                    for (i = 0; i < tnoA; i++) {
-                        for (j = 0; j < tnoB; j++) {
-                            /* increment of p */
-                            p++;
-                        }
-                    }
+                    p += (size_t)tnoA * (size_t)tnoB;
                 }
-
-            } /* LB_AN */
-        } /* GA_AN */
-
-        if (measure_time) {
-            dtime(&Etime);
-            //printf("timeA3 %15.12f\n", Etime - Stime);
+            }
         }
-
-    } /* if (store_flag==1) */
+    }
 
     dtime(&etime);
     return (etime - stime);
