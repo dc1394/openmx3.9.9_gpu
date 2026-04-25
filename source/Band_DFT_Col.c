@@ -83,10 +83,229 @@ typedef struct
 
 static BandColDMWorkspace BandCol_dm_workspace = {0};
 
+typedef struct
+{
+    int h_index;
+    int index0;
+    int index1;
+    int l1;
+    int l2;
+    int l3;
+} BandColConstructEntry;
+
+typedef struct
+{
+    int                    valid;
+    int                    n;
+    int                    na_rows;
+    int                    na_cols;
+    int                    nblk;
+    int                    np_rows;
+    int                    np_cols;
+    int                    my_prow;
+    int                    my_pcol;
+    unsigned long long     fingerprint;
+    int                    dense_count;
+    int                    local_count;
+    BandColConstructEntry *dense_entries;
+    BandColConstructEntry *local_entries;
+} BandColConstructCache;
+
+static BandColConstructCache BandCol_construct_cache = {0};
+
 static void BandCol_AbortWithMessage(const char * msg)
 {
     fprintf(stderr, "%s\n", msg);
     exit(1);
+}
+
+static void BandCol_ConstructCache_Reset(void)
+{
+    free(BandCol_construct_cache.dense_entries);
+    free(BandCol_construct_cache.local_entries);
+    memset(&BandCol_construct_cache, 0, sizeof(BandCol_construct_cache));
+}
+
+static unsigned long long BandCol_ConstructFingerprint(int *order_GA, int *MP)
+{
+    unsigned long long h = 1469598103934665603ULL;
+
+#define BANDCOL_HASH_INT(v)                                                                                             \
+    do {                                                                                                                \
+        h ^= (unsigned long long)(unsigned int)(v);                                                                      \
+        h *= 1099511628211ULL;                                                                                          \
+    } while (0)
+
+    BANDCOL_HASH_INT(atomnum);
+    for (int AN = 1; AN <= atomnum; AN++) {
+        int GA_AN = order_GA[AN];
+        BANDCOL_HASH_INT(GA_AN);
+        BANDCOL_HASH_INT(MP[GA_AN]);
+        BANDCOL_HASH_INT(WhatSpecies[GA_AN]);
+        BANDCOL_HASH_INT(FNAN[GA_AN]);
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+            BANDCOL_HASH_INT(natn[GA_AN][LB_AN]);
+            BANDCOL_HASH_INT(ncn[GA_AN][LB_AN]);
+        }
+    }
+
+#undef BANDCOL_HASH_INT
+
+    return h;
+}
+
+static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
+{
+    BandColConstructCache *cache = &BandCol_construct_cache;
+    unsigned long long     fingerprint = BandCol_ConstructFingerprint(order_GA, MP);
+    int                    dense_count = 0;
+    int                    local_count = 0;
+
+    if (cache->valid && cache->n == n && cache->na_rows == na_rows && cache->na_cols == na_cols &&
+        cache->nblk == nblk && cache->np_rows == np_rows && cache->np_cols == np_cols && cache->my_prow == my_prow &&
+        cache->my_pcol == my_pcol && cache->fingerprint == fingerprint) {
+        return;
+    }
+
+    BandCol_ConstructCache_Reset();
+
+    for (int AN = 1; AN <= atomnum; AN++) {
+        int GA_AN = order_GA[AN];
+        int wanA  = WhatSpecies[GA_AN];
+        int tnoA  = Spe_Total_CNO[wanA];
+        int Anum  = MP[GA_AN];
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+            int tnoB  = Spe_Total_CNO[wanB];
+            int Bnum  = MP[GB_AN];
+
+            for (int i = 0; i < tnoA; i++) {
+                int ig = Anum + i;
+                int j_start = ig - Bnum;
+                int brow = (ig - 1) / nblk;
+                int prow = brow % np_rows;
+
+                if (j_start < 0) {
+                    j_start = 0;
+                } else if (j_start > tnoB) {
+                    j_start = tnoB;
+                }
+
+                dense_count += tnoB - j_start;
+
+                for (int j = 0; j < tnoB; j++) {
+                    int jg   = Bnum + j;
+                    int bcol = (jg - 1) / nblk;
+                    int pcol = bcol % np_cols;
+
+                    if (my_prow == prow && my_pcol == pcol) {
+                        local_count++;
+                    }
+                }
+            }
+        }
+    }
+
+    cache->dense_entries = (BandColConstructEntry *)malloc(sizeof(BandColConstructEntry) * (size_t)(dense_count + 1));
+    cache->local_entries = (BandColConstructEntry *)malloc(sizeof(BandColConstructEntry) * (size_t)(local_count + 1));
+
+    if (cache->dense_entries == NULL || cache->local_entries == NULL) {
+        BandCol_ConstructCache_Reset();
+        BandCol_AbortWithMessage("Failed to allocate Construct_Band_CsHs cache in Band_DFT_Col.c.");
+    }
+
+    dense_count = 0;
+    local_count = 0;
+    int h_index = 0;
+    for (int AN = 1; AN <= atomnum; AN++) {
+        int GA_AN = order_GA[AN];
+        int wanA  = WhatSpecies[GA_AN];
+        int tnoA  = Spe_Total_CNO[wanA];
+        int Anum  = MP[GA_AN];
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int Rn    = ncn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+            int tnoB  = Spe_Total_CNO[wanB];
+            int Bnum  = MP[GB_AN];
+            int l1    = atv_ijk[Rn][1];
+            int l2    = atv_ijk[Rn][2];
+            int l3    = atv_ijk[Rn][3];
+
+            for (int i = 0; i < tnoA; i++) {
+                int ig = Anum + i;
+                int j_start = ig - Bnum;
+                int brow = (ig - 1) / nblk;
+                int prow = brow % np_rows;
+
+                if (j_start < 0) {
+                    j_start = 0;
+                } else if (j_start > tnoB) {
+                    j_start = tnoB;
+                }
+
+                for (int j = 0; j < tnoB; j++, h_index++) {
+                    int jg = Bnum + j;
+
+                    if (j_start <= j) {
+                        BandColConstructEntry *entry = &cache->dense_entries[dense_count++];
+                        entry->h_index = h_index;
+                        entry->index0  = (jg - 1) * n + (ig - 1);
+                        entry->index1  = (jg > ig) ? (ig - 1) * n + (jg - 1) : -1;
+                        entry->l1      = l1;
+                        entry->l2      = l2;
+                        entry->l3      = l3;
+                    }
+
+                    int bcol = (jg - 1) / nblk;
+                    int pcol = bcol % np_cols;
+
+                    if (my_prow == prow && my_pcol == pcol) {
+                        int il = (brow / np_rows + 1) * nblk + 1;
+                        int jl = (bcol / np_cols + 1) * nblk + 1;
+
+                        if (((my_prow + np_rows) % np_rows) >= (brow % np_rows)) {
+                            if (my_prow == prow) {
+                                il += (ig - 1) % nblk;
+                            }
+                            il -= nblk;
+                        }
+
+                        if (((my_pcol + np_cols) % np_cols) >= (bcol % np_cols)) {
+                            if (my_pcol == pcol) {
+                                jl += (jg - 1) % nblk;
+                            }
+                            jl -= nblk;
+                        }
+
+                        BandColConstructEntry *entry = &cache->local_entries[local_count++];
+                        entry->h_index = h_index;
+                        entry->index0  = (jl - 1) * na_rows + il - 1;
+                        entry->index1  = -1;
+                        entry->l1      = l1;
+                        entry->l2      = l2;
+                        entry->l3      = l3;
+                    }
+                }
+            }
+        }
+    }
+
+    cache->valid       = 1;
+    cache->n           = n;
+    cache->na_rows     = na_rows;
+    cache->na_cols     = na_cols;
+    cache->nblk        = nblk;
+    cache->np_rows     = np_rows;
+    cache->np_cols     = np_cols;
+    cache->my_prow     = my_prow;
+    cache->my_pcol     = my_pcol;
+    cache->fingerprint = fingerprint;
+    cache->dense_count = dense_count;
+    cache->local_count = local_count;
 }
 
 static void BandCol_DMWorkspace_Reset(void)
@@ -375,6 +594,39 @@ static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, 
 
     ctx->transformed_s_valid = 1;
     ctx->transformed_s_dim   = n;
+}
+
+static void BandCol_CuSolver_Zgemm_OpenACC(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k,
+                                           dcomplex const * A, dcomplex const * B, dcomplex * C)
+{
+    BandColCuSolverCtx *ctx = &BandCol_cusolver_ctx;
+    cuDoubleComplex     alpha = make_cuDoubleComplex(1.0, 0.0);
+    cuDoubleComplex     beta  = make_cuDoubleComplex(0.0, 0.0);
+
+    BandCol_CuSolver_Init();
+
+#pragma acc data present(A[0 : m * k], B[0 : k * n], C[0 : m * n])
+#pragma acc host_data use_device(A, B, C)
+    {
+        wait_cudafunc(cublasZgemm(ctx->cublas, transa, transb, m, n, k, &alpha, (cuDoubleComplex const *)A, m,
+                                  (cuDoubleComplex const *)B, k, &beta, (cuDoubleComplex *)C, m));
+    }
+}
+
+static void BandCol_CuSolver_EigenHost(dcomplex *A, double *ko, int n, int maxn)
+{
+    int info;
+
+    info = cusolver_Syevdx_Complex(A, ko, n, maxn);
+
+    for (int i = maxn; i >= 1; i--) {
+        ko[i] = ko[i - 1];
+    }
+
+    if (info != 0) {
+        printf("cusolverDnXsyevdx: info=%d\n", info);
+        exit(10);
+    }
 }
 
 static void BandCol_CuSolver_SolveHamiltonian(int n, int maxn, const dcomplex * H_in, double * ko, dcomplex * C_out)
@@ -1165,8 +1417,6 @@ diagonalize1:
             Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Ss, Hs, n,
                                 owns_global_dense_rank);
 
-#pragma acc update device(Ss[0 : n * n], Hs[0 : n * n])
-
             /* for blas */
 
             /* diagonalize S */
@@ -1176,7 +1426,7 @@ diagonalize1:
 
             /* diagonalize S */
 
-            EigenBand_lapack_openacc(Ss, ko, n, n);
+            BandCol_CuSolver_EigenHost(Ss, ko, n, n);
 
             if (measure_time) {
                 dtime(&Etime);
@@ -1185,29 +1435,22 @@ diagonalize1:
 
             /* minus eigenvalues to 1.0e-14 */
 
-#pragma acc kernels
-#pragma acc loop independent
             for (int l = 1; l <= n; l++) {
                 if (ko[l] < 0.0)
                     ko[l] = 1.0e-10;
             }
 
-#pragma acc update self(ko[0 : n + 1])
             for (int l = 1; l <= n; l++) {
                 koS[l] = ko[l];
             }
 
             /* calculate S*1/sqrt(ko) */
 
-#pragma acc kernels
-#pragma acc loop independent
             for (int l = 1; l <= n; l++)
                 ko[l] = 1.0 / sqrt(ko[l]);
 
             {
 
-#pragma acc kernels
-#pragma acc loop independent collapse(2)
                 for (int i1 = 1; i1 <= n; i1++) {
                     for (int j1 = 1; j1 <= n; j1++) {
                         Ss[(j1 - 1) * n + i1 - 1].r *= ko[j1];
@@ -1226,14 +1469,7 @@ diagonalize1:
             if (measure_time)
                 dtime(&Stime);
 
-#pragma acc kernels
-#pragma acc loop independent
-            for (int i = 0; i < n * n; i++) {
-                Cs[i].r = 0.0;
-                Cs[i].i = 0.0;
-            }
-
-            my_cublasZgemm_openacc(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, Hs, Ss, Cs);
+            my_cublasZgemm(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, Hs, Ss, Cs);
 
             /* pzgemm */
 
@@ -1241,21 +1477,7 @@ diagonalize1:
 
             /* 1/sqrt(ko) * U^+ H * U * 1/sqrt(ko) */
 
-#pragma acc kernels
-#pragma acc loop independent
-            for (int i = 0; i < n * n; i++) {
-                Hs[i].r = 0.0;
-                Hs[i].i = 0.0;
-            }
-
-            my_cublasZgemm_openacc(CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, Ss, Cs, Hs);
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (int i = 0; i < n * n; i++) {
-                Cs[i].r = Hs[i].r;
-                Cs[i].i = Hs[i].i;
-            }
+            my_cublasZgemm(CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, Ss, Cs, Hs);
 
             if (measure_time) {
                 dtime(&Etime);
@@ -1267,14 +1489,13 @@ diagonalize1:
             if (measure_time)
                 dtime(&Stime);
 
-            EigenBand_lapack_openacc(Cs, ko, n, MaxN);
+            BandCol_CuSolver_EigenHost(Hs, ko, n, MaxN);
 
             if (measure_time) {
                 dtime(&Etime);
                 time4 += Etime - Stime;
             }
 
-#pragma acc update self(ko[0 : n + 1])
             for (int l = 1; l <= MaxN; l++) {
                 EIGEN[spin][kloop][l] = ko[l];
             }
@@ -2470,14 +2691,12 @@ diagonalize1:
                 Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Ss, Hs, n,
                                     owns_global_dense_rank);
 
-#pragma acc update device(Hs[0 : n * n], Ss[0 : n * n])
-
                 /* diagonalize S */
 
                 if (measure_time)
                     dtime(&Stime);
 
-                EigenBand_lapack_openacc(Ss, ko, n, n);
+                BandCol_CuSolver_EigenHost(Ss, ko, n, n);
 
                 if (measure_time) {
                     dtime(&Etime);
@@ -2494,14 +2713,11 @@ diagonalize1:
 
                 /* minus eigenvalues to 1.0e-14 */
 
-#pragma acc kernels
-#pragma acc loop independent
                 for (int l = 1; l <= n; l++) {
                     if (ko[l] < 0.0) {
                         ko[l] = 1.0e-10;
                     }
                 }
-#pragma acc update self(ko[0 : n + 1])
 
                 for (int l = 1; l <= n; l++) {
                     koS[l] = ko[l];
@@ -2511,13 +2727,9 @@ diagonalize1:
 
                 /* calculate S*1/sqrt(ko) */
 
-#pragma acc kernels
-#pragma acc loop independent
                 for (int l = 1; l <= n; l++)
                     ko[l] = 1.0 / sqrt(ko[l]);
 
-#pragma acc kernels
-#pragma acc loop independent collapse(2)
                 for (int i1 = 1; i1 <= n; i1++) {
                     for (int j1 = 1; j1 <= n; j1++) {
                         Ss[(j1 - 1) * n + i1 - 1].r *= ko[j1];
@@ -2535,14 +2747,7 @@ diagonalize1:
                     BandCol_AbortWithMessage("CuSOLVER DM path requires full dense matrices in Band_DFT_Col.c.");
                 }
 
-#pragma acc kernels
-#pragma acc loop independent
-                for (i = 0; i < n * n; i++) {
-                    Cs[i].r = 0.0;
-                    Cs[i].i = 0.0;
-                }
-
-                my_cublasZgemm_openacc(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, Hs, Ss, Cs);
+                my_cublasZgemm(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, Hs, Ss, Cs);
 
                 /* pzgemm */
 
@@ -2550,28 +2755,14 @@ diagonalize1:
 
                 /* 1/sqrt(ko) * U^+ H * U * 1/sqrt(ko) */
 
-#pragma acc kernels
-#pragma acc loop independent
-                for (int i = 0; i < n * n; i++) {
-                    Hs[i].r = 0.0;
-                    Hs[i].i = 0.0;
-                }
-
-                my_cublasZgemm_openacc(CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, Ss, Cs, Hs);
-
-#pragma acc kernels
-#pragma acc loop independent
-                for (int i = 0; i < n * n; i++) {
-                    Cs[i].r = Hs[i].r;
-                    Cs[i].i = Hs[i].i;
-                }
+                my_cublasZgemm(CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, Ss, Cs, Hs);
 
                 /* diagonalize H' */
 
                 if (measure_time)
                     dtime(&Stime);
 
-                EigenBand_lapack_openacc(Cs, ko, n, MaxN);
+                BandCol_CuSolver_EigenHost(Hs, ko, n, MaxN);
 
                 if (measure_time) {
                     dtime(&Etime);
@@ -2590,17 +2781,10 @@ diagonalize1:
                   transformation to the original eigenvectors.
                    NOTE JRCAT-244p and JAIST-2122p
                 ****************************************************/
-#pragma acc kernels
-#pragma acc loop independent
-                for (int i = 0; i < n * n; i++) {
-                    Hs[i] = Cs[i];
-                }
-
                 /* note for BLAS, A[M*K] * B[K*N] = C[M*N] */
 
-                my_cublasZgemm_openacc(CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, Hs, Ss, Cs);
+                my_cublasZgemm(CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, Hs, Ss, Cs);
 
-#pragma acc update self(Cs[0 : n * n])
                 /* Hs are stored to EVec1 */
 
                 int ktmp = 0;
@@ -2670,172 +2854,118 @@ diagonalize1:
                     dtime(&Stime1);
                 }
 
-                /* store EIGEN to a temporary array */
-
-                for (int k = 1; k <= MaxN; k++) {
-                    TmpEIGEN[k] = EIGEN[spin][kloop][k];
-                }
-
-                /* calculation of CDM1 and EDM1 */
-
-                // int wanAmax = 1;
-                // int tnoAmax = 1;
-                // int tnoBmax = 1;
-                // int i1max = 1;
-                // int j1max = 1;
-                // int LB_ANmax = 1;
-                // int Rnmax = 1;
-                // int GB_ANmax = 1;
-                // int pmax = 1;
-                // for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                //     if (wanAmax < WhatSpecies[GA_AN]) {
-                //         wanAmax = WhatSpecies[GA_AN];
-                //     }
-
-                //     if (tnoAmax < Spe_Total_CNO[WhatSpecies[GA_AN]]) {
-                //         tnoAmax = Spe_Total_CNO[WhatSpecies[GA_AN]];
-                //     }
-
-                //     int wanA = WhatSpecies[GA_AN];
-                //     int tnoA = Spe_Total_CNO[wanA];
-                //     int Anum = MP[GA_AN];
-
-                //     for (int i = 0; i < tnoA; i++) {
-                //         int i1 = (Anum + i - 1) * n - 1;
-
-                //         if (i1max < i1) {
-                //             i1max = i1;
-                //         }
-                //     }
-
-                //     if (LB_ANmax < FNAN[GA_AN]) {
-                //         LB_ANmax = FNAN[GA_AN];
-                //     }
-
-                //     for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                //         if (Rnmax < ncn[GA_AN][LB_AN]) {
-                //             Rnmax = ncn[GA_AN][LB_AN];
-                //         }
-
-                //         if (GB_ANmax < natn[GA_AN][LB_AN]) {
-                //             GB_ANmax = natn[GA_AN][LB_AN];
-                //         }
-
-                //         int GB_AN = natn[GA_AN][LB_AN];
-                //         int wanB = WhatSpecies[GB_AN];
-                //         int tnoB = Spe_Total_CNO[wanB];
-                //         int Bnum = MP[GB_AN];
-
-                //         if (tnoBmax < tnoB) {
-                //             tnoBmax = tnoB;
-                //         }
-
-                //         for (i = 0; i < tnoA; i++) {
-                //             for (j = 0; j < tnoB; j++) {
-                //                 /* increment of p */
-                //                 pmax++;
-                //             }
-                //         }
-                //     }
-                // }
-
-                // int ijmax = i1max > j1max ? i1max : j1max;
-
-                // #pragma acc data copy(ReEVec0[:tnoAmax][:MaxN + 1], ImEVec0[:tnoAmax][:MaxN + 1])
-                // #pragma acc data copy(FNAN[:atomnum + 1])
-                // #pragma acc data copy(EVec1[:2][:ijmax + MaxN + 1])
-                // #pragma acc data copy(Spe_Total_CNO[:wanAmax])
-                // #pragma acc data copy(natn[:atomnum + 1][:LB_ANmax], ncn[:atomnum + 1][:LB_ANmax], atv_ijk[:Rnmax][:4])
-                // #pragma acc data copy(ReEVec1[:tnoBmax][:MaxN + 1], ImEVec1[:tnoBmax][:MaxN + 1])
-                // #pragma acc data copy(MP[:atomnum + 1], WhatSpecies[:atomnum + 1], TmpEIGEN[:MaxN + 1])
-                // #pragma acc data copy(CDM1[:pmax], EDM1[:pmax])
-                // #pragma acc kernels
-                // #pragma acc loop independent gang
-
-                int p = 0;
-                for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                    int wanA = WhatSpecies[GA_AN];
-                    int tnoA = Spe_Total_CNO[wanA];
-                    int Anum = MP[GA_AN];
-
-                    /* store EVec1 to temporary arrays */
-
-                    for (int i = 0; i < tnoA; i++) {
-                        int i1 = (Anum + i - 1) * n - 1;
-                        for (int k = 1; k <= MaxN; k++) {
-                            ReEVec0[i][k] = EVec1[spin][i1 + k].r;
-                            ImEVec0[i][k] = EVec1[spin][i1 + k].i;
-                        }
+                {
+                    const int nk = MaxN;
+                    int       max_tno = 0;
+                    for (int GA = 1; GA <= atomnum; ++GA) {
+                        const int wan = WhatSpecies[GA];
+                        const int tno = Spe_Total_CNO[wan];
+                        if (tno > max_tno)
+                            max_tno = tno;
                     }
 
-                    // #pragma acc loop independent vector(1024)
-                    for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                        int GB_AN = natn[GA_AN][LB_AN];
-                        int Rn    = ncn[GA_AN][LB_AN];
-                        int wanB  = WhatSpecies[GB_AN];
-                        int tnoB  = Spe_Total_CNO[wanB];
-                        int Bnum  = MP[GB_AN];
+                    BandCol_DMWorkspace_Ensure(max_tno, nk);
 
-                        int    l1  = atv_ijk[Rn][1];
-                        int    l2  = atv_ijk[Rn][2];
-                        int    l3  = atv_ijk[Rn][3];
-                        double kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
+                    double * TmpEIGEN_local = BandCol_dm_workspace.TmpEIGEN;
+                    double **ReEVec0_local  = BandCol_dm_workspace.ReEVec0;
+                    double **ImEVec0_local  = BandCol_dm_workspace.ImEVec0;
+                    double **ReEVec1_local  = BandCol_dm_workspace.ReEVec1;
+                    double **ImEVec1_local  = BandCol_dm_workspace.ImEVec1;
 
-                        double si = sin(2.0 * PI * kRn);
-                        double co = cos(2.0 * PI * kRn);
+                    for (int i = 0; i < max_tno; ++i) {
+                        ReEVec0_local[i] = BandCol_dm_workspace.buf_Re0 + (size_t)i * nk;
+                        ImEVec0_local[i] = BandCol_dm_workspace.buf_Im0 + (size_t)i * nk;
+                        ReEVec1_local[i] = BandCol_dm_workspace.buf_Re1 + (size_t)i * nk;
+                        ImEVec1_local[i] = BandCol_dm_workspace.buf_Im1 + (size_t)i * nk;
+                    }
 
-                        /* store EVec1 to temporary arrays */
+                    for (int k = 0; k < nk; ++k) {
+                        TmpEIGEN_local[k] = EIGEN[spin][kloop][k + 1];
+                    }
 
-                        for (int j = 0; j < tnoB; j++) {
-                            int j1 = (Bnum + j - 1) * n - 1;
-                            for (int k = 1; k <= MaxN; k++) {
-                                ReEVec1[j][k] = EVec1[spin][j1 + k].r;
-                                ImEVec1[j][k] = EVec1[spin][j1 + k].i;
+                    size_t p = 0;
+                    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+                        const int wanA = WhatSpecies[GA_AN];
+                        const int tnoA = Spe_Total_CNO[wanA];
+                        const int Anum = MP[GA_AN];
+
+                        for (int i = 0; i < tnoA; ++i) {
+                            const dcomplex * v = &EVec1[spin][(size_t)(Anum + i - 1) * (size_t)n];
+                            double * restrict r = ReEVec0_local[i];
+                            double * restrict im = ImEVec0_local[i];
+                            for (int k = 0; k < nk; ++k) {
+                                r[k]  = v[k].r;
+                                im[k] = v[k].i;
                             }
                         }
 
-                        for (int i = 0; i < tnoA; i++) {
-                            for (int j = 0; j < tnoB; j++) {
-                                /***************************************************************
-                                 Note that the imaginary part is zero,
-                                 since
+                        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+                            const int GB_AN = natn[GA_AN][LB_AN];
+                            const int Rn    = ncn[GA_AN][LB_AN];
+                            const int wanB  = WhatSpecies[GB_AN];
+                            const int tnoB  = Spe_Total_CNO[wanB];
+                            const int Bnum  = MP[GB_AN];
 
-                                 at k
-                                 A = (co + i si)(Re + i Im) = (co*Re - si*Im) + i (co*Im + si*Re)
-                                 at -k
-                                 B = (co - i si)(Re - i Im) = (co*Re - si*Im) - i (co*Im + si*Re)
-                                 Thus, Re(A+B) = 2*(co*Re - si*Im)
-                                       Im(A+B) = 0
-                                ***************************************************************/
+                            const int    l1  = atv_ijk[Rn][1];
+                            const int    l2  = atv_ijk[Rn][2];
+                            const int    l3  = atv_ijk[Rn][3];
+                            const double kRn = k1 * l1 + k2 * l2 + k3 * l3;
+                            const double si  = sin(2.0 * PI * kRn);
+                            const double co  = cos(2.0 * PI * kRn);
 
-                                double d1 = 0.0;
-                                double d2 = 0.0;
-                                double d3 = 0.0;
-                                double d4 = 0.0;
-
-                                // #pragma acc loop reduction(+:d1) reduction(+:d2) reduction(+:d3) reduction(+:d4)
-                                for (int k = 1; k <= MaxN; k++) {
-                                    double ReA = ReEVec0[i][k] * ReEVec1[j][k] + ImEVec0[i][k] * ImEVec1[j][k];
-                                    double ImA = ReEVec0[i][k] * ImEVec1[j][k] - ImEVec0[i][k] * ReEVec1[j][k];
-
-                                    d1 += ReA;
-                                    d2 += ImA;
-                                    d3 += ReA * TmpEIGEN[k];
-                                    d4 += ImA * TmpEIGEN[k];
+                            for (int j = 0; j < tnoB; ++j) {
+                                const dcomplex * v = &EVec1[spin][(size_t)(Bnum + j - 1) * (size_t)n];
+                                double * restrict r = ReEVec1_local[j];
+                                double * restrict im = ImEVec1_local[j];
+                                for (int k = 0; k < nk; ++k) {
+                                    r[k]  = v[k].r;
+                                    im[k] = v[k].i;
                                 }
+                            }
 
-                                // int p = (((GA_AN - 1) * (FNAN[GA_AN] + 1) + LB_AN) * tnoA + i) * tnoB + j;
+                            for (int i = 0; i < tnoA; ++i) {
+                                const double * restrict r0  = ReEVec0_local[i];
+                                const double * restrict im0 = ImEVec0_local[i];
 
-                                // #pragma omp atomic
-                                CDM1[p] += co * d1 - si * d2;
-                                // #pragma omp atomic
-                                EDM1[p] += co * d3 - si * d4;
+                                for (int j = 0; j < tnoB; ++j, ++p) {
+                                    const double * restrict r1  = ReEVec1_local[j];
+                                    const double * restrict im1 = ImEVec1_local[j];
 
-                                p++;
+                                    double d1 = 0.0, d2 = 0.0, d3 = 0.0, d4 = 0.0;
+                                    int    k = 0;
+
+                                    for (; k + 3 < nk; k += 4) {
+#define KSTEP(idx)                                                                                                 \
+    do {                                                                                                           \
+        double reA = r0[idx] * r1[idx] + im0[idx] * im1[idx];                                                      \
+        double imA = r0[idx] * im1[idx] - im0[idx] * r1[idx];                                                      \
+        d1 += reA;                                                                                                 \
+        d2 += imA;                                                                                                 \
+        d3 += reA * TmpEIGEN_local[idx];                                                                           \
+        d4 += imA * TmpEIGEN_local[idx];                                                                           \
+    } while (0)
+                                        KSTEP(k);
+                                        KSTEP(k + 1);
+                                        KSTEP(k + 2);
+                                        KSTEP(k + 3);
+#undef KSTEP
+                                    }
+                                    for (; k < nk; ++k) {
+                                        double reA = r0[k] * r1[k] + im0[k] * im1[k];
+                                        double imA = r0[k] * im1[k] - im0[k] * r1[k];
+                                        d1 += reA;
+                                        d2 += imA;
+                                        d3 += reA * TmpEIGEN_local[k];
+                                        d4 += imA * TmpEIGEN_local[k];
+                                    }
+
+                                    CDM1[p] += co * d1 - si * d2;
+                                    EDM1[p] += co * d3 - si * d4;
+                                }
                             }
                         }
-                    }
-                } /* GA_AN */
+                    } /* GA_AN */
+                }
 
                 if (measure_time) {
                     dtime(&Etime1);
@@ -3782,7 +3912,6 @@ void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, d
                     int    l2  = atv_ijk[Rn][2];
                     int    l3  = atv_ijk[Rn][3];
                     double kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
-                    // phase_real = cos(2π kRn), phase_imag = sin(2π kRn)
 
                     double phase_imag = sin(2.0 * PI * kRn);
                     double phase_real = cos(2.0 * PI * kRn);
@@ -3845,13 +3974,12 @@ void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, d
                     int Rn    = ncn[GA_AN][LB_AN];
                     int wanB  = WhatSpecies[GB_AN];
                     int tnoB  = Spe_Total_CNO[wanB];
-                    int Bnum  = MP[GB_AN];  // 列オフセット（1-based）
+                    int Bnum  = MP[GB_AN];
 
                     int    l1  = atv_ijk[Rn][1];
                     int    l2  = atv_ijk[Rn][2];
                     int    l3  = atv_ijk[Rn][3];
                     double kRn = k1 * (double)l1 + k2 * (double)l2 + k3 * (double)l3;
-                    // phase_real = cos(2π kRn), phase_imag = sin(2π kRn)
 
                     double phase_imag = sin(2.0 * PI * kRn);
                     double phase_real = cos(2.0 * PI * kRn);

@@ -294,8 +294,8 @@ int32_t cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int32_t m, int
 {
     int32_t const lda = m;
 
-    cusolverDnHandle_t * cusolverH = NULL;
-    cudaStream_t *       stream    = NULL;
+    cusolverDnHandle_t cusolverH = NULL;
+    cudaStream_t       stream    = NULL;
     //set_cuda_default_device_from_local_rank();
 
     // OpenACC
@@ -372,13 +372,14 @@ int32_t cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int32_t m, int
         // wait_cudafunc(cudaFreeAsync(d_A, stream));
         // wait_cudafunc(cudaFreeAsync(d_W, stream));
         // wait_cudafunc(cudaFreeAsync(d_info, stream));
-        wait_cudafunc(cudaFreeAsync(d_work, stream));
+        wait_cudafunc(cudaStreamSynchronize(stream));
+
+        wait_cudafunc(cudaFree(d_work));
 
         if (h_work != NULL) {
             free(h_work);
         }
 
-        wait_cudafunc(cudaStreamSynchronize(stream));
         wait_cudafunc(cusolverDnDestroy(cusolverH));
         wait_cudafunc(cudaStreamDestroy(stream));
     }

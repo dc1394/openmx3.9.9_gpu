@@ -43,6 +43,16 @@ static int Set_Hamiltonian_Use_OpenACC(void)
     return (scf_eigen_lib_flag == CuSOLVER);
 }
 
+static int Set_Hamiltonian_Base_Use_OpenACC(void)
+{
+    return Set_Hamiltonian_Use_OpenACC();
+}
+
+static int Set_Hamiltonian_MatrixElements_Use_OpenACC(void)
+{
+    return Set_Hamiltonian_Use_OpenACC();
+}
+
 static void *Set_Hamiltonian_malloc(size_t bytes, const char *name, int myid)
 {
     void *p;
@@ -104,7 +114,7 @@ double Set_Hamiltonian(char * mode, int MD_iter, int SCF_iter, int SCF_iter0, in
     if (measure_time)
         dtime(&time1);
 
-    if (Set_Hamiltonian_Use_OpenACC()) {
+    if (Set_Hamiltonian_Base_Use_OpenACC()) {
         Set_Hamiltonian_Base_OpenACC(SCF_iter, H0, HNL, H);
     }
 
@@ -252,7 +262,7 @@ double Set_Hamiltonian(char * mode, int MD_iter, int SCF_iter, int SCF_iter0, in
 
 void Calc_MatrixElements_dVH_Vxc_VNA(int Cnt_kind)
 {
-    if (Set_Hamiltonian_Use_OpenACC()) {
+    if (Set_Hamiltonian_MatrixElements_Use_OpenACC()) {
         Calc_MatrixElements_dVH_Vxc_VNA_OpenACC(Cnt_kind);
     } else {
         Calc_MatrixElements_dVH_Vxc_VNA_CPU(Cnt_kind);
@@ -352,11 +362,11 @@ static void Set_Hamiltonian_Base_OpenACC(int SCF_iter, double *****H0, double **
                     }
                     for (spin = 0; spin < spin_count; spin++) {
                         size_t idx = total_h + (size_t)spin * mat_size + ij;
-                        hnlbuf[idx] = HNL[spin][Mc_AN][h_AN][i][j];
-                        if (add_hub) {
+                        hnlbuf[idx] = (SpinP_switch == 3 && spin == 3) ? 0.0 : HNL[spin][Mc_AN][h_AN][i][j];
+                        if (add_hub && !(SpinP_switch == 3 && spin == 3)) {
                             hhubbuf[idx] = H_Hub[spin][Mc_AN][h_AN][i][j];
                         }
-                        if (add_hch) {
+                        if (add_hch && !(SpinP_switch == 3 && spin == 3)) {
                             hchbuf[idx] = HCH[spin][Mc_AN][h_AN][i][j];
                         }
                     }
@@ -464,7 +474,7 @@ static void Calc_MatrixElements_dVH_Vxc_VNA_OpenACC(int Cnt_kind)
     int spin_count, pair_count, pair;
     int *pair_Mc_AN, *pair_h_AN, *pair_NO0, *pair_NO1, *pair_NOLG;
     size_t *pair_h_offset, *pair_nolg_offset, *pair_orbs0_offset, *pair_orbs1_offset;
-    size_t total_h, total_nolg, total_orbs0, total_orbs1, vpot_stride;
+    size_t total_h, total_nolg, total_nolg_all, total_orbs0, total_orbs1;
     double *hbuf, *vpotbuf;
     Type_Orbs_Grid *orbs0buf, *orbs1buf;
 
@@ -527,13 +537,13 @@ static void Calc_MatrixElements_dVH_Vxc_VNA_OpenACC(int Cnt_kind)
     pair_orbs1_offset =
         (size_t *)Set_Hamiltonian_malloc(sizeof(size_t) * (size_t)pair_count, "openacc pair_orbs1_offset", myid);
     hbuf = (double *)Set_Hamiltonian_malloc(sizeof(double) * total_h, "openacc hbuf", myid);
-    vpot_stride = total_nolg;
-    vpotbuf =
-        (double *)Set_Hamiltonian_malloc(sizeof(double) * (size_t)spin_count * vpot_stride, "openacc vpotbuf", myid);
+    vpotbuf = (double *)Set_Hamiltonian_malloc(sizeof(double) * (size_t)spin_count * total_nolg, "openacc vpotbuf", myid);
     orbs0buf =
         (Type_Orbs_Grid *)Set_Hamiltonian_malloc(sizeof(Type_Orbs_Grid) * total_orbs0, "openacc orbs0buf", myid);
     orbs1buf =
         (Type_Orbs_Grid *)Set_Hamiltonian_malloc(sizeof(Type_Orbs_Grid) * total_orbs1, "openacc orbs1buf", myid);
+
+    total_nolg_all = total_nolg;
 
     pair = 0;
     total_h = 0;
@@ -596,7 +606,8 @@ static void Calc_MatrixElements_dVH_Vxc_VNA_OpenACC(int Cnt_kind)
                     orbs1buf[total_orbs1 + (size_t)Nog * (size_t)NO1 + (size_t)j] = orbs1[j];
                 }
                 for (spin = 0; spin < spin_count; spin++) {
-                    vpotbuf[(size_t)spin * vpot_stride + total_nolg + (size_t)Nog] = GridVol * Vpot_Grid[spin][MN];
+                    vpotbuf[(size_t)spin * total_nolg_all + total_nolg + (size_t)Nog] =
+                        GridVol * Vpot_Grid[spin][MN];
                 }
             }
 
@@ -611,13 +622,13 @@ static void Calc_MatrixElements_dVH_Vxc_VNA_OpenACC(int Cnt_kind)
 #pragma acc data copy(hbuf[0:total_h])                                                                                      \
     copyin(pair_NO0[0:pair_count], pair_NO1[0:pair_count], pair_NOLG[0:pair_count], pair_h_offset[0:pair_count],            \
            pair_nolg_offset[0:pair_count], pair_orbs0_offset[0:pair_count], pair_orbs1_offset[0:pair_count],                \
-           orbs0buf[0:total_orbs0], orbs1buf[0:total_orbs1], vpotbuf[0:(size_t)spin_count * vpot_stride])
+           orbs0buf[0:total_orbs0], orbs1buf[0:total_orbs1], vpotbuf[0:(size_t)spin_count * total_nolg])
     {
 #pragma acc parallel loop gang present(hbuf[0:total_h], pair_NO0[0:pair_count], pair_NO1[0:pair_count],                     \
                                            pair_NOLG[0:pair_count], pair_h_offset[0:pair_count],                            \
                                            pair_nolg_offset[0:pair_count], pair_orbs0_offset[0:pair_count],                  \
                                            pair_orbs1_offset[0:pair_count], orbs0buf[0:total_orbs0],                        \
-                                           orbs1buf[0:total_orbs1], vpotbuf[0:(size_t)spin_count * vpot_stride])
+                                           orbs1buf[0:total_orbs1], vpotbuf[0:(size_t)spin_count * total_nolg])
         for (pair = 0; pair < pair_count; pair++) {
             int NO0 = pair_NO0[pair];
             int NO1 = pair_NO1[pair];
@@ -641,7 +652,7 @@ static void Calc_MatrixElements_dVH_Vxc_VNA_OpenACC(int Cnt_kind)
 
 #pragma acc loop seq
                 for (Nog = 0; Nog < NOLG; Nog++) {
-                    sum += vpotbuf[(size_t)spin * vpot_stride + nolg_off + (size_t)Nog] *
+                    sum += vpotbuf[(size_t)spin * total_nolg + nolg_off + (size_t)Nog] *
                            orbs0buf[orbs0_off + (size_t)Nog * (size_t)NO0 + (size_t)i] *
                            orbs1buf[orbs1_off + (size_t)Nog * (size_t)NO1 + (size_t)j];
                 }

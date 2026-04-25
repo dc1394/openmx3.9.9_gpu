@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include <string.h>
 #include "openmx_common.h"
 #include "mpi.h"
 #include <omp.h>
@@ -47,6 +48,11 @@ static int TotalEnergyUseOpenACC(void);
 static void TotalEnergyEnsureAccPaoData(void);
 static void TotalEnergyEnsureAccVpsData(void);
 static void TotalEnergyUpdateAccEH0GridData(void);
+static void TotalEnergyResetAccPaoData(void);
+static void TotalEnergyResetAccVpsData(void);
+static void TotalEnergyResetAccEH0GridData(void);
+static unsigned long long TotalEnergyAccPaoSignature(void);
+static unsigned long long TotalEnergyAccVpsSignature(void);
 static double TotalEnergySequentialSum(const double *values, int count);
 
 #pragma acc routine seq
@@ -68,6 +74,7 @@ int OneD_Nloop,*OneD2Mc_AN,*OneD2h_AN;
 static int TotalEnergyAccPaoReady = 0;
 static int TotalEnergyAccPaoSpeciesNum = 0;
 static int TotalEnergyAccPaoSize = 0;
+static unsigned long long TotalEnergyAccPaoSig = 0;
 static int *TotalEnergyAccPaoOffset = NULL;
 static int *TotalEnergyAccPaoMesh = NULL;
 static double *TotalEnergyAccPaoXV = NULL;
@@ -77,6 +84,7 @@ static double *TotalEnergyAccPaoDen2 = NULL;
 static int TotalEnergyAccVpsReady = 0;
 static int TotalEnergyAccVpsSpeciesNum = 0;
 static int TotalEnergyAccVpsSize = 0;
+static unsigned long long TotalEnergyAccVpsSig = 0;
 static int *TotalEnergyAccVpsOffset = NULL;
 static int *TotalEnergyAccVpsMesh = NULL;
 static double *TotalEnergyAccVpsXV = NULL;
@@ -95,6 +103,43 @@ static double *TotalEnergyAccEH0GridZ = NULL;
 static double *TotalEnergyAccEH0Arho = NULL;
 static double *TotalEnergyAccEH0Wt = NULL;
 static double *TotalEnergyAccEH0DV = NULL;
+
+
+static unsigned long long TotalEnergyHashBytes(unsigned long long h, const void *data, size_t size)
+{
+  const unsigned char *p;
+  size_t i;
+
+  p = (const unsigned char*)data;
+  for (i=0; i<size; i++){
+    h ^= (unsigned long long)p[i];
+    h *= 1099511628211ULL;
+  }
+
+  return h;
+}
+
+
+static unsigned long long TotalEnergyHashInt(unsigned long long h, int value)
+{
+  return TotalEnergyHashBytes(h,&value,sizeof(value));
+}
+
+
+static unsigned long long TotalEnergyHashDouble(unsigned long long h, double value)
+{
+  return TotalEnergyHashBytes(h,&value,sizeof(value));
+}
+
+
+static unsigned long long TotalEnergyHashString(unsigned long long h, const char *value)
+{
+  if (value==NULL){
+    return TotalEnergyHashInt(h,0);
+  }
+
+  return TotalEnergyHashBytes(h,value,strlen(value)+1);
+}
 
 
 static void *CheckedMalloc(size_t size, const char *name)
@@ -200,6 +245,139 @@ static double TotalEnergySequentialSum(const double *values, int count)
 }
 
 
+static unsigned long long TotalEnergyAccPaoSignature(void)
+{
+  int wan;
+  unsigned long long h;
+
+  h = 1469598103934665603ULL;
+  h = TotalEnergyHashInt(h,PCC_switch);
+  h = TotalEnergyHashInt(h,SpeciesNum);
+  for (wan=0; wan<SpeciesNum; wan++){
+    h = TotalEnergyHashString(h,SpeName[wan]);
+    h = TotalEnergyHashString(h,SpeBasis[wan]);
+    h = TotalEnergyHashString(h,SpeVPS[wan]);
+    h = TotalEnergyHashInt(h,Spe_Num_Mesh_PAO[wan]);
+    h = TotalEnergyHashDouble(h,Spe_Core_Charge[wan]);
+  }
+
+  return h;
+}
+
+
+static unsigned long long TotalEnergyAccVpsSignature(void)
+{
+  int wan;
+  unsigned long long h;
+
+  h = 1469598103934665603ULL;
+  h = TotalEnergyHashInt(h,SpeciesNum);
+  for (wan=0; wan<SpeciesNum; wan++){
+    h = TotalEnergyHashString(h,SpeName[wan]);
+    h = TotalEnergyHashString(h,SpeVPS[wan]);
+    h = TotalEnergyHashInt(h,Spe_Num_Mesh_VPS[wan]);
+    h = TotalEnergyHashDouble(h,Spe_Core_Charge[wan]);
+  }
+
+  return h;
+}
+
+
+static void TotalEnergyResetAccPaoData(void)
+{
+  if (TotalEnergyAccPaoReady==1){
+#pragma acc exit data delete(TotalEnergyAccPaoOffset[0:TotalEnergyAccPaoSpeciesNum], \
+                             TotalEnergyAccPaoMesh[0:TotalEnergyAccPaoSpeciesNum], \
+                             TotalEnergyAccPaoXV[0:TotalEnergyAccPaoSize], \
+                             TotalEnergyAccPaoRV[0:TotalEnergyAccPaoSize], \
+                             TotalEnergyAccPaoDen2[0:TotalEnergyAccPaoSize])
+  }
+
+  free(TotalEnergyAccPaoOffset);
+  free(TotalEnergyAccPaoMesh);
+  free(TotalEnergyAccPaoXV);
+  free(TotalEnergyAccPaoRV);
+  free(TotalEnergyAccPaoDen2);
+
+  TotalEnergyAccPaoReady = 0;
+  TotalEnergyAccPaoSpeciesNum = 0;
+  TotalEnergyAccPaoSize = 0;
+  TotalEnergyAccPaoSig = 0;
+  TotalEnergyAccPaoOffset = NULL;
+  TotalEnergyAccPaoMesh = NULL;
+  TotalEnergyAccPaoXV = NULL;
+  TotalEnergyAccPaoRV = NULL;
+  TotalEnergyAccPaoDen2 = NULL;
+}
+
+
+static void TotalEnergyResetAccVpsData(void)
+{
+  if (TotalEnergyAccVpsReady==1){
+#pragma acc exit data delete(TotalEnergyAccVpsOffset[0:TotalEnergyAccVpsSpeciesNum], \
+                             TotalEnergyAccVpsMesh[0:TotalEnergyAccVpsSpeciesNum], \
+                             TotalEnergyAccCoreCharge[0:TotalEnergyAccVpsSpeciesNum], \
+                             TotalEnergyAccVpsXV[0:TotalEnergyAccVpsSize], \
+                             TotalEnergyAccVpsRV[0:TotalEnergyAccVpsSize], \
+                             TotalEnergyAccVpsVH[0:TotalEnergyAccVpsSize])
+  }
+
+  free(TotalEnergyAccVpsOffset);
+  free(TotalEnergyAccVpsMesh);
+  free(TotalEnergyAccCoreCharge);
+  free(TotalEnergyAccVpsXV);
+  free(TotalEnergyAccVpsRV);
+  free(TotalEnergyAccVpsVH);
+
+  TotalEnergyAccVpsReady = 0;
+  TotalEnergyAccVpsSpeciesNum = 0;
+  TotalEnergyAccVpsSize = 0;
+  TotalEnergyAccVpsSig = 0;
+  TotalEnergyAccVpsOffset = NULL;
+  TotalEnergyAccVpsMesh = NULL;
+  TotalEnergyAccCoreCharge = NULL;
+  TotalEnergyAccVpsXV = NULL;
+  TotalEnergyAccVpsRV = NULL;
+  TotalEnergyAccVpsVH = NULL;
+}
+
+
+static void TotalEnergyResetAccEH0GridData(void)
+{
+  if (TotalEnergyAccEH0Ready==1){
+#pragma acc exit data delete(TotalEnergyAccEH0Offset[0:TotalEnergyAccEH0SpeciesNum], \
+                             TotalEnergyAccEH0TGN[0:TotalEnergyAccEH0SpeciesNum], \
+                             TotalEnergyAccEH0GridX[0:TotalEnergyAccEH0Size], \
+                             TotalEnergyAccEH0GridY[0:TotalEnergyAccEH0Size], \
+                             TotalEnergyAccEH0GridZ[0:TotalEnergyAccEH0Size], \
+                             TotalEnergyAccEH0Arho[0:TotalEnergyAccEH0Size], \
+                             TotalEnergyAccEH0Wt[0:TotalEnergyAccEH0Size], \
+                             TotalEnergyAccEH0DV[0:TotalEnergyAccEH0SpeciesNum])
+  }
+
+  free(TotalEnergyAccEH0Offset);
+  free(TotalEnergyAccEH0TGN);
+  free(TotalEnergyAccEH0GridX);
+  free(TotalEnergyAccEH0GridY);
+  free(TotalEnergyAccEH0GridZ);
+  free(TotalEnergyAccEH0Arho);
+  free(TotalEnergyAccEH0Wt);
+  free(TotalEnergyAccEH0DV);
+
+  TotalEnergyAccEH0Ready = 0;
+  TotalEnergyAccEH0SpeciesNum = 0;
+  TotalEnergyAccEH0Size = 0;
+  TotalEnergyAccEH0Offset = NULL;
+  TotalEnergyAccEH0TGN = NULL;
+  TotalEnergyAccEH0GridX = NULL;
+  TotalEnergyAccEH0GridY = NULL;
+  TotalEnergyAccEH0GridZ = NULL;
+  TotalEnergyAccEH0Arho = NULL;
+  TotalEnergyAccEH0Wt = NULL;
+  TotalEnergyAccEH0DV = NULL;
+}
+
+
 static void TotalEnergyEnsureAccPaoData(void)
 {
   int wan;
@@ -208,13 +386,18 @@ static void TotalEnergyEnsureAccPaoData(void)
   int mesh;
   int table_size;
   int i;
+  unsigned long long signature;
 
   if (!TotalEnergyUseOpenACC()){
     return;
   }
 
-  if (TotalEnergyAccPaoReady==1 && TotalEnergyAccPaoSpeciesNum==SpeciesNum){
+  signature = TotalEnergyAccPaoSignature();
+  if (TotalEnergyAccPaoReady==1 && TotalEnergyAccPaoSig==signature){
     return;
+  }
+  if (TotalEnergyAccPaoReady==1){
+    TotalEnergyResetAccPaoData();
   }
 
   TotalEnergyAccPaoSpeciesNum = SpeciesNum;
@@ -259,6 +442,7 @@ static void TotalEnergyEnsureAccPaoData(void)
                               TotalEnergyAccPaoDen2[0:total_size])
 
   TotalEnergyAccPaoReady = 1;
+  TotalEnergyAccPaoSig = signature;
 }
 
 
@@ -270,13 +454,18 @@ static void TotalEnergyEnsureAccVpsData(void)
   int mesh;
   int table_size;
   int i;
+  unsigned long long signature;
 
   if (!TotalEnergyUseOpenACC()){
     return;
   }
 
-  if (TotalEnergyAccVpsReady==1 && TotalEnergyAccVpsSpeciesNum==SpeciesNum){
+  signature = TotalEnergyAccVpsSignature();
+  if (TotalEnergyAccVpsReady==1 && TotalEnergyAccVpsSig==signature){
     return;
+  }
+  if (TotalEnergyAccVpsReady==1){
+    TotalEnergyResetAccVpsData();
   }
 
   TotalEnergyAccVpsSpeciesNum = SpeciesNum;
@@ -323,6 +512,7 @@ static void TotalEnergyEnsureAccVpsData(void)
                               TotalEnergyAccVpsRV[0:total_size], TotalEnergyAccVpsVH[0:total_size])
 
   TotalEnergyAccVpsReady = 1;
+  TotalEnergyAccVpsSig = signature;
 }
 
 
@@ -341,6 +531,11 @@ static void TotalEnergyUpdateAccEH0GridData(void)
   total_size = 0;
   for (wan=0; wan<SpeciesNum; wan++){
     total_size += TGN_EH0[wan];
+  }
+
+  if (TotalEnergyAccEH0Ready==1 &&
+      (TotalEnergyAccEH0SpeciesNum!=SpeciesNum || TotalEnergyAccEH0Size!=total_size)){
+    TotalEnergyResetAccEH0GridData();
   }
 
   if (TotalEnergyAccEH0Ready==0){
@@ -2463,6 +2658,12 @@ void Calc_EXC_EH1(double ECE[])
   Ng1 = Max_Grid_Index_D[1] - Min_Grid_Index_D[1] + 1;
   Ng2 = Max_Grid_Index_D[2] - Min_Grid_Index_D[2] + 1;
   Ng3 = Max_Grid_Index_D[3] - Min_Grid_Index_D[3] + 1;
+
+  for (spin=0; spin<=SpinP_switch; spin++){
+    for (BN=0; BN<My_NumGridB_AB; BN++){
+      Vxc_Grid_B[spin][BN] = 0.0;
+    }
+  }
 
   for (n=0; n<Num_Rcv_Grid_B2D[myid]; n++){
     DN = Index_Rcv_Grid_B2D[myid][n];

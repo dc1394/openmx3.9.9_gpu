@@ -85,6 +85,12 @@ void Set_Vpot(int MD_iter,
   Ng2 = Max_Grid_Index_D[2] - Min_Grid_Index_D[2] + 1;
   Ng3 = Max_Grid_Index_D[3] - Min_Grid_Index_D[3] + 1;
 
+  for (spin=0; spin<=SpinP_switch; spin++){
+    for (BN=0; BN<My_NumGridB_AB; BN++){
+      Vxc_Grid_B[spin][BN] = 0.0;
+    }
+  }
+
   for (n=0; n<Num_Rcv_Grid_B2D[myid]; n++){
     DN = Index_Rcv_Grid_B2D[myid][n];
     BN = Index_Snd_Grid_B2D[myid][n];

@@ -583,6 +583,28 @@ double Set_Aden_Grid()
              MPI: from the partitions B to D
   ******************************************************/
 
+  if (SpinP_switch==3){
+    for (DN=0; DN<My_NumGridD; DN++){
+      Density_Grid_D[0][DN] = 0.0;
+      Density_Grid_D[1][DN] = 0.0;
+      Density_Grid_D[2][DN] = 0.0;
+      Density_Grid_D[3][DN] = 0.0;
+    }
+  }
+  else{
+    for (DN=0; DN<My_NumGridD; DN++){
+      Density_Grid_D[0][DN] = 0.0;
+      Density_Grid_D[1][DN] = 0.0;
+    }
+  }
+
+  if (PCC_switch==1){
+    for (DN=0; DN<My_NumGridD; DN++){
+      PCCDensity_Grid_D[0][DN] = 0.0;
+      PCCDensity_Grid_D[1][DN] = 0.0;
+    }
+  }
+
   request_send = malloc(sizeof(MPI_Request)*NN_B2D_S);
   request_recv = malloc(sizeof(MPI_Request)*NN_B2D_R);
   stat_send = malloc(sizeof(MPI_Status)*NN_B2D_S);
