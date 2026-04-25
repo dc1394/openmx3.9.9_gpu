@@ -22,6 +22,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define measure_time 0
@@ -35,6 +36,400 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
 static void Save_DOS_Col(double ****** Residues, double **** OLP0, double *** EVal, int * Msize);
 static void Save_DOS_NonCol(dcomplex ****** Residues, double **** OLP0, double ** EVal, int * Msize);
+
+static int DC_GPU_Threshold(void)
+{
+    static int initialized = 0;
+    static int threshold   = GPU_CPU_SWITCH_NUM;
+
+    if (!initialized) {
+        char *env = getenv("OPENMX_DC_GPU_THRESHOLD");
+        if (env != NULL && env[0] != '\0') {
+            int env_threshold = atoi(env);
+            if (0 < env_threshold) {
+                threshold = env_threshold;
+            }
+        }
+        initialized = 1;
+    }
+
+    return threshold;
+}
+
+static inline double DC_FermiWeight(double eval, double chemP, double beta, double max_x)
+{
+    double x = (eval - chemP) * beta;
+    if (x <= -max_x)
+        x = -max_x;
+    if (max_x <= x)
+        x = max_x;
+    return 1.0 / (1.0 + exp(x));
+}
+
+static void DC_AbortWithMessage(const char *message)
+{
+    fprintf(stderr, "%s\n", message);
+    fflush(stderr);
+    MPI_Abort(mpi_comm_level1, 1);
+}
+
+static size_t DC_CheckedMulCount(size_t a, size_t b, const char *label)
+{
+    if (a != 0 && b > SIZE_MAX / a) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Dimension overflow in Divide_Conquer.c: %s", label);
+        DC_AbortWithMessage(msg);
+    }
+
+    return a * b;
+}
+
+static size_t DC_CheckedArrayBytes(size_t count, size_t elem_size, const char *label)
+{
+    if (count != 0 && elem_size > SIZE_MAX / count) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Allocation size overflow in Divide_Conquer.c: %s", label);
+        DC_AbortWithMessage(msg);
+    }
+
+    return count * elem_size;
+}
+
+static void *DC_MallocArray(size_t count, size_t elem_size, const char *label)
+{
+    size_t bytes = DC_CheckedArrayBytes(count, elem_size, label);
+    void * ptr   = malloc(bytes == 0 ? 1 : bytes);
+
+    if (ptr == NULL) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Out of memory in Divide_Conquer.c: %s (%zu bytes)", label, bytes);
+        DC_AbortWithMessage(msg);
+    }
+
+    return ptr;
+}
+
+typedef struct {
+    int                initialized;
+    int                device_id;
+    int                matrix_dim;
+    int                loaded_s_dim;
+    size_t             d_work_bytes;
+    size_t             h_work_bytes;
+    cudaStream_t       stream;
+    cublasHandle_t     cublas;
+    cusolverDnHandle_t cusolver;
+    double *           d_S;
+    double *           d_H;
+    double *           d_tmp;
+    double *           d_A;
+    double *           d_C;
+    double *           d_W;
+    int32_t *          d_info;
+    void *             d_work;
+    void *             h_work;
+    double *           h_matrix;
+} DCCuSolverCtx;
+
+static DCCuSolverCtx DC_cusolver_ctx = {0};
+
+static void DC_CuSolver_Destroy(void)
+{
+    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+
+    if (ctx->d_S != NULL)
+        wait_cudafunc(cudaFree(ctx->d_S));
+    if (ctx->d_H != NULL)
+        wait_cudafunc(cudaFree(ctx->d_H));
+    if (ctx->d_tmp != NULL)
+        wait_cudafunc(cudaFree(ctx->d_tmp));
+    if (ctx->d_A != NULL)
+        wait_cudafunc(cudaFree(ctx->d_A));
+    if (ctx->d_C != NULL)
+        wait_cudafunc(cudaFree(ctx->d_C));
+    if (ctx->d_W != NULL)
+        wait_cudafunc(cudaFree(ctx->d_W));
+    if (ctx->d_info != NULL)
+        wait_cudafunc(cudaFree(ctx->d_info));
+    if (ctx->d_work != NULL)
+        wait_cudafunc(cudaFree(ctx->d_work));
+    if (ctx->h_work != NULL)
+        free(ctx->h_work);
+    if (ctx->h_matrix != NULL)
+        wait_cudafunc(cudaFreeHost(ctx->h_matrix));
+    if (ctx->cusolver != NULL)
+        wait_cudafunc(cusolverDnDestroy(ctx->cusolver));
+    if (ctx->cublas != NULL)
+        wait_cudafunc(cublasDestroy(ctx->cublas));
+    if (ctx->stream != NULL)
+        wait_cudafunc(cudaStreamDestroy(ctx->stream));
+
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->device_id    = -1;
+    ctx->loaded_s_dim = 0;
+}
+
+static void DC_CuSolver_Init(void)
+{
+    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    int            current_device;
+
+    wait_cudafunc(cudaGetDevice(&current_device));
+
+    if (ctx->initialized && ctx->device_id == current_device) {
+        return;
+    }
+
+    if (ctx->initialized) {
+        DC_CuSolver_Destroy();
+    }
+
+    wait_cudafunc(cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking));
+    wait_cudafunc(cublasCreate(&ctx->cublas));
+    wait_cudafunc(cusolverDnCreate(&ctx->cusolver));
+    wait_cudafunc(cublasSetStream(ctx->cublas, ctx->stream));
+    wait_cudafunc(cusolverDnSetStream(ctx->cusolver, ctx->stream));
+
+    ctx->initialized  = 1;
+    ctx->device_id    = current_device;
+    ctx->loaded_s_dim = 0;
+}
+
+static void DC_CuSolver_EnsureMatrixCapacity(int num)
+{
+    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    size_t         matrix_bytes;
+
+    if (num <= 0) {
+        DC_AbortWithMessage("Invalid matrix size in DC_CuSolver_EnsureMatrixCapacity.");
+    }
+
+    DC_CuSolver_Init();
+
+    if (num <= ctx->matrix_dim) {
+        return;
+    }
+
+    if (ctx->d_S != NULL)
+        wait_cudafunc(cudaFree(ctx->d_S));
+    if (ctx->d_H != NULL)
+        wait_cudafunc(cudaFree(ctx->d_H));
+    if (ctx->d_tmp != NULL)
+        wait_cudafunc(cudaFree(ctx->d_tmp));
+    if (ctx->d_A != NULL)
+        wait_cudafunc(cudaFree(ctx->d_A));
+    if (ctx->d_C != NULL)
+        wait_cudafunc(cudaFree(ctx->d_C));
+    if (ctx->d_W != NULL)
+        wait_cudafunc(cudaFree(ctx->d_W));
+    if (ctx->d_info != NULL)
+        wait_cudafunc(cudaFree(ctx->d_info));
+    if (ctx->h_matrix != NULL)
+        wait_cudafunc(cudaFreeHost(ctx->h_matrix));
+
+    matrix_bytes = DC_CheckedArrayBytes(DC_CheckedMulCount((size_t)num, (size_t)num, "CuSOLVER dense matrix"),
+                                        sizeof(double), "CuSOLVER dense matrix");
+
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_S, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_H, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_tmp, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_A, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_C, matrix_bytes));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_W,
+                             DC_CheckedArrayBytes((size_t)num, sizeof(double), "CuSOLVER eigenvalue buffer")));
+    wait_cudafunc(cudaMalloc((void **)&ctx->d_info, sizeof(int32_t)));
+    wait_cudafunc(cudaMallocHost((void **)&ctx->h_matrix, matrix_bytes));
+
+    ctx->matrix_dim   = num;
+    ctx->loaded_s_dim = 0;
+}
+
+static void DC_CuSolver_EnsureWorkspace(int m, int maxn, double *d_A)
+{
+    DCCuSolverCtx *    ctx   = &DC_cusolver_ctx;
+    cusolverEigMode_t  jobz  = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t   uplo  = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+    double             vl    = 0.0;
+    double             vu    = 0.0;
+    int64_t            h_meig;
+    size_t             d_bytes = 0;
+    size_t             h_bytes = 0;
+
+    if (m <= 0 || maxn <= 0 || maxn > m) {
+        DC_AbortWithMessage("Invalid eigensolver dimensions in DC_CuSolver_EnsureWorkspace.");
+    }
+
+    DC_CuSolver_EnsureMatrixCapacity(m);
+
+    wait_cudafunc(cusolverDnXsyevdx_bufferSize(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_R_64F, d_A, m, &vl,
+                                               &vu, 1L, maxn, &h_meig, CUDA_R_64F, ctx->d_W, CUDA_R_64F, &d_bytes,
+                                               &h_bytes));
+
+    if (d_bytes > ctx->d_work_bytes) {
+        if (ctx->d_work != NULL)
+            wait_cudafunc(cudaFree(ctx->d_work));
+        ctx->d_work = NULL;
+        if (0 < d_bytes) {
+            wait_cudafunc(cudaMalloc((void **)&ctx->d_work, d_bytes));
+        }
+        ctx->d_work_bytes = d_bytes;
+    }
+
+    if (h_bytes == 0) {
+        if (ctx->h_work != NULL)
+            free(ctx->h_work);
+        ctx->h_work       = NULL;
+        ctx->h_work_bytes = 0;
+    } else if (h_bytes > ctx->h_work_bytes) {
+        if (ctx->h_work != NULL)
+            free(ctx->h_work);
+        ctx->h_work       = DC_MallocArray(h_bytes, 1, "CuSOLVER host workspace");
+        ctx->h_work_bytes = h_bytes;
+    }
+}
+
+static void DC_CuSolver_Eigen(double *d_A, int m, int maxn, double *W)
+{
+    DCCuSolverCtx *    ctx   = &DC_cusolver_ctx;
+    cusolverEigMode_t  jobz  = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t   uplo  = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+    double             vl    = 0.0;
+    double             vu    = 0.0;
+    int64_t            h_meig = 0;
+    int32_t            info   = 0;
+    char               msg[256];
+
+    DC_CuSolver_EnsureWorkspace(m, maxn, d_A);
+
+    wait_cudafunc(cusolverDnXsyevdx(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_R_64F, d_A, m, &vl, &vu, 1L, maxn,
+                                    &h_meig, CUDA_R_64F, ctx->d_W, CUDA_R_64F, ctx->d_work, ctx->d_work_bytes,
+                                    ctx->h_work, ctx->h_work_bytes, ctx->d_info));
+
+    wait_cudafunc(cudaMemcpyAsync(W, ctx->d_W, sizeof(double) * (size_t)maxn, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaMemcpyAsync(&info, ctx->d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+
+    if (info != 0) {
+        snprintf(msg, sizeof(msg), "cusolverDnXsyevdx failed in Divide_Conquer.c: info=%d", (int)info);
+        DC_AbortWithMessage(msg);
+    }
+    if (h_meig != (int64_t)maxn) {
+        snprintf(msg, sizeof(msg), "cusolverDnXsyevdx returned %lld eigenpairs, expected %d in Divide_Conquer.c.",
+                 (long long)h_meig, maxn);
+        DC_AbortWithMessage(msg);
+    }
+}
+
+static void DCCol_CuSolver_PackMatrix(int n, double **src, double *dst)
+{
+    int i, j;
+
+    for (j = 1; j <= n; j++) {
+        for (i = 1; i <= n; i++) {
+            dst[(size_t)(j - 1) * (size_t)n + (size_t)(i - 1)] = src[i][j];
+        }
+    }
+}
+
+static void DCCol_CuSolver_UnpackMatrix(int n, const double *src, double **dst)
+{
+    int i, j;
+
+    for (j = 1; j <= n; j++) {
+        for (i = 1; i <= n; i++) {
+            dst[i][j] = src[(size_t)(j - 1) * (size_t)n + (size_t)(i - 1)];
+        }
+    }
+}
+
+static void DCCol_CuSolver_LoadTransformedOverlap(int n, double **S_DC)
+{
+    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    size_t         matrix_bytes;
+
+    DC_CuSolver_EnsureMatrixCapacity(n);
+
+    matrix_bytes = DC_CheckedArrayBytes(DC_CheckedMulCount((size_t)n, (size_t)n, "DC transformed overlap"),
+                                        sizeof(double), "DC transformed overlap");
+
+    DCCol_CuSolver_PackMatrix(n, S_DC, ctx->h_matrix);
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_S, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+
+    ctx->loaded_s_dim = n;
+}
+
+static void DCCol_CuSolver_DiagonalizeOverlap(int n, double **S_DC, double *ko)
+{
+    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    size_t         matrix_bytes;
+
+    DC_CuSolver_EnsureMatrixCapacity(n);
+
+    matrix_bytes = DC_CheckedArrayBytes(DC_CheckedMulCount((size_t)n, (size_t)n, "DC overlap matrix"),
+                                        sizeof(double), "DC overlap matrix");
+
+    DCCol_CuSolver_PackMatrix(n, S_DC, ctx->h_matrix);
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_S, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
+
+    DC_CuSolver_Eigen(ctx->d_S, n, n, ko + 1);
+
+    wait_cudafunc(cudaMemcpyAsync(ctx->h_matrix, ctx->d_S, matrix_bytes, cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+
+    DCCol_CuSolver_UnpackMatrix(n, ctx->h_matrix, S_DC);
+    ctx->loaded_s_dim = 0;
+}
+
+static void DCCol_CuSolver_SolveHamiltonian(int n, int p_min, double **H_DC_spin, double *ko, double **C)
+{
+    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    double         alpha = 1.0;
+    double         beta  = 0.0;
+    int            num1  = n - (p_min - 1);
+    int            i, j;
+    size_t         matrix_bytes;
+
+    if (ctx->loaded_s_dim != n) {
+        DC_AbortWithMessage("Transformed overlap is not loaded in DCCol_CuSolver_SolveHamiltonian.");
+    }
+    if (num1 <= 0 || num1 > n) {
+        DC_AbortWithMessage("Invalid active subspace size in DCCol_CuSolver_SolveHamiltonian.");
+    }
+
+    matrix_bytes = DC_CheckedArrayBytes(DC_CheckedMulCount((size_t)n, (size_t)n, "DC Hamiltonian matrix"),
+                                        sizeof(double), "DC Hamiltonian matrix");
+
+    DCCol_CuSolver_PackMatrix(n, H_DC_spin, ctx->h_matrix);
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_H, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
+
+    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_H, n, ctx->d_S, n, &beta,
+                              ctx->d_tmp, n));
+    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_S, n, ctx->d_tmp, n,
+                              &beta, ctx->d_H, n));
+
+    wait_cudafunc(cudaMemcpy2DAsync(ctx->d_A, sizeof(double) * (size_t)num1,
+                                    ctx->d_H + (size_t)(p_min - 1) * (size_t)n + (size_t)(p_min - 1),
+                                    sizeof(double) * (size_t)n, sizeof(double) * (size_t)num1, (size_t)num1,
+                                    cudaMemcpyDeviceToDevice, ctx->stream));
+
+    DC_CuSolver_Eigen(ctx->d_A, num1, num1, ko + 1);
+
+    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, num1, num1, &alpha,
+                              ctx->d_S + (size_t)(p_min - 1) * (size_t)n, n, ctx->d_A, num1, &beta, ctx->d_C, n));
+
+    wait_cudafunc(cudaMemcpyAsync(ctx->h_matrix, ctx->d_C, sizeof(double) * (size_t)n * (size_t)num1,
+                                  cudaMemcpyDeviceToHost, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+
+    for (j = 1; j <= num1; j++) {
+        for (i = 1; i <= n; i++) {
+            C[i][j] = ctx->h_matrix[(size_t)(j - 1) * (size_t)n + (size_t)(i - 1)];
+        }
+    }
+}
 
 double Divide_Conquer(char * mode, int SCF_iter, double ***** Hks, double ***** ImNL, double **** OLP0,
                       double ***** CDM, double ***** EDM, double Eele0[2], double Eele1[2])
@@ -598,7 +993,6 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
 
     /* MPI, My_TZ */
 
-    MPI_Barrier(mpi_comm_level1);
     MPI_Allreduce(&My_TZ, &TZ, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
     if (scf_eigen_lib_flag == CuSOLVER) {
@@ -668,36 +1062,45 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
             /***********************************************
              allocation of arrays:
 
-             double S_DC[n2][n2];
-             double H_DC[SpinP_switch+1][n2][n2];
-             double ko[n2];
+            double S_DC[n2][n2];
+            double H_DC[SpinP_switch+1][n2][n2];
+            double ko[n2];
             ***********************************************/
 
-            S_DC = (double **)malloc(sizeof(double *) * n2);
+            double *S_DC_store =
+                (double *)DC_MallocArray((size_t)n2 * (size_t)n2, sizeof(double), "DC overlap matrix");
+            S_DC = (double **)DC_MallocArray((size_t)n2, sizeof(double *), "DC overlap row pointers");
             for (i = 0; i < n2; i++) {
-                S_DC[i] = (double *)malloc(sizeof(double) * n2);
+                S_DC[i] = S_DC_store + (size_t)i * (size_t)n2;
             }
 
-            H_DC = (double ***)malloc(sizeof(double **) * (SpinP_switch + 1));
+            double *H_DC_store =
+                (double *)DC_MallocArray((size_t)(SpinP_switch + 1) * (size_t)n2 * (size_t)n2, sizeof(double),
+                                         "DC Hamiltonian matrices");
+            H_DC = (double ***)DC_MallocArray((size_t)(SpinP_switch + 1), sizeof(double **),
+                                              "DC Hamiltonian spin pointers");
             for (spin = 0; spin <= SpinP_switch; spin++) {
-                H_DC[spin] = (double **)malloc(sizeof(double *) * n2);
+                H_DC[spin] = (double **)DC_MallocArray((size_t)n2, sizeof(double *), "DC Hamiltonian row pointers");
                 for (i = 0; i < n2; i++) {
-                    H_DC[spin][i] = (double *)malloc(sizeof(double) * n2);
+                    H_DC[spin][i] = H_DC_store + ((size_t)spin * (size_t)n2 + (size_t)i) * (size_t)n2;
                 }
             }
 
-            ko = (double *)malloc(sizeof(double) * n2);
-            M1 = (double *)malloc(sizeof(double) * n2);
+            ko = (double *)DC_MallocArray((size_t)n2, sizeof(double), "DC eigenvalues");
+            M1 = (double *)DC_MallocArray((size_t)n2, sizeof(double), "DC overlap scales");
 
-            C = (double **)malloc(sizeof(double *) * n2);
+            double *C_store =
+                (double *)DC_MallocArray((size_t)n2 * (size_t)n2, sizeof(double), "DC eigenvector matrix");
+            C = (double **)DC_MallocArray((size_t)n2, sizeof(double *), "DC eigenvector row pointers");
             for (i = 0; i < n2; i++) {
-                C[i] = (double *)malloc(sizeof(double) * n2);
+                C[i] = C_store + (size_t)i * (size_t)n2;
             }
 
-            double ** C2 = (double **)malloc(sizeof(double *) * n2);
-            for (i = 0; i < n2; i++) {
-                C2[i] = (double *)malloc(sizeof(double) * n2);
+            int use_dc_gpu = (scf_eigen_lib_flag == CuSOLVER && DC_GPU_Threshold() <= NUM);
+            if (SCF_iter <= 2) {
+                memset(S_DC_store, 0, sizeof(double) * (size_t)n2 * (size_t)n2);
             }
+            memset(H_DC_store, 0, sizeof(double) * (size_t)(SpinP_switch + 1) * (size_t)n2 * (size_t)n2);
 
             /***********************************************
              construct cluster full matrices of Hamiltonian
@@ -735,25 +1138,6 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                             }
                         }
                     }
-
-                    else {
-
-                        if (SCF_iter <= 2) {
-                            for (m = 0; m < ian; m++) {
-                                for (n = 0; n < jan; n++) {
-                                    S_DC[Anum + m][Bnum + n] = 0.0;
-                                }
-                            }
-                        }
-
-                        for (spin = 0; spin <= SpinP_switch; spin++) {
-                            for (m = 0; m < ian; m++) {
-                                for (n = 0; n < jan; n++) {
-                                    H_DC[spin][Anum + m][Bnum + n] = 0.0;
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
@@ -770,7 +1154,11 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                 if (measure_time)
                     dtime(&stime);
 
-                Eigen_lapack(S_DC, ko, NUM, NUM);
+                if (use_dc_gpu) {
+                    DCCol_CuSolver_DiagonalizeOverlap(NUM, S_DC, ko);
+                } else {
+                    Eigen_lapack(S_DC, ko, NUM, NUM);
+                }
 
                 /***********************************************
                       Searching of negative eigenvalues
@@ -833,7 +1221,11 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
             }
             NUM = Anum - 1;
 
-            int use_dc_openacc = (scf_eigen_lib_flag == CuSOLVER && GPU_CPU_SWITCH_NUM <= NUM);
+            if (use_dc_gpu) {
+                DCCol_CuSolver_LoadTransformedOverlap(NUM, S_DC);
+            }
+
+            int use_dc_openacc = 0;
 
             if (use_dc_openacc) {
                 size_t free_memory, total_memory;
@@ -865,7 +1257,11 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                 if (measure_time)
                     dtime(&stime);
 
-                if (use_dc_openacc) {
+                if (use_dc_gpu) {
+                    NUM1 = NUM - (P_min - 1);
+                    DCCol_CuSolver_SolveHamiltonian(NUM, P_min, H_DC[spin], ko, C);
+
+                } else if (use_dc_openacc) {
                     // OpenACC
 
                     /* transpose S */
@@ -1282,25 +1678,19 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                               free arrays
             ****************************************************/
 
-            for (i = 0; i < n2; i++) {
-                free(S_DC[i]);
-            }
+            free(S_DC_store);
             free(S_DC);
 
             for (spin = 0; spin <= SpinP_switch; spin++) {
-                for (i = 0; i < n2; i++) {
-                    free(H_DC[spin][i]);
-                }
                 free(H_DC[spin]);
             }
+            free(H_DC_store);
             free(H_DC);
 
             free(ko);
             free(M1);
 
-            for (i = 0; i < n2; i++) {
-                free(C[i]);
-            }
+            free(C_store);
             free(C);
 
             dtime(&Etime_atom);
@@ -1405,12 +1795,7 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                     Gc_AN = M2G[Mc_AN];
 
                     for (i = 0; i < Msize[Mc_AN]; i++) {
-                        x = (EVal[spin][Mc_AN][i] - ChemP) * Beta;
-                        if (x <= -max_x)
-                            x = -max_x;
-                        if (max_x <= x)
-                            x = max_x;
-                        FermiF = 1.0 / (1.0 + exp(x));
+                        FermiF = DC_FermiWeight(EVal[spin][Mc_AN][i], ChemP, Beta, max_x);
                         My_Num_State += spin_degeneracy * FermiF * PDOS_DC[spin][Mc_AN][i];
                     }
 
@@ -1421,7 +1806,6 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
 
             /* MPI, My_Num_State */
 
-            MPI_Barrier(mpi_comm_level1);
             MPI_Allreduce(&My_Num_State, &Num_State, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
             Dnum = (TZ - Num_State) - system_charge;
@@ -1452,12 +1836,7 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
 
                 Gc_AN = M2G[Mc_AN];
                 for (i = 0; i < Msize[Mc_AN]; i++) {
-                    x = (EVal[spin][Mc_AN][i] - ChemP) * Beta;
-                    if (x <= -max_x)
-                        x = -max_x;
-                    if (max_x <= x)
-                        x = max_x;
-                    FermiF = 1.0 / (1.0 + exp(x));
+                    FermiF = DC_FermiWeight(EVal[spin][Mc_AN][i], ChemP, Beta, max_x);
                     My_Eele0[spin] += FermiF * EVal[spin][Mc_AN][i] * PDOS_DC[spin][Mc_AN][i];
                 }
 
@@ -1468,7 +1847,6 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
 
         /* MPI, My_Eele0 */
         for (spin = 0; spin <= SpinP_switch; spin++) {
-            MPI_Barrier(mpi_comm_level1);
             MPI_Allreduce(&My_Eele0[spin], &Eele0[spin], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
         }
 
@@ -1488,25 +1866,6 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
         if (measure_time)
             dtime(&stime);
 
-        for (spin = 0; spin <= SpinP_switch; spin++) {
-            for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
-                Gc_AN = M2G[Mc_AN];
-                wanA  = WhatSpecies[Gc_AN];
-                tno1  = Spe_Total_CNO[wanA];
-                for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
-                    Gh_AN = natn[Gc_AN][h_AN];
-                    wanB  = WhatSpecies[Gh_AN];
-                    tno2  = Spe_Total_CNO[wanB];
-                    for (i = 0; i < tno1; i++) {
-                        for (j = 0; j < tno2; j++) {
-                            CDM[spin][Mc_AN][h_AN][i][j] = 0.0;
-                            EDM[spin][Mc_AN][h_AN][i][j] = 0.0;
-                        }
-                    }
-                }
-            }
-        }
-
         //#pragma omp parallel shared(FNAN, time_per_atom, EDM, CDM, Residues, natn, max_x, Beta, ChemP, EVal, Msize, Spe_Total_CNO, WhatSpecies, M2G, SpinP_switch, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, spin, Stime_atom, Gc_AN, wanA, tno1, i1, x, FermiF, h_AN, Gh_AN, wanB, tno2, i, j, tmp1, Etime_atom)
         {
             /* get info. on OpenMP */
@@ -1524,27 +1883,34 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                     wanA  = WhatSpecies[Gc_AN];
                     tno1  = Spe_Total_CNO[wanA];
 
+                    double *FermiW =
+                        (double *)DC_MallocArray((size_t)Msize[Mc_AN], sizeof(double), "DC Fermi weights");
                     for (i1 = 0; i1 < Msize[Mc_AN]; i1++) {
-                        x = (EVal[spin][Mc_AN][i1] - ChemP) * Beta;
-                        if (x <= -max_x)
-                            x = -max_x;
-                        if (max_x <= x)
-                            x = max_x;
-                        FermiF = 1.0 / (1.0 + exp(x));
+                        FermiW[i1] = DC_FermiWeight(EVal[spin][Mc_AN][i1], ChemP, Beta, max_x);
+                    }
 
-                        for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
-                            Gh_AN = natn[Gc_AN][h_AN];
-                            wanB  = WhatSpecies[Gh_AN];
-                            tno2  = Spe_Total_CNO[wanB];
-                            for (i = 0; i < tno1; i++) {
-                                for (j = 0; j < tno2; j++) {
-                                    tmp1 = FermiF * Residues[spin][Mc_AN][h_AN][i][j][i1];
-                                    CDM[spin][Mc_AN][h_AN][i][j] += tmp1;
-                                    EDM[spin][Mc_AN][h_AN][i][j] += tmp1 * EVal[spin][Mc_AN][i1];
+                    for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+                        Gh_AN = natn[Gc_AN][h_AN];
+                        wanB  = WhatSpecies[Gh_AN];
+                        tno2  = Spe_Total_CNO[wanB];
+                        for (i = 0; i < tno1; i++) {
+                            for (j = 0; j < tno2; j++) {
+                                double cdm_sum = 0.0;
+                                double edm_sum = 0.0;
+                                double *res    = Residues[spin][Mc_AN][h_AN][i][j];
+                                double *eval   = EVal[spin][Mc_AN];
+
+                                for (i1 = 0; i1 < Msize[Mc_AN]; i1++) {
+                                    tmp1 = FermiW[i1] * res[i1];
+                                    cdm_sum += tmp1;
+                                    edm_sum += tmp1 * eval[i1];
                                 }
+                                CDM[spin][Mc_AN][h_AN][i][j] = cdm_sum;
+                                EDM[spin][Mc_AN][h_AN][i][j] = edm_sum;
                             }
                         }
                     }
+                    free(FermiW);
 
                     dtime(&Etime_atom);
                     time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
@@ -1579,7 +1945,6 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
         }
 
         /* MPI, My_Eele1 */
-        MPI_Barrier(mpi_comm_level1);
         for (spin = 0; spin <= SpinP_switch; spin++) {
             MPI_Allreduce(&My_Eele1[spin], &Eele1[spin], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
         }
@@ -2391,7 +2756,6 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
     /* MPI, My_TZ */
 
-    MPI_Barrier(mpi_comm_level1);
     MPI_Allreduce(&My_TZ, &TZ, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
     // static double timeA = 0.0, timeB = 0.0, timeC = 0.0, timeD = 0.0, timeE = 0.0, timeF = 0.0, timeG = 0.0, timeH = 0.0;
@@ -2473,6 +2837,15 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                 C[i] = (dcomplex *)malloc(sizeof(dcomplex) * n2);
             }
 
+            if (SCF_iter <= 2) {
+                for (i = 0; i < (NUM + 2); i++) {
+                    memset(S_DC[i], 0, sizeof(double) * (size_t)(NUM + 2));
+                }
+            }
+            for (i = 0; i < n2; i++) {
+                memset(H_DC[i], 0, sizeof(dcomplex) * (size_t)n2);
+            }
+
             /***********************************************
              construct cluster full matrices of Hamiltonian
                      and overlap for the atom Mc_AN
@@ -2534,30 +2907,6 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                             }
                         }
 
-                    }
-
-                    else {
-
-                        if (SCF_iter <= 2) {
-                            for (m = 0; m < ian; m++) {
-                                for (n = 0; n < jan; n++) {
-                                    S_DC[Anum + m][Bnum + n] = 0.0;
-                                }
-                            }
-                        }
-
-                        for (m = 0; m < ian; m++) {
-                            for (n = 0; n < jan; n++) {
-                                H_DC[Anum + m][Bnum + n].r             = 0.0;
-                                H_DC[Anum + m][Bnum + n].i             = 0.0;
-                                H_DC[Anum + m + NUM][Bnum + n + NUM].r = 0.0;
-                                H_DC[Anum + m + NUM][Bnum + n + NUM].i = 0.0;
-                                H_DC[Anum + m][Bnum + n + NUM].r       = 0.0;
-                                H_DC[Anum + m][Bnum + n + NUM].i       = 0.0;
-                                H_DC[Bnum + n + NUM][Anum + m].r       = 0.0;
-                                H_DC[Bnum + n + NUM][Anum + m].i       = 0.0;
-                            }
-                        }
                     }
                 }
             }
@@ -3286,12 +3635,7 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                     Gc_AN = M2G[Mc_AN];
 
                     for (i = 0; i < 2 * Msize[Mc_AN]; i++) {
-                        x = (EVal[Mc_AN][i] - ChemP) * Beta;
-                        if (x <= -max_x)
-                            x = -max_x;
-                        if (max_x <= x)
-                            x = max_x;
-                        FermiF = 1.0 / (1.0 + exp(x));
+                        FermiF = DC_FermiWeight(EVal[Mc_AN][i], ChemP, Beta, max_x);
                         omp_tmp[OMPID] += FermiF * PDOS_DC[Mc_AN][i];
                     }
                 }
@@ -3305,7 +3649,6 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
             /* MPI, My_Num_State */
 
-            MPI_Barrier(mpi_comm_level1);
             MPI_Allreduce(&My_Num_State, &Num_State, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
             Dnum = (TZ - Num_State) - system_charge;
@@ -3345,12 +3688,7 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
                 Gc_AN = M2G[Mc_AN];
                 for (i = 0; i < 2 * Msize[Mc_AN]; i++) {
-                    x = (EVal[Mc_AN][i] - ChemP) * Beta;
-                    if (x <= -max_x)
-                        x = -max_x;
-                    if (max_x <= x)
-                        x = max_x;
-                    FermiF = 1.0 / (1.0 + exp(x));
+                    FermiF = DC_FermiWeight(EVal[Mc_AN][i], ChemP, Beta, max_x);
                     omp_tmp[OMPID] += FermiF * EVal[Mc_AN][i] * PDOS_DC[Mc_AN][i];
                 }
             }
@@ -3363,7 +3701,6 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
         /* MPI, My_Eele0 */
 
-        MPI_Barrier(mpi_comm_level1);
         MPI_Allreduce(&My_Eele0[0], &Eele0[0], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
         MPI_Allreduce(&My_Eele0[1], &Eele0[1], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
@@ -3383,38 +3720,6 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
             EDM[3]  Im alpha beta  energy density matrix
         ****************************************************/
 
-        for (spin = 0; spin <= SpinP_switch; spin++) {
-            for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
-                Gc_AN = M2G[Mc_AN];
-                wanA  = WhatSpecies[Gc_AN];
-                tno1  = Spe_Total_CNO[wanA];
-                for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
-                    Gh_AN = natn[Gc_AN][h_AN];
-                    wanB  = WhatSpecies[Gh_AN];
-                    tno2  = Spe_Total_CNO[wanB];
-
-                    for (i = 0; i < tno1; i++) {
-                        for (j = 0; j < tno2; j++) {
-                            CDM[spin][Mc_AN][h_AN][i][j] = 0.0;
-                            EDM[spin][Mc_AN][h_AN][i][j] = 0.0;
-                        }
-                    }
-
-                    /* spin-orbit coupling or LDA+U */
-                    if ((SO_switch == 1 || Hub_U_switch == 1 || 1 <= Constraint_NCS_switch || Zeeman_NCS_switch == 1 ||
-                         Zeeman_NCO_switch == 1) &&
-                        spin == 0) {
-                        for (i = 0; i < tno1; i++) {
-                            for (j = 0; j < tno2; j++) {
-                                iDM[0][0][Mc_AN][h_AN][i][j] = 0.0;
-                                iDM[0][1][Mc_AN][h_AN][i][j] = 0.0;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         // #pragma omp parallel shared(iDM, Zeeman_NCO_switch, Zeeman_NCS_switch, Constraint_NCS_switch, Hub_U_switch, SO_switch, time_per_atom, EDM, CDM, Residues, natn, max_x, Beta, ChemP, EVal, Msize, Spe_Total_CNO, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Gc_AN, wanA, tno1, i1, x, FermiF, h_AN, Gh_AN, wanB, tno2, i, j, tmp1, Etime_atom)
         {
 
@@ -3431,57 +3736,74 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                 Gc_AN = M2G[Mc_AN];
                 wanA  = WhatSpecies[Gc_AN];
                 tno1  = Spe_Total_CNO[wanA];
+                int use_iDM = (SO_switch == 1 || Hub_U_switch == 1 || 1 <= Constraint_NCS_switch ||
+                               Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1);
 
+                double *FermiW =
+                    (double *)DC_MallocArray((size_t)(2 * Msize[Mc_AN]), sizeof(double), "DC noncol Fermi weights");
                 for (i1 = 0; i1 < 2 * Msize[Mc_AN]; i1++) {
-                    x = (EVal[Mc_AN][i1] - ChemP) * Beta;
-                    if (x <= -max_x)
-                        x = -max_x;
-                    if (max_x <= x)
-                        x = max_x;
-                    FermiF = 1.0 / (1.0 + exp(x));
+                    FermiW[i1] = DC_FermiWeight(EVal[Mc_AN][i1], ChemP, Beta, max_x);
+                }
 
-                    for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
-                        Gh_AN = natn[Gc_AN][h_AN];
-                        wanB  = WhatSpecies[Gh_AN];
-                        tno2  = Spe_Total_CNO[wanB];
-                        for (i = 0; i < tno1; i++) {
-                            for (j = 0; j < tno2; j++) {
+                for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+                    Gh_AN = natn[Gc_AN][h_AN];
+                    wanB  = WhatSpecies[Gh_AN];
+                    tno2  = Spe_Total_CNO[wanB];
+                    for (i = 0; i < tno1; i++) {
+                        for (j = 0; j < tno2; j++) {
+                            double cdm0 = 0.0, cdm1 = 0.0, cdm2 = 0.0, cdm3 = 0.0;
+                            double edm0 = 0.0, edm1 = 0.0, edm2 = 0.0, edm3 = 0.0;
+                            double idm00 = 0.0, idm01 = 0.0;
+                            dcomplex *res0 = Residues[0][Mc_AN][h_AN][i][j];
+                            dcomplex *res1 = Residues[1][Mc_AN][h_AN][i][j];
+                            dcomplex *res2 = Residues[2][Mc_AN][h_AN][i][j];
 
-                                tmp1 = FermiF * Residues[0][Mc_AN][h_AN][i][j][i1].r;
+                            for (i1 = 0; i1 < 2 * Msize[Mc_AN]; i1++) {
+                                FermiF = FermiW[i1];
 
-                                CDM[0][Mc_AN][h_AN][i][j] += tmp1;
-                                EDM[0][Mc_AN][h_AN][i][j] += tmp1 * EVal[Mc_AN][i1];
+                                tmp1 = FermiF * res0[i1].r;
+                                cdm0 += tmp1;
+                                edm0 += tmp1 * EVal[Mc_AN][i1];
 
-                                tmp1 = FermiF * Residues[1][Mc_AN][h_AN][i][j][i1].r;
+                                tmp1 = FermiF * res1[i1].r;
+                                cdm1 += tmp1;
+                                edm1 += tmp1 * EVal[Mc_AN][i1];
 
-                                CDM[1][Mc_AN][h_AN][i][j] += tmp1;
-                                EDM[1][Mc_AN][h_AN][i][j] += tmp1 * EVal[Mc_AN][i1];
+                                tmp1 = FermiF * res2[i1].r;
+                                cdm2 += tmp1;
+                                edm2 += tmp1 * EVal[Mc_AN][i1];
 
-                                tmp1 = FermiF * Residues[2][Mc_AN][h_AN][i][j][i1].r;
+                                tmp1 = FermiF * res2[i1].i;
+                                cdm3 += tmp1;
+                                edm3 += tmp1 * EVal[Mc_AN][i1];
 
-                                CDM[2][Mc_AN][h_AN][i][j] += tmp1;
-                                EDM[2][Mc_AN][h_AN][i][j] += tmp1 * EVal[Mc_AN][i1];
-
-                                tmp1 = FermiF * Residues[2][Mc_AN][h_AN][i][j][i1].i;
-
-                                CDM[3][Mc_AN][h_AN][i][j] += tmp1;
-                                EDM[3][Mc_AN][h_AN][i][j] += tmp1 * EVal[Mc_AN][i1];
-
-                                /* spin-orbit coupling or LDA+U */
-                                if (SO_switch == 1 || Hub_U_switch == 1 || 1 <= Constraint_NCS_switch ||
-                                    Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1) {
-                                    iDM[0][0][Mc_AN][h_AN][i][j] += FermiF * Residues[0][Mc_AN][h_AN][i][j][i1].i;
-                                    iDM[0][1][Mc_AN][h_AN][i][j] += FermiF * Residues[1][Mc_AN][h_AN][i][j][i1].i;
+                                if (use_iDM) {
+                                    idm00 += FermiF * res0[i1].i;
+                                    idm01 += FermiF * res1[i1].i;
                                 }
+                            }
+
+                            CDM[0][Mc_AN][h_AN][i][j] = cdm0;
+                            EDM[0][Mc_AN][h_AN][i][j] = edm0;
+                            CDM[1][Mc_AN][h_AN][i][j] = cdm1;
+                            EDM[1][Mc_AN][h_AN][i][j] = edm1;
+                            CDM[2][Mc_AN][h_AN][i][j] = cdm2;
+                            EDM[2][Mc_AN][h_AN][i][j] = edm2;
+                            CDM[3][Mc_AN][h_AN][i][j] = cdm3;
+                            EDM[3][Mc_AN][h_AN][i][j] = edm3;
+
+                            if (use_iDM) {
+                                iDM[0][0][Mc_AN][h_AN][i][j] = idm00;
+                                iDM[0][1][Mc_AN][h_AN][i][j] = idm01;
                             }
                         }
                     }
                 }
+                free(FermiW);
 
-            } /* //#pragma omp parallel */
-
-            dtime(&Etime_atom);
-            time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+                dtime(&Etime_atom);
+                time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+            }
         }
 
         /****************************************************
@@ -3532,7 +3854,6 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
         }
 
         /* MPI, My_Eele1 */
-        MPI_Barrier(mpi_comm_level1);
         MPI_Allreduce(&My_Eele1[0], &Eele1[0], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
         if (3 <= level_stdout && myid == Host_ID) {
