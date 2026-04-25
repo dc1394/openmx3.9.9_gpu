@@ -29,6 +29,19 @@
 void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter);
 void Make_InputFile_with_FinalCoord_NEGF(char *file, int MD_iter);
 
+static int Make_FinalCoord_Filename(char *dst, size_t dst_size, const char *file)
+{
+  int written;
+
+  if (dst == NULL || dst_size == 0 || file == NULL) {
+    return 0;
+  }
+
+  written = snprintf(dst, dst_size, "%s%s#", (file[0] == '/') ? "" : filepath, file);
+
+  return (0 <= written && (size_t)written < dst_size);
+}
+
 
 
 void Make_InputFile_with_FinalCoord(char *file, int MD_iter)
@@ -89,8 +102,21 @@ void Make_InputFile_with_FinalCoord_Normal(char *file, int MD_iter)
  
     /* the new input file */    
 
-    sprintf(fname1,"%s%s#",filepath,file);
+    if (!Make_FinalCoord_Filename(fname1, sizeof(fname1), file)) {
+      fprintf(stderr, "Make_InputFile_with_FinalCoord: failed to build output filename for %s\n",
+              file == NULL ? "(null)" : file);
+      fflush(stderr);
+      MPI_Abort(mpi_comm_level1, 1);
+      exit(1);
+    }
+
     fp1 = fopen(fname1,"w");
+    if (fp1 == NULL) {
+      fprintf(stderr, "Make_InputFile_with_FinalCoord: could not open %s for writing\n", fname1);
+      fflush(stderr);
+      MPI_Abort(mpi_comm_level1, 1);
+      exit(1);
+    }
     fseek(fp1,0,SEEK_END);
 
     /* the original input file */    
@@ -618,8 +644,21 @@ void Make_InputFile_with_FinalCoord_NEGF(char *file, int MD_iter)
 
     /* the new input file */    
 
-    sprintf(fname1,"%s%s#",filepath,file);
+    if (!Make_FinalCoord_Filename(fname1, sizeof(fname1), file)) {
+      fprintf(stderr, "Make_InputFile_with_FinalCoord: failed to build output filename for %s\n",
+              file == NULL ? "(null)" : file);
+      fflush(stderr);
+      MPI_Abort(mpi_comm_level1, 1);
+      exit(1);
+    }
+
     fp1 = fopen(fname1,"w");
+    if (fp1 == NULL) {
+      fprintf(stderr, "Make_InputFile_with_FinalCoord: could not open %s for writing\n", fname1);
+      fflush(stderr);
+      MPI_Abort(mpi_comm_level1, 1);
+      exit(1);
+    }
     fseek(fp1,0,SEEK_END);
 
     /* the original input file */    
@@ -920,7 +959,6 @@ void Make_InputFile_with_FinalCoord_NEGF(char *file, int MD_iter)
   } /* if (myid==Host_ID) */
 
 }
-
 
 
 

@@ -16,6 +16,7 @@
 #include "openmx_common.h"
 #include <math.h>
 #include <omp.h>
+#include <openacc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,117 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+
+static void *Set_ProExpn_VNA_malloc(size_t size, int line)
+{
+    void *ptr;
+
+    if (size == 0) {
+        size = 1;
+    }
+
+    ptr = malloc(size);
+    if (ptr == NULL) {
+        fprintf(stderr, "Set_ProExpn_VNA.c:%d: failed to allocate %zu bytes\n", line, size);
+        MPI_Abort(mpi_comm_level1, EXIT_FAILURE);
+    }
+
+    return ptr;
+}
+
+#define malloc(size) Set_ProExpn_VNA_malloc((size), __LINE__)
+
+static int Set_ProExpn_VNA_Use_OpenACC(void)
+{
+    return (scf_eigen_lib_flag == CuSOLVER);
+}
+
+static size_t Set_ProExpn_VNA_CheckedMul(size_t a, size_t b, const char *label)
+{
+    if (a != 0 && b > ((size_t)-1) / a) {
+        fprintf(stderr, "Set_ProExpn_VNA.c: size overflow while allocating %s\n", label);
+        MPI_Abort(mpi_comm_level1, EXIT_FAILURE);
+    }
+    return a * b;
+}
+
+static size_t Pro_Gaunt_Index(int L0, int L1, int LL, int m, int M0, int max_l1, int max_ll, int dim_m, int dim_m0)
+{
+    return (((((size_t)L0 * (max_l1 + 1) + L1) * (max_ll + 1) + LL) * dim_m + (m + max_ll)) * dim_m0 +
+            (M0 + (dim_m0 - 1) / 2));
+}
+
+static double *Build_Pro_Gaunt_Cache(int max_l0, int max_l1)
+{
+    int     L0, L1, LL, m, M0, M1;
+    int     max_ll = 2 * (max_l0 < max_l1 ? max_l1 : max_l0);
+    int     dim_m  = 2 * max_ll + 1;
+    int     dim_m0 = 2 * max_l0 + 1;
+    size_t  size   = (size_t)(max_l0 + 1) * (max_l1 + 1) * (max_ll + 1) * dim_m * dim_m0;
+    double *cache  = (double *)malloc(sizeof(double) * size);
+
+    for (L0 = 0; L0 <= max_l0; L0++) {
+        for (L1 = 0; L1 <= max_l1; L1++) {
+            for (LL = 0; LL <= max_ll; LL++) {
+                for (m = -max_ll; m <= max_ll; m++) {
+                    for (M0 = -max_l0; M0 <= max_l0; M0++) {
+                        double value = 0.0;
+
+                        if (-LL <= m && m <= LL && -L0 <= M0 && M0 <= L0) {
+                            M1 = M0 - m;
+                            if (abs(M1) <= L1 && abs(L1 - LL) <= L0 && L0 <= (L1 + LL)) {
+                                value = Gaunt(L0, M0, L1, M1, LL, m);
+                            }
+                        }
+
+                        cache[Pro_Gaunt_Index(L0, L1, LL, m, M0, max_l1, max_ll, dim_m, dim_m0)] = value;
+                    }
+                }
+            }
+        }
+    }
+
+    return cache;
+}
+
+static size_t HNA_Gaunt_Index(int L0, int L1, int LL, int M0, int M1, int max_l, int max_ll, int dim_m)
+{
+    return (((((size_t)L0 * (max_l + 1) + L1) * (max_ll + 1) + LL) * dim_m + (M0 + max_l)) * dim_m +
+            (M1 + max_l));
+}
+
+static double *Build_HNA_Gaunt_Cache(int max_l)
+{
+    int     L0, L1, LL, M0, M1, m;
+    int     max_ll = 2 * max_l;
+    int     dim_m  = 2 * max_l + 1;
+    size_t  size   = (size_t)(max_l + 1) * (max_l + 1) * (max_ll + 1) * dim_m * dim_m;
+    double *cache  = (double *)malloc(sizeof(double) * size);
+
+    for (L0 = 0; L0 <= max_l; L0++) {
+        for (L1 = 0; L1 <= max_l; L1++) {
+            for (LL = 0; LL <= max_ll; LL++) {
+                for (M0 = -max_l; M0 <= max_l; M0++) {
+                    for (M1 = -max_l; M1 <= max_l; M1++) {
+                        double value = 0.0;
+
+                        if (-L0 <= M0 && M0 <= L0 && -L1 <= M1 && M1 <= L1 && abs(L1 - LL) <= L0 &&
+                            L0 <= (L1 + LL)) {
+                            m = M1 - M0;
+                            if (abs(m) <= LL) {
+                                value = (abs(m) % 2 == 0 ? 1.0 : -1.0) * Gaunt(L0, M0, L1, M1, LL, -m);
+                            }
+                        }
+
+                        cache[HNA_Gaunt_Index(L0, L1, LL, M0, M1, max_l, max_ll, dim_m)] = value;
+                    }
+                }
+            }
+        }
+    }
+
+    return cache;
+}
 
 static double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA);
 static double Set_VNA2(double **** HVNA, double ***** HVNA2);
@@ -79,6 +191,10 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
     double        tmp0, tmp3, tmp4, tmp5, tmp10;
     double ****   Bessel_Pro00;
     double ****   Bessel_Pro01;
+    double *      Bessel_Pro00_Flat;
+    double *      Bessel_Pro01_Flat;
+    double *      VNA_Bessel_Flat;
+    int *         Spe_Num_Basis_Flat;
     double        ene, sum, h, coe0, sj, sy, sjp, syp;
     double        rcutA, rcutB, rcut;
     double        TStime, TEtime;
@@ -90,6 +206,11 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
     int           Num_RVNA;
     double **     NLH;
     double        time0, time1, time2, time3, time4, time5;
+    double *      Pro_Gaunt;
+    int           max_pro_l0, max_pro_l1, max_pro_ll, pro_dim_m, pro_dim_m0;
+    int           use_openacc;
+    int           pro_l_dim, pro_mul_dim, pro_rf_stride, vna_l_dim, vna_mul_dim, vna_stride;
+    size_t        pro_rf_elems, vna_elems;
     dcomplex      sum0, sum1, sum2;
 
     MPI_Status  stat;
@@ -102,6 +223,7 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
     MPI_Comm_rank(mpi_comm_level1, &myid);
 
     dtime(&TStime);
+    use_openacc = Set_ProExpn_VNA_Use_OpenACC();
 
     /****************************************************
                  allocation of arrays:
@@ -136,6 +258,26 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
             }
         }
     }
+
+    pro_l_dim    = List_YOUSO[25] + 1;
+    pro_mul_dim  = List_YOUSO[24];
+    pro_rf_stride = pro_l_dim * pro_mul_dim * GL_Mesh;
+    pro_rf_elems = Set_ProExpn_VNA_CheckedMul((size_t)SpeciesNum, (size_t)pro_rf_stride, "Bessel_Pro flat cache");
+    Bessel_Pro00_Flat = (double *)malloc(sizeof(double) * pro_rf_elems);
+    Bessel_Pro01_Flat = (double *)malloc(sizeof(double) * pro_rf_elems);
+    Spe_Num_Basis_Flat = (int *)malloc(sizeof(int) * SpeciesNum * pro_l_dim);
+    for (spe = 0; spe < SpeciesNum; spe++) {
+        for (L0 = 0; L0 < pro_l_dim; L0++) {
+            Spe_Num_Basis_Flat[spe * pro_l_dim + L0] =
+                (L0 <= Spe_MaxL_Basis[spe]) ? Spe_Num_Basis[spe][L0] : 0;
+        }
+    }
+
+    vna_l_dim   = List_YOUSO[35] + 1;
+    vna_mul_dim = List_YOUSO[34];
+    vna_stride  = vna_l_dim * vna_mul_dim * GL_Mesh;
+    vna_elems   = Set_ProExpn_VNA_CheckedMul((size_t)SpeciesNum, (size_t)vna_stride, "VNA Bessel flat cache");
+    VNA_Bessel_Flat = (double *)malloc(sizeof(double) * vna_elems);
 
     size_TmpNL =
         (List_YOUSO[25] + 1) * List_YOUSO[24] * (2 * (List_YOUSO[25] + 1) + 1) * Num_RVNA * (2 * List_YOUSO[30] + 1);
@@ -176,6 +318,24 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
         }
     }
 
+    for (spe = 0; spe < SpeciesNum; spe++) {
+        for (L1 = 0; L1 <= List_YOUSO[35]; L1++) {
+            for (Mul1 = 0; Mul1 < List_YOUSO[34]; Mul1++) {
+                size_t base = (size_t)spe * vna_stride + ((size_t)L1 * vna_mul_dim + Mul1) * GL_Mesh;
+                for (i = 0; i < GL_Mesh; i++) {
+                    VNA_Bessel_Flat[base + i] = Spe_VNA_Bessel[spe][L1][Mul1][i];
+                }
+            }
+        }
+    }
+
+    max_pro_l0 = List_YOUSO[25];
+    max_pro_l1 = List_YOUSO[35];
+    max_pro_ll = 2 * (max_pro_l0 < max_pro_l1 ? max_pro_l1 : max_pro_l0);
+    pro_dim_m  = 2 * max_pro_ll + 1;
+    pro_dim_m0 = 2 * max_pro_l0 + 1;
+    Pro_Gaunt  = Build_Pro_Gaunt_Cache(max_pro_l0, max_pro_l1);
+
     /************************************************************
    pre-calculate the time consuming part in the 'time1' part
   *************************************************************/
@@ -208,6 +368,12 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
 
                         Bessel_Pro00[spe][L0][Mul0][i] = RF_BesselF(spe, L0, Mul0, Normk) * tmp10;
                         Bessel_Pro01[spe][L0][Mul0][i] = Bessel_Pro00[spe][L0][Mul0][i] * Normk;
+                        Bessel_Pro00_Flat[(size_t)spe * pro_rf_stride +
+                                           ((size_t)L0 * pro_mul_dim + Mul0) * GL_Mesh + i] =
+                            Bessel_Pro00[spe][L0][Mul0][i];
+                        Bessel_Pro01_Flat[(size_t)spe * pro_rf_stride +
+                                           ((size_t)L0 * pro_mul_dim + Mul0) * GL_Mesh + i] =
+                            Bessel_Pro01[spe][L0][Mul0][i];
                     }
 
 #pragma omp flush(Bessel_Pro00, Bessel_Pro01)
@@ -244,10 +410,13 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
         }
     }
 
-#pragma omp parallel shared(time_per_atom, DS_VNA, Comp2Real, Spe_VNA_Bessel, Bessel_Pro01, Bessel_Pro00, GL_NormK,    \
-                                List_YOUSO, VNA_List, Num_RVNA, Spe_Num_Basis, Spe_MaxL_Basis, PAO_Nkmax, atv, Gxyz,   \
-                                ncn, natn, Spe_Atom_Cut1, WhatSpecies, M2G, OneD2h_AN, OneD2Mc_AN, OneD_Nloop, time1,  \
-                                time2, time3)
+#pragma omp parallel shared(time_per_atom, DS_VNA, Comp2Real, Spe_VNA_Bessel, Bessel_Pro01, Bessel_Pro00,              \
+                                Bessel_Pro00_Flat, Bessel_Pro01_Flat, VNA_Bessel_Flat, Spe_Num_Basis_Flat, GL_NormK,    \
+                                GL_Weight, List_YOUSO, VNA_List, Num_RVNA, Spe_Num_Basis, Spe_MaxL_Basis, PAO_Nkmax,    \
+                                atv, Gxyz, ncn, natn, Spe_Atom_Cut1, WhatSpecies, M2G, OneD2h_AN, OneD2Mc_AN,           \
+                                OneD_Nloop, time1, time2, time3, Pro_Gaunt, max_pro_l1, max_pro_ll, pro_dim_m,          \
+                                pro_dim_m0, use_openacc, pro_l_dim, pro_mul_dim, pro_rf_stride, vna_l_dim, vna_mul_dim, \
+                                vna_stride)
 
     {
         int        i, j, k, l, m, num0, num1;
@@ -268,11 +437,17 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
         double *** SumNLr0;
         double *   Bes00;
         double *   Bes01;
-        double     tmp_SphB[30];
-        double     tmp_SphBp[30];
-        double     SphB[30][GL_Mesh];
-        double     SphBp[30][GL_Mesh];
+        double *   tmp_SphB;
+        double *   tmp_SphBp;
+        double **  SphB;
+        double **  SphBp;
+        double *   SphB_flat;
+        double *   SphBp_flat;
+        double *   sum_cache0;
+        double *   sum_cache1;
         double     stime, etime;
+        int        nloop_start, nloop_end, combo, combo_count;
+        size_t     sph_valid_elems, sum_valid_elems;
 
         dcomplex       Ctmp1, Ctmp0, Ctmp2;
         dcomplex       CsumNL0, CsumNLr, CsumNLt, CsumNLp;
@@ -391,7 +566,15 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
 
         /* one-dimensionalized loop */
 
-        for (Nloop = OMPID * OneD_Nloop / Nthrds; Nloop < (OMPID + 1) * OneD_Nloop / Nthrds; Nloop++) {
+        if (use_openacc) {
+            nloop_start = (OMPID == 0) ? 0 : 0;
+            nloop_end   = (OMPID == 0) ? OneD_Nloop : 0;
+        } else {
+            nloop_start = OMPID * OneD_Nloop / Nthrds;
+            nloop_end   = (OMPID + 1) * OneD_Nloop / Nthrds;
+        }
+
+        for (Nloop = nloop_start; Nloop < nloop_end; Nloop++) {
 
             dtime(&Stime_atom);
 
@@ -474,6 +657,33 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
             else
                 Lmax_Four_Int = 2 * Spe_MaxL_Basis[Cwan];
 
+            SphB = (double **)malloc(sizeof(double *) * (Lmax_Four_Int + 1));
+            for (LL = 0; LL <= Lmax_Four_Int; LL++) {
+                SphB[LL] = (double *)malloc(sizeof(double) * GL_Mesh);
+            }
+
+            SphBp = (double **)malloc(sizeof(double *) * (Lmax_Four_Int + 1));
+            for (LL = 0; LL <= Lmax_Four_Int; LL++) {
+                SphBp[LL] = (double *)malloc(sizeof(double) * GL_Mesh);
+            }
+
+            tmp_SphB  = (double *)malloc(sizeof(double) * (Lmax_Four_Int + 2));
+            tmp_SphBp = (double *)malloc(sizeof(double) * (Lmax_Four_Int + 2));
+            SphB_flat = NULL;
+            SphBp_flat = NULL;
+            sum_cache0 = NULL;
+            sum_cache1 = NULL;
+
+            if (use_openacc) {
+                combo_count = (Spe_MaxL_Basis[Cwan] + 1) * pro_mul_dim * Num_RVNA;
+                sph_valid_elems = (size_t)(Lmax_Four_Int + 1) * GL_Mesh;
+                sum_valid_elems = (size_t)(Lmax_Four_Int + 1) * combo_count;
+                SphB_flat  = (double *)malloc(sizeof(double) * sph_valid_elems);
+                SphBp_flat = (double *)malloc(sizeof(double) * sph_valid_elems);
+                sum_cache0 = (double *)malloc(sizeof(double) * sum_valid_elems);
+                sum_cache1 = (double *)malloc(sizeof(double) * sum_valid_elems);
+            }
+
             /* calculate SphB and SphBp */
 #ifdef kcomp
 #else
@@ -485,6 +695,62 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
                 for (LL = 0; LL <= Lmax_Four_Int; LL++) {
                     SphB[LL][i]  = tmp_SphB[LL];
                     SphBp[LL][i] = tmp_SphBp[LL];
+                    if (use_openacc) {
+                        SphB_flat[(size_t)LL * GL_Mesh + i]  = tmp_SphB[LL];
+                        SphBp_flat[(size_t)LL * GL_Mesh + i] = tmp_SphBp[LL];
+                    }
+                }
+            }
+
+            if (use_openacc && 0 < combo_count) {
+                int    spe_max_l = Spe_MaxL_Basis[Cwan];
+                double *rf0_acc  = Bessel_Pro00_Flat + (size_t)Cwan * pro_rf_stride;
+                double *rf1_acc  = Bessel_Pro01_Flat + (size_t)Cwan * pro_rf_stride;
+                double *vna_acc  = VNA_Bessel_Flat + (size_t)Hwan * vna_stride;
+                int *num_basis_acc = Spe_Num_Basis_Flat + Cwan * pro_l_dim;
+
+#pragma acc data copyin(GL_NormK[0:GL_Mesh], GL_Weight[0:GL_Mesh], SphB_flat[0:sph_valid_elems],                       \
+                            SphBp_flat[0:sph_valid_elems], rf0_acc[0:pro_rf_stride], rf1_acc[0:pro_rf_stride],          \
+                            vna_acc[0:vna_stride], num_basis_acc[0:pro_l_dim])                                           \
+    copyout(sum_cache0[0:sum_valid_elems], sum_cache1[0:sum_valid_elems])
+                {
+#pragma acc parallel loop collapse(2)
+                    for (LL = 0; LL <= Lmax_Four_Int; LL++) {
+                        for (combo = 0; combo < combo_count; combo++) {
+                            int    t, l0_acc, mul0_acc, l_acc, l1_acc, mul1_acc;
+                            double local_sum0, local_sumr;
+
+                            t        = combo;
+                            l_acc    = t % Num_RVNA;
+                            t        = t / Num_RVNA;
+                            mul0_acc = t % pro_mul_dim;
+                            l0_acc   = t / pro_mul_dim;
+                            l1_acc   = l_acc / vna_mul_dim;
+                            mul1_acc = l_acc - l1_acc * vna_mul_dim;
+
+                            local_sum0 = 0.0;
+                            local_sumr = 0.0;
+
+                            if (l0_acc <= spe_max_l && mul0_acc < num_basis_acc[l0_acc]) {
+#pragma acc loop vector reduction(+ : local_sum0, local_sumr)
+                                for (i = 0; i < GL_Mesh; i++) {
+                                    double normk_acc = GL_NormK[i];
+                                    double b0 = rf0_acc[((size_t)l0_acc * pro_mul_dim + mul0_acc) * GL_Mesh + i];
+                                    double b1 = rf1_acc[((size_t)l0_acc * pro_mul_dim + mul0_acc) * GL_Mesh + i];
+                                    double v0 = vna_acc[((size_t)l1_acc * vna_mul_dim + mul1_acc) * GL_Mesh + i];
+                                    local_sum0 += b0 * SphB_flat[(size_t)LL * GL_Mesh + i] * v0;
+                                    local_sumr += b1 * SphBp_flat[(size_t)LL * GL_Mesh + i] * v0;
+                                }
+                            }
+
+                            if (h_AN == 0) {
+                                local_sumr = 0.0;
+                            }
+
+                            sum_cache0[(size_t)LL * combo_count + combo] = local_sum0;
+                            sum_cache1[(size_t)LL * combo_count + combo] = local_sumr;
+                        }
+                    }
                 }
             }
 
@@ -492,11 +758,13 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
 
             for (LL = 0; LL <= Lmax_Four_Int; LL++) {
 
-                for (L0 = 0; L0 <= Spe_MaxL_Basis[Cwan]; L0++) {
-                    for (Mul0 = 0; Mul0 < Spe_Num_Basis[Cwan][L0]; Mul0++) {
-                        for (L = 0; L < Num_RVNA; L++) {
-                            SumNL0[L0][Mul0][L]  = 0.0;
-                            SumNLr0[L0][Mul0][L] = 0.0;
+                if (!use_openacc) {
+                    for (L0 = 0; L0 <= Spe_MaxL_Basis[Cwan]; L0++) {
+                        for (Mul0 = 0; Mul0 < Spe_Num_Basis[Cwan][L0]; Mul0++) {
+                            for (L = 0; L < Num_RVNA; L++) {
+                                SumNL0[L0][Mul0][L]  = 0.0;
+                                SumNLr0[L0][Mul0][L] = 0.0;
+                            }
                         }
                     }
                 }
@@ -506,30 +774,32 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
                 if (measure_time)
                     dtime(&stime);
 
-                for (L0 = 0; L0 <= Spe_MaxL_Basis[Cwan]; L0++) {
-                    for (Mul0 = 0; Mul0 < Spe_Num_Basis[Cwan][L0]; Mul0++) {
+                if (!use_openacc) {
+                    for (L0 = 0; L0 <= Spe_MaxL_Basis[Cwan]; L0++) {
+                        for (Mul0 = 0; Mul0 < Spe_Num_Basis[Cwan][L0]; Mul0++) {
 
-                        for (i = 0; i < GL_Mesh; i++) {
-                            Bes00[i] = Bessel_Pro00[Cwan][L0][Mul0][i] * SphB[LL][i];
-                            Bes01[i] = Bessel_Pro01[Cwan][L0][Mul0][i] * SphBp[LL][i];
-                        }
+                            for (i = 0; i < GL_Mesh; i++) {
+                                Bes00[i] = Bessel_Pro00[Cwan][L0][Mul0][i] * SphB[LL][i];
+                                Bes01[i] = Bessel_Pro01[Cwan][L0][Mul0][i] * SphBp[LL][i];
+                            }
 
-                        L = 0;
-                        for (L1 = 0; L1 <= List_YOUSO[35]; L1++) {
-                            for (Mul1 = 0; Mul1 < List_YOUSO[34]; Mul1++) {
+                            L = 0;
+                            for (L1 = 0; L1 <= List_YOUSO[35]; L1++) {
+                                for (Mul1 = 0; Mul1 < List_YOUSO[34]; Mul1++) {
 
-                                tmp1 = 0.0;
-                                tmp2 = 0.0;
+                                    tmp1 = 0.0;
+                                    tmp2 = 0.0;
 
-                                for (i = 0; i < GL_Mesh; i++) {
-                                    tmp1 += Bes00[i] * Spe_VNA_Bessel[Hwan][L1][Mul1][i];
-                                    tmp2 += Bes01[i] * Spe_VNA_Bessel[Hwan][L1][Mul1][i];
+                                    for (i = 0; i < GL_Mesh; i++) {
+                                        tmp1 += Bes00[i] * Spe_VNA_Bessel[Hwan][L1][Mul1][i];
+                                        tmp2 += Bes01[i] * Spe_VNA_Bessel[Hwan][L1][Mul1][i];
+                                    }
+
+                                    SumNL0[L0][Mul0][L]  = tmp1;
+                                    SumNLr0[L0][Mul0][L] = tmp2;
+
+                                    L++;
                                 }
-
-                                SumNL0[L0][Mul0][L]  = tmp1;
-                                SumNLr0[L0][Mul0][L] = tmp2;
-
-                                L++;
                             }
                         }
                     }
@@ -542,7 +812,7 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
 
                 /* derivatives of "on site" */
 
-                if (h_AN == 0) {
+                if (!use_openacc && h_AN == 0) {
                     for (L0 = 0; L0 <= Spe_MaxL_Basis[Cwan]; L0++) {
                         for (Mul0 = 0; Mul0 < Spe_Num_Basis[Cwan][L0]; Mul0++) {
                             for (L = 0; L < Num_RVNA; L++) {
@@ -594,8 +864,14 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
 
                                         if (abs(M1) <= L1) {
 
-                                            gant = Gaunt(L0, M0, L1, M1, LL, m);
-                                            tmp2 = gant * SumNL0[L0][Mul0][L];
+                                            gant = Pro_Gaunt[Pro_Gaunt_Index(L0, L1, LL, m, M0, max_pro_l1, max_pro_ll,
+                                                                             pro_dim_m, pro_dim_m0)];
+                                            if (use_openacc) {
+                                                combo = ((L0 * pro_mul_dim + Mul0) * Num_RVNA + L);
+                                                tmp2  = gant * sum_cache0[(size_t)LL * combo_count + combo];
+                                            } else {
+                                                tmp2 = gant * SumNL0[L0][Mul0][L];
+                                            }
 
                                             /* S */
 
@@ -604,7 +880,11 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
 
                                             /* dS/dr */
 
-                                            tmp0 = gant * SumNLr0[L0][Mul0][L];
+                                            if (use_openacc) {
+                                                tmp0 = gant * sum_cache1[(size_t)LL * combo_count + combo];
+                                            } else {
+                                                tmp0 = gant * SumNLr0[L0][Mul0][L];
+                                            }
 
                                             TmpNLr[L0][Mul0][L0 + M0][L][L1 + M1].r += CY1.r * tmp0;
                                             TmpNLr[L0][Mul0][L0 + M0][L][L1 + M1].i += CY1.i * tmp0;
@@ -632,6 +912,25 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
                 }
 
             } /* LL */
+
+            free(tmp_SphB);
+            free(tmp_SphBp);
+            if (use_openacc) {
+                free(sum_cache1);
+                free(sum_cache0);
+                free(SphBp_flat);
+                free(SphB_flat);
+            }
+
+            for (LL = 0; LL <= Lmax_Four_Int; LL++) {
+                free(SphB[LL]);
+            }
+            free(SphB);
+
+            for (LL = 0; LL <= Lmax_Four_Int; LL++) {
+                free(SphBp[LL]);
+            }
+            free(SphBp);
 
             /****************************************************
                         Complex to Real
@@ -1352,6 +1651,11 @@ double Set_ProExpn(double **** HVNA, Type_DS_VNA ***** DS_VNA)
 
     free(VNA_List);
     free(VNA_List2);
+    free(Pro_Gaunt);
+    free(VNA_Bessel_Flat);
+    free(Spe_Num_Basis_Flat);
+    free(Bessel_Pro01_Flat);
+    free(Bessel_Pro00_Flat);
 
     for (spe = 0; spe < SpeciesNum; spe++) {
         for (L0 = 0; L0 <= Spe_MaxL_Basis[spe]; L0++) {
@@ -1405,10 +1709,14 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
     double     tmp2, tmp3, tmp4, tmp5;
     double     TStime, TEtime;
     int        Num_RVNA;
+    double *   HNA_Gaunt;
+    int        max_hna_l, max_hna_ll, hna_dim_m;
+    int        use_openacc;
     /* for OpenMP */
     int OneD_Nloop, *OneD2Mc_AN, *OneD2h_AN;
 
     dtime(&TStime);
+    use_openacc = Set_ProExpn_VNA_Use_OpenACC();
 
     /****************************************************
   allocation of arrays:
@@ -1450,14 +1758,20 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
         }
     }
 
+    max_hna_l  = List_YOUSO[25];
+    max_hna_ll = 2 * max_hna_l;
+    hna_dim_m  = 2 * max_hna_l + 1;
+    HNA_Gaunt  = Build_HNA_Gaunt_Cache(max_hna_l);
+
 #pragma omp parallel shared(List_YOUSO, time_per_atom, HVNA2, Comp2Real, GL_Weight, Spe_ProductRF_Bessel,              \
                                 Spe_CrudeVNA_Bessel, GL_NormK, Spe_Num_Basis, Spe_MaxL_Basis, PAO_Nkmax, atv, Gxyz,    \
-                                WhatSpecies, ncn, natn, M2G, OneD2h_AN, OneD2Mc_AN, OneD_Nloop)
+                                WhatSpecies, ncn, natn, M2G, OneD2h_AN, OneD2Mc_AN, OneD_Nloop, HNA_Gaunt, max_hna_l,  \
+                                max_hna_ll, hna_dim_m, use_openacc)
     {
         int      OMPID, Nthrds, Nprocs, Nloop;
         int      Mc_AN, h_AN, Gc_AN, Cwan, Gh_AN;
         int      Rnh, Hwan, L0, Mul0, L1, Mul1, M0, M1, LL;
-        int      Lmax_Four_Int, i, j, k, l, m, num0, num1;
+        int      Lmax_Four_Int, sph_lmax, i, j, k, l, m, num0, num1;
         double   dx, dy, dz;
         double   siT, coT, siP, coP;
         double   Normk, kmin, kmax, Sk, Dk;
@@ -1468,6 +1782,7 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
         double   sum, sumr, sj, sjp, tmp0, tmp1, tmp10;
         double **SphB, **SphBp;
         double * tmp_SphB, *tmp_SphBp;
+        dcomplex *CY_cache, *CYt_cache, *CYp_cache;
 
         dcomplex        Ctmp0, Ctmp1, Ctmp2, Cpow;
         dcomplex        Csum, Csumr, Csumt, Csump;
@@ -1481,6 +1796,7 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
         dcomplex ****** TmpHNAr;
         dcomplex ****** TmpHNAt;
         dcomplex ****** TmpHNAp;
+        int             nloop_start, nloop_end;
 
         /* allocation of arrays */
 
@@ -1584,7 +1900,15 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
 
         /* one-dimensionalized loop */
 
-        for (Nloop = OMPID * OneD_Nloop / Nthrds; Nloop < (OMPID + 1) * OneD_Nloop / Nthrds; Nloop++) {
+        if (use_openacc) {
+            nloop_start = (OMPID == 0) ? 0 : 0;
+            nloop_end   = (OMPID == 0) ? OneD_Nloop : 0;
+        } else {
+            nloop_start = OMPID * OneD_Nloop / Nthrds;
+            nloop_end   = (OMPID + 1) * OneD_Nloop / Nthrds;
+        }
+
+        for (Nloop = nloop_start; Nloop < nloop_end; Nloop++) {
 
             dtime(&Stime_atom);
 
@@ -1658,19 +1982,23 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
             /* allocate SphB and SphBp */
 
             Lmax_Four_Int = 2 * Spe_MaxL_Basis[Cwan];
+            sph_lmax      = Lmax_Four_Int;
 
-            SphB = (double **)malloc(sizeof(double *) * (Lmax_Four_Int + 3));
-            for (LL = 0; LL < (Lmax_Four_Int + 3); LL++) {
+            SphB = (double **)malloc(sizeof(double *) * (sph_lmax + 3));
+            for (LL = 0; LL < (sph_lmax + 3); LL++) {
                 SphB[LL] = (double *)malloc(sizeof(double) * GL_Mesh);
             }
 
-            SphBp = (double **)malloc(sizeof(double *) * (Lmax_Four_Int + 3));
-            for (LL = 0; LL < (Lmax_Four_Int + 3); LL++) {
+            SphBp = (double **)malloc(sizeof(double *) * (sph_lmax + 3));
+            for (LL = 0; LL < (sph_lmax + 3); LL++) {
                 SphBp[LL] = (double *)malloc(sizeof(double) * GL_Mesh);
             }
 
-            tmp_SphB  = (double *)malloc(sizeof(double) * (Lmax_Four_Int + 3));
-            tmp_SphBp = (double *)malloc(sizeof(double) * (Lmax_Four_Int + 3));
+            tmp_SphB  = (double *)malloc(sizeof(double) * (sph_lmax + 3));
+            tmp_SphBp = (double *)malloc(sizeof(double) * (sph_lmax + 3));
+            CY_cache  = (dcomplex *)malloc(sizeof(dcomplex) * (2 * sph_lmax + 1));
+            CYt_cache = (dcomplex *)malloc(sizeof(dcomplex) * (2 * sph_lmax + 1));
+            CYp_cache = (dcomplex *)malloc(sizeof(dcomplex) * (2 * sph_lmax + 1));
 
             /* calculate SphB and SphBp */
 #ifdef kcomp
@@ -1710,22 +2038,52 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
 
                                         /* Gauss-Legendre quadrature */
 
-                                        for (i = 0; i < GL_Mesh; i++) {
+                                        if (use_openacc) {
+                                            double *crude_acc = Spe_CrudeVNA_Bessel[Hwan];
+                                            double *prod_acc  = Spe_ProductRF_Bessel[Cwan][L0][Mul0][L1][Mul1][LL];
+                                            double *sphb_acc  = SphB[LL];
+                                            double *sphbp_acc = SphBp[LL];
 
-                                            Normk = GL_NormK[i];
+#pragma acc data copyin(GL_NormK[0:GL_Mesh], GL_Weight[0:GL_Mesh], crude_acc[0:GL_Mesh], prod_acc[0:GL_Mesh],           \
+                            sphb_acc[0:GL_Mesh], sphbp_acc[0:GL_Mesh])
+                                            {
+#pragma acc parallel loop reduction(+ : sum, sumr)
+                                                for (i = 0; i < GL_Mesh; i++) {
+                                                    Normk = GL_NormK[i];
+                                                    sj    = sphb_acc[i];
+                                                    sjp   = sphbp_acc[i];
+                                                    tmp0  = crude_acc[i];
+                                                    tmp1  = prod_acc[i];
+                                                    tmp10 = 0.50 * Dk * tmp0 * tmp1 * GL_Weight[i] * Normk * Normk;
+                                                    sum += tmp10 * sj;
+                                                    sumr += tmp10 * sjp * Normk;
+                                                }
+                                            }
+                                        } else {
+                                            for (i = 0; i < GL_Mesh; i++) {
 
-                                            sj  = SphB[LL][i];
-                                            sjp = SphBp[LL][i];
+                                                Normk = GL_NormK[i];
 
-                                            tmp0  = Spe_CrudeVNA_Bessel[Hwan][i];
-                                            tmp1  = Spe_ProductRF_Bessel[Cwan][L0][Mul0][L1][Mul1][LL][i];
-                                            tmp10 = 0.50 * Dk * tmp0 * tmp1 * GL_Weight[i] * Normk * Normk;
+                                                sj  = SphB[LL][i];
+                                                sjp = SphBp[LL][i];
 
-                                            sum += tmp10 * sj;
-                                            sumr += tmp10 * sjp * Normk;
+                                                tmp0  = Spe_CrudeVNA_Bessel[Hwan][i];
+                                                tmp1  = Spe_ProductRF_Bessel[Cwan][L0][Mul0][L1][Mul1][LL][i];
+                                                tmp10 = 0.50 * Dk * tmp0 * tmp1 * GL_Weight[i] * Normk * Normk;
+
+                                                sum += tmp10 * sj;
+                                                sumr += tmp10 * sjp * Normk;
+                                            }
                                         }
 
                                         /* sum over m */
+
+                                        for (m = -LL; m <= LL; m++) {
+                                            ComplexSH(LL, m, theta, phi, SH, dSHt, dSHp);
+                                            CY_cache[m + sph_lmax]  = Complex(SH[0], SH[1]);
+                                            CYt_cache[m + sph_lmax] = Complex(dSHt[0], dSHt[1]);
+                                            CYp_cache[m + sph_lmax] = Complex(dSHp[0], dSHp[1]);
+                                        }
 
                                         for (M0 = -L0; M0 <= L0; M0++) {
                                             for (M1 = -L1; M1 <= L1; M1++) {
@@ -1735,33 +2093,30 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
                                                 Csumt = Complex(0.0, 0.0);
                                                 Csump = Complex(0.0, 0.0);
 
-                                                for (m = -LL; m <= LL; m++) {
+                                                m = M1 - M0;
+                                                if (abs(m) <= LL) {
 
-                                                    if ((M1 - m) == M0) {
+                                                    CY  = CY_cache[m + sph_lmax];
+                                                    CYt = CYt_cache[m + sph_lmax];
+                                                    CYp = CYp_cache[m + sph_lmax];
 
-                                                        ComplexSH(LL, m, theta, phi, SH, dSHt, dSHp);
-                                                        CY  = Complex(SH[0], SH[1]);
-                                                        CYt = Complex(dSHt[0], dSHt[1]);
-                                                        CYp = Complex(dSHp[0], dSHp[1]);
+                                                    gant = HNA_Gaunt[HNA_Gaunt_Index(L0, L1, LL, M0, M1, max_hna_l,
+                                                                                     max_hna_ll, hna_dim_m)];
 
-                                                        gant =
-                                                            pow(-1.0, (double)abs(m)) * Gaunt(L0, M0, L1, M1, LL, -m);
+                                                    /* S */
 
-                                                        /* S */
+                                                    Ctmp2 = CRmul(CY, gant);
+                                                    Csum  = Cadd(Csum, Ctmp2);
 
-                                                        Ctmp2 = CRmul(CY, gant);
-                                                        Csum  = Cadd(Csum, Ctmp2);
+                                                    /* dS/dt */
 
-                                                        /* dS/dt */
+                                                    Ctmp2 = CRmul(CYt, gant);
+                                                    Csumt = Cadd(Csumt, Ctmp2);
 
-                                                        Ctmp2 = CRmul(CYt, gant);
-                                                        Csumt = Cadd(Csumt, Ctmp2);
+                                                    /* dS/dp */
 
-                                                        /* dS/dp */
-
-                                                        Ctmp2 = CRmul(CYp, gant);
-                                                        Csump = Cadd(Csump, Ctmp2);
-                                                    }
+                                                    Ctmp2 = CRmul(CYp, gant);
+                                                    Csump = Cadd(Csump, Ctmp2);
                                                 }
 
                                                 /* S */
@@ -1795,12 +2150,12 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
 
             /* free SphB and SphBp */
 
-            for (LL = 0; LL < (Lmax_Four_Int + 3); LL++) {
+            for (LL = 0; LL < (sph_lmax + 3); LL++) {
                 free(SphB[LL]);
             }
             free(SphB);
 
-            for (LL = 0; LL < (Lmax_Four_Int + 3); LL++) {
+            for (LL = 0; LL < (sph_lmax + 3); LL++) {
                 free(SphBp[LL]);
             }
             free(SphBp);
@@ -2094,6 +2449,7 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
 
     free(OneD2Mc_AN);
     free(OneD2h_AN);
+    free(HNA_Gaunt);
 
     /* for time */
     dtime(&TEtime);
@@ -2121,11 +2477,15 @@ double Set_VNA3(double ***** HVNA3)
     double     tmp2, tmp3, tmp4, tmp5;
     double     TStime, TEtime;
     int        Num_RVNA;
+    double *   HNA_Gaunt;
+    int        max_hna_l, max_hna_ll, hna_dim_m;
+    int        use_openacc;
 
     /* for OpenMP */
     int OneD_Nloop, *OneD2Mc_AN, *OneD2h_AN;
 
     dtime(&TStime);
+    use_openacc = Set_ProExpn_VNA_Use_OpenACC();
 
     /****************************************************
   allocation of arrays:
@@ -2167,14 +2527,20 @@ double Set_VNA3(double ***** HVNA3)
         }
     }
 
+    max_hna_l  = List_YOUSO[25];
+    max_hna_ll = 2 * max_hna_l;
+    hna_dim_m  = 2 * max_hna_l + 1;
+    HNA_Gaunt  = Build_HNA_Gaunt_Cache(max_hna_l);
+
 #pragma omp parallel shared(List_YOUSO, time_per_atom, HVNA3, Comp2Real, GL_Weight, Spe_ProductRF_Bessel,              \
                                 Spe_CrudeVNA_Bessel, GL_NormK, Spe_Num_Basis, Spe_MaxL_Basis, PAO_Nkmax, atv, Gxyz,    \
-                                WhatSpecies, ncn, natn, M2G, OneD2h_AN, OneD2Mc_AN, OneD_Nloop)
+                                WhatSpecies, ncn, natn, M2G, OneD2h_AN, OneD2Mc_AN, OneD_Nloop, HNA_Gaunt, max_hna_l,  \
+                                max_hna_ll, hna_dim_m, use_openacc)
     {
         int      OMPID, Nthrds, Nprocs, Nloop;
         int      Mc_AN, h_AN, Gc_AN, Cwan, Gh_AN;
         int      Rnh, Hwan, L0, Mul0, L1, Mul1, M0, M1, LL;
-        int      Lmax_Four_Int, i, j, k, l, m, num0, num1;
+        int      Lmax_Four_Int, sph_lmax, i, j, k, l, m, num0, num1;
         double   dx, dy, dz;
         double   siT, coT, siP, coP;
         double   Normk, kmin, kmax, Sk, Dk;
@@ -2185,6 +2551,7 @@ double Set_VNA3(double ***** HVNA3)
         double   sum, sumr, sj, sjp, tmp0, tmp1, tmp10;
         double **SphB, **SphBp;
         double * tmp_SphB, *tmp_SphBp;
+        dcomplex *CY_cache, *CYt_cache, *CYp_cache;
 
         dcomplex        Ctmp0, Ctmp1, Ctmp2, Cpow;
         dcomplex        Csum, Csumr, Csumt, Csump;
@@ -2198,6 +2565,7 @@ double Set_VNA3(double ***** HVNA3)
         dcomplex ****** TmpHNAr;
         dcomplex ****** TmpHNAt;
         dcomplex ****** TmpHNAp;
+        int             nloop_start, nloop_end;
 
         /* allocation of arrays */
 
@@ -2301,7 +2669,15 @@ double Set_VNA3(double ***** HVNA3)
 
         /* one-dimensionalized loop */
 
-        for (Nloop = OMPID * OneD_Nloop / Nthrds; Nloop < (OMPID + 1) * OneD_Nloop / Nthrds; Nloop++) {
+        if (use_openacc) {
+            nloop_start = (OMPID == 0) ? 0 : 0;
+            nloop_end   = (OMPID == 0) ? OneD_Nloop : 0;
+        } else {
+            nloop_start = OMPID * OneD_Nloop / Nthrds;
+            nloop_end   = (OMPID + 1) * OneD_Nloop / Nthrds;
+        }
+
+        for (Nloop = nloop_start; Nloop < nloop_end; Nloop++) {
 
             dtime(&Stime_atom);
 
@@ -2375,19 +2751,23 @@ double Set_VNA3(double ***** HVNA3)
             /* allocate SphB and SphBp */
 
             Lmax_Four_Int = 2 * Spe_MaxL_Basis[Hwan];
+            sph_lmax      = Lmax_Four_Int;
 
-            SphB = (double **)malloc(sizeof(double *) * (Lmax_Four_Int + 3));
-            for (LL = 0; LL < (Lmax_Four_Int + 3); LL++) {
+            SphB = (double **)malloc(sizeof(double *) * (sph_lmax + 3));
+            for (LL = 0; LL < (sph_lmax + 3); LL++) {
                 SphB[LL] = (double *)malloc(sizeof(double) * GL_Mesh);
             }
 
-            SphBp = (double **)malloc(sizeof(double *) * (Lmax_Four_Int + 3));
-            for (LL = 0; LL < (Lmax_Four_Int + 3); LL++) {
+            SphBp = (double **)malloc(sizeof(double *) * (sph_lmax + 3));
+            for (LL = 0; LL < (sph_lmax + 3); LL++) {
                 SphBp[LL] = (double *)malloc(sizeof(double) * GL_Mesh);
             }
 
-            tmp_SphB  = (double *)malloc(sizeof(double) * (Lmax_Four_Int + 3));
-            tmp_SphBp = (double *)malloc(sizeof(double) * (Lmax_Four_Int + 3));
+            tmp_SphB  = (double *)malloc(sizeof(double) * (sph_lmax + 3));
+            tmp_SphBp = (double *)malloc(sizeof(double) * (sph_lmax + 3));
+            CY_cache  = (dcomplex *)malloc(sizeof(dcomplex) * (2 * sph_lmax + 1));
+            CYt_cache = (dcomplex *)malloc(sizeof(dcomplex) * (2 * sph_lmax + 1));
+            CYp_cache = (dcomplex *)malloc(sizeof(dcomplex) * (2 * sph_lmax + 1));
 
             /* calculate SphB and SphBp */
 #ifdef kcomp
@@ -2428,22 +2808,52 @@ double Set_VNA3(double ***** HVNA3)
 
                                         /* Gauss-Legendre quadrature */
 
-                                        for (i = 0; i < GL_Mesh; i++) {
+                                        if (use_openacc) {
+                                            double *crude_acc = Spe_CrudeVNA_Bessel[Cwan];
+                                            double *prod_acc  = Spe_ProductRF_Bessel[Hwan][L0][Mul0][L1][Mul1][LL];
+                                            double *sphb_acc  = SphB[LL];
+                                            double *sphbp_acc = SphBp[LL];
 
-                                            Normk = GL_NormK[i];
+#pragma acc data copyin(GL_NormK[0:GL_Mesh], GL_Weight[0:GL_Mesh], crude_acc[0:GL_Mesh], prod_acc[0:GL_Mesh],           \
+                            sphb_acc[0:GL_Mesh], sphbp_acc[0:GL_Mesh])
+                                            {
+#pragma acc parallel loop reduction(+ : sum, sumr)
+                                                for (i = 0; i < GL_Mesh; i++) {
+                                                    Normk = GL_NormK[i];
+                                                    sj    = sphb_acc[i];
+                                                    sjp   = sphbp_acc[i];
+                                                    tmp0  = crude_acc[i];
+                                                    tmp1  = prod_acc[i];
+                                                    tmp10 = 0.50 * Dk * tmp0 * tmp1 * GL_Weight[i] * Normk * Normk;
+                                                    sum += tmp10 * sj;
+                                                    sumr += tmp10 * sjp * Normk;
+                                                }
+                                            }
+                                        } else {
+                                            for (i = 0; i < GL_Mesh; i++) {
 
-                                            sj  = SphB[LL][i];
-                                            sjp = SphBp[LL][i];
+                                                Normk = GL_NormK[i];
 
-                                            tmp0  = Spe_CrudeVNA_Bessel[Cwan][i];
-                                            tmp1  = Spe_ProductRF_Bessel[Hwan][L0][Mul0][L1][Mul1][LL][i];
-                                            tmp10 = 0.50 * Dk * tmp0 * tmp1 * GL_Weight[i] * Normk * Normk;
+                                                sj  = SphB[LL][i];
+                                                sjp = SphBp[LL][i];
 
-                                            sum += tmp10 * sj;
-                                            sumr += tmp10 * sjp * Normk;
+                                                tmp0  = Spe_CrudeVNA_Bessel[Cwan][i];
+                                                tmp1  = Spe_ProductRF_Bessel[Hwan][L0][Mul0][L1][Mul1][LL][i];
+                                                tmp10 = 0.50 * Dk * tmp0 * tmp1 * GL_Weight[i] * Normk * Normk;
+
+                                                sum += tmp10 * sj;
+                                                sumr += tmp10 * sjp * Normk;
+                                            }
                                         }
 
                                         /* sum over m */
+
+                                        for (m = -LL; m <= LL; m++) {
+                                            ComplexSH(LL, m, theta, phi, SH, dSHt, dSHp);
+                                            CY_cache[m + sph_lmax]  = Complex(SH[0], SH[1]);
+                                            CYt_cache[m + sph_lmax] = Complex(dSHt[0], dSHt[1]);
+                                            CYp_cache[m + sph_lmax] = Complex(dSHp[0], dSHp[1]);
+                                        }
 
                                         for (M0 = -L0; M0 <= L0; M0++) {
                                             for (M1 = -L1; M1 <= L1; M1++) {
@@ -2453,33 +2863,30 @@ double Set_VNA3(double ***** HVNA3)
                                                 Csumt = Complex(0.0, 0.0);
                                                 Csump = Complex(0.0, 0.0);
 
-                                                for (m = -LL; m <= LL; m++) {
+                                                m = M1 - M0;
+                                                if (abs(m) <= LL) {
 
-                                                    if ((M1 - m) == M0) {
+                                                    CY  = CY_cache[m + sph_lmax];
+                                                    CYt = CYt_cache[m + sph_lmax];
+                                                    CYp = CYp_cache[m + sph_lmax];
 
-                                                        ComplexSH(LL, m, theta, phi, SH, dSHt, dSHp);
-                                                        CY  = Complex(SH[0], SH[1]);
-                                                        CYt = Complex(dSHt[0], dSHt[1]);
-                                                        CYp = Complex(dSHp[0], dSHp[1]);
+                                                    gant = HNA_Gaunt[HNA_Gaunt_Index(L0, L1, LL, M0, M1, max_hna_l,
+                                                                                     max_hna_ll, hna_dim_m)];
 
-                                                        gant =
-                                                            pow(-1.0, (double)abs(m)) * Gaunt(L0, M0, L1, M1, LL, -m);
+                                                    /* S */
 
-                                                        /* S */
+                                                    Ctmp2 = CRmul(CY, gant);
+                                                    Csum  = Cadd(Csum, Ctmp2);
 
-                                                        Ctmp2 = CRmul(CY, gant);
-                                                        Csum  = Cadd(Csum, Ctmp2);
+                                                    /* dS/dt */
 
-                                                        /* dS/dt */
+                                                    Ctmp2 = CRmul(CYt, gant);
+                                                    Csumt = Cadd(Csumt, Ctmp2);
 
-                                                        Ctmp2 = CRmul(CYt, gant);
-                                                        Csumt = Cadd(Csumt, Ctmp2);
+                                                    /* dS/dp */
 
-                                                        /* dS/dp */
-
-                                                        Ctmp2 = CRmul(CYp, gant);
-                                                        Csump = Cadd(Csump, Ctmp2);
-                                                    }
+                                                    Ctmp2 = CRmul(CYp, gant);
+                                                    Csump = Cadd(Csump, Ctmp2);
                                                 }
 
                                                 /* S */
@@ -2513,15 +2920,18 @@ double Set_VNA3(double ***** HVNA3)
 
             /* free SphB and SphBp */
 
-            for (LL = 0; LL < (Lmax_Four_Int + 3); LL++) {
+            for (LL = 0; LL < (sph_lmax + 3); LL++) {
                 free(SphB[LL]);
             }
             free(SphB);
 
-            for (LL = 0; LL < (Lmax_Four_Int + 3); LL++) {
+            for (LL = 0; LL < (sph_lmax + 3); LL++) {
                 free(SphBp[LL]);
             }
             free(SphBp);
+            free(CY_cache);
+            free(CYt_cache);
+            free(CYp_cache);
 
             /* copy the upper part to the lower part */
 
@@ -2789,6 +3199,7 @@ double Set_VNA3(double ***** HVNA3)
 
     free(OneD2Mc_AN);
     free(OneD2h_AN);
+    free(HNA_Gaunt);
 
     /* for time */
     dtime(&TEtime);
@@ -2797,8 +3208,6 @@ double Set_VNA3(double ***** HVNA3)
 }
 
 #define xmin       0.0
-#define asize_lmax 30
-
 #ifdef kcomp
 static void Spherical_Bessel2(double x, int lmax, double * sb, double * dsb)
 #else
@@ -2806,13 +3215,14 @@ inline void Spherical_Bessel2(double x, int lmax, double * sb, double * dsb)
 #endif
 {
     int    m, n, nmax;
-    double tsb[asize_lmax + 10];
+    double  tsb_stack[64];
+    double *tsb = tsb_stack;
     double invx, vsb0, vsb1, vsb2, vsbi;
     double j0, j1, j0p, j1p, sf, tmp, si, co, ix, ix2;
 
     if (x < 0.0) {
         printf("minus x is invalid for Spherical_Bessel\n");
-        exit(0);
+        MPI_Abort(mpi_comm_level1, EXIT_FAILURE);
     }
 
     /* find an appropriate nmax */
@@ -2821,9 +3231,8 @@ inline void Spherical_Bessel2(double x, int lmax, double * sb, double * dsb)
     if (nmax < 100)
         nmax = 100;
 
-    if (asize_lmax < (lmax + 1)) {
-        printf("asize_lmax should be larger than %d in Spherical_Bessel.c\n", lmax + 1);
-        exit(0);
+    if ((int)(sizeof(tsb_stack) / sizeof(tsb_stack[0])) < (lmax + 5)) {
+        tsb = (double *)malloc(sizeof(double) * (lmax + 5));
     }
 
     /* if x is larger than xmin */
@@ -2912,7 +3321,7 @@ inline void Spherical_Bessel2(double x, int lmax, double * sb, double * dsb)
 
         /* sb */
 
-        for (n = 0; n <= lmax; n++) {
+        for (n = 0; n <= lmax + 1; n++) {
             sb[n] = 0.0;
         }
         sb[0] = 1.0;
@@ -2923,5 +3332,9 @@ inline void Spherical_Bessel2(double x, int lmax, double * sb, double * dsb)
         for (n = 1; n <= lmax; n++) {
             dsb[n] = ((double)n * sb[n - 1] - (double)(n + 1.0) * sb[n + 1]) / (2.0 * (double)n + 1.0);
         }
+    }
+
+    if (tsb != tsb_stack) {
+        free(tsb);
     }
 }
