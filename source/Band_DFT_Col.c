@@ -1807,6 +1807,8 @@ diagonalize1:
 
                 // cublasmp_zgemm(CUBLAS_OP_N, CUBLAS_OP_N, Hs, Ss, Cs, &opts, &opts2);
 
+                BandCol_ZeroComplex(Cs, (size_t)na_rows_max * (size_t)na_cols_max);
+
                 Cblacs_barrier(ictxt2, "A");
                 F77_NAME(pzgemm, PZGEMM)
                 ("N", "N", &n, &n, &n, &alpha, Hs, &ONE, &ONE, descH, Ss, &ONE, &ONE, descS, &beta, Cs, &ONE, &ONE,
@@ -1817,6 +1819,8 @@ diagonalize1:
                 /* 1.0/sqrt(ko[l]) * U^+ H * U * 1.0/sqrt(ko[l]) */
 
                 // cublasmp_zgemm(CUBLAS_OP_C, CUBLAS_OP_N, Ss, Cs, Hs, &opts, &opts2);
+
+                BandCol_ZeroComplex(Hs, (size_t)na_rows * (size_t)na_cols);
 
                 Cblacs_barrier(ictxt2, "C");
                 F77_NAME(pzgemm, PZGEMM)
@@ -1892,6 +1896,7 @@ diagonalize1:
                     // cublasmp_zgemm(CUBLAS_OP_T, CUBLAS_OP_T, Cs, Ss, Hs, &opts, &opts2);
                     // #pragma acc update self(Ss[0 : na_rows * na_cols], Hs[0 : na_rows * na_cols], Cs[0 : na_rows * na_cols])
 
+                    BandCol_ZeroComplex(Hs, (size_t)na_rows * (size_t)na_cols);
                     F77_NAME(pzgemm, PZGEMM)
                     ("T", "T", &n, &n, &n, &alpha, Cs, &ONE, &ONE, descS, Ss, &ONE, &ONE, descC, &beta, Hs, &ONE, &ONE,
                      descH);
@@ -2911,6 +2916,8 @@ diagonalize1:
 
                 // cublasmp_zgemm(CUBLAS_OP_N, CUBLAS_OP_N, Hs, Ss, Cs, &opts, &opts2);
 
+                BandCol_ZeroComplex(Cs, (size_t)na_rows_max * (size_t)na_cols_max);
+
                 Cblacs_barrier(ictxt2, "A");
                 F77_NAME(pzgemm, PZGEMM)
                 ("N", "N", &n, &n, &n, &alpha, Hs, &ONE, &ONE, descH, Ss, &ONE, &ONE, descS, &beta, Cs, &ONE, &ONE,
@@ -2919,6 +2926,8 @@ diagonalize1:
                 /* 1/sqrt(ko) * U^+ H * U * 1/sqrt(ko) */
 
                 // cublasmp_zgemm(CUBLAS_OP_C, CUBLAS_OP_N, Ss, Cs, Hs, &opts, &opts2);
+
+                BandCol_ZeroComplex(Hs, (size_t)na_rows * (size_t)na_cols);
 
                 Cblacs_barrier(ictxt2, "C");
                 F77_NAME(pzgemm, PZGEMM)
@@ -2964,6 +2973,7 @@ diagonalize1:
 
                 // cublasmp_zgemm(CUBLAS_OP_T, CUBLAS_OP_T, Cs, Ss, Hs, &opts, &opts2);
 
+                BandCol_ZeroComplex(Hs, (size_t)na_rows * (size_t)na_cols);
                 F77_NAME(pzgemm, PZGEMM)
                 ("T", "T", &MaxN, &n, &n, &alpha, Cs, &ONE, &ONE, descS, Ss, &ONE, &ONE, descC, &beta, Hs, &ONE,
                  &ONE, descH);

@@ -14,8 +14,10 @@
 #include "lapack_prototypes.h"
 #include "mpi.h"
 #include "openmx_common.h"
+#include <limits.h>
 #include <math.h>
 #include <omp.h>
+#include <openacc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +29,8 @@ void Calc_MatrixElements_dVH_Vxc_VNA(int Cnt_kind);
 static void Calc_MatrixElements_dVH_Vxc_VNA_CPU(int Cnt_kind);
 static void Calc_MatrixElements_dVH_Vxc_VNA_OpenACC(int Cnt_kind);
 static void Set_Hamiltonian_Base_OpenACC(int SCF_iter, double *****H0, double *****HNL, double *****H);
+static size_t Set_Hamiltonian_Base_OpenACC_DeviceBytes(int SCF_iter, int myid);
+static size_t Set_Hamiltonian_MatrixElements_OpenACC_DeviceBytes(int Cnt_kind, int myid);
 
 static void Set_Hamiltonian_abort(const char *where, const char *message, int myid)
 {
@@ -38,7 +42,40 @@ static void Set_Hamiltonian_abort(const char *where, const char *message, int my
     exit(1);
 }
 
-static int Set_Hamiltonian_Use_OpenACC(void)
+static size_t Set_Hamiltonian_checked_add(size_t a, size_t b, const char *label, int myid)
+{
+    if (b > ((size_t)-1) - a) {
+        char message[256];
+        snprintf(message, sizeof(message), "size overflow while estimating %s", label);
+        Set_Hamiltonian_abort("OpenACC memory check", message, myid);
+    }
+
+    return a + b;
+}
+
+static size_t Set_Hamiltonian_checked_mul(size_t a, size_t b, const char *label, int myid)
+{
+    if (a != 0 && b > ((size_t)-1) / a) {
+        char message[256];
+        snprintf(message, sizeof(message), "size overflow while estimating %s", label);
+        Set_Hamiltonian_abort("OpenACC memory check", message, myid);
+    }
+
+    return a * b;
+}
+
+static size_t Set_Hamiltonian_array_bytes(size_t count, size_t elem_size, const char *label, int myid)
+{
+    return Set_Hamiltonian_checked_mul(count, elem_size, label, myid);
+}
+
+static void Set_Hamiltonian_add_array_bytes(size_t *total, size_t count, size_t elem_size, const char *label, int myid)
+{
+    size_t bytes = Set_Hamiltonian_array_bytes(count, elem_size, label, myid);
+    *total = Set_Hamiltonian_checked_add(*total, bytes, label, myid);
+}
+
+static int Set_Hamiltonian_OpenACC_Threshold(void)
 {
     int AN, total_basis;
 
@@ -57,14 +94,128 @@ static int Set_Hamiltonian_Use_OpenACC(void)
     return 0;
 }
 
-static int Set_Hamiltonian_Base_Use_OpenACC(void)
+static int Set_Hamiltonian_DeviceMemoryOK(size_t required_bytes, const char *where, int myid)
 {
-    return Set_Hamiltonian_Use_OpenACC();
+    MPI_Comm node_comm, device_comm;
+    int local_rank, cuda_device_count, acc_device_count, device_count, device_rank, device_ranks;
+    int cuda_device;
+    size_t free_bytes, total_bytes;
+    cudaError_t cuda_err;
+    unsigned long long local_required, group_required, local_free, group_free;
+    int cuda_ok;
+
+    MPI_Comm_split_type(mpi_comm_level1, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
+    MPI_Comm_rank(node_comm, &local_rank);
+
+    cuda_device = -1;
+    free_bytes = 0;
+    total_bytes = 0;
+    cuda_ok = 0;
+
+    cuda_err = cudaGetDeviceCount(&cuda_device_count);
+    if (cuda_err != cudaSuccess || cuda_device_count <= 0) {
+        if (myid == Host_ID || cuda_err != cudaSuccess) {
+            fprintf(stderr,
+                    "Set_Hamiltonian: rank %d %s: failed to get CUDA device count (%s); switching to CPU path.\n",
+                    myid, where, cuda_err == cudaSuccess ? "no CUDA device" : cudaGetErrorString(cuda_err));
+            fflush(stderr);
+        }
+    }
+    else {
+        acc_device_count = acc_get_num_devices(acc_device_nvidia);
+        if (acc_device_count <= 0) {
+            if (myid == Host_ID) {
+                fprintf(stderr,
+                        "Set_Hamiltonian: %s: failed to get OpenACC NVIDIA device count; switching to CPU path.\n",
+                        where);
+                fflush(stderr);
+            }
+        }
+        else {
+            device_count = (cuda_device_count < acc_device_count) ? cuda_device_count : acc_device_count;
+            cuda_device = local_rank % device_count;
+
+            cuda_err = cudaSetDevice(cuda_device);
+            if (cuda_err != cudaSuccess) {
+                fprintf(stderr,
+                        "Set_Hamiltonian: rank %d %s: failed to set CUDA device %d (%s); switching to CPU path.\n",
+                        myid, where, cuda_device, cudaGetErrorString(cuda_err));
+                fflush(stderr);
+            }
+            else {
+                acc_set_device_num(cuda_device, acc_device_nvidia);
+                cuda_err = cudaMemGetInfo(&free_bytes, &total_bytes);
+                if (cuda_err != cudaSuccess) {
+                    fprintf(stderr,
+                            "Set_Hamiltonian: rank %d %s: failed to query CUDA memory on device %d (%s); "
+                            "switching to CPU path.\n",
+                            myid, where, cuda_device, cudaGetErrorString(cuda_err));
+                    fflush(stderr);
+                }
+                else {
+                    cuda_ok = 1;
+                }
+            }
+        }
+    }
+
+    MPI_Comm_split(node_comm, cuda_ok ? cuda_device : MPI_UNDEFINED, 0, &device_comm);
+    MPI_Comm_free(&node_comm);
+
+    if (!cuda_ok) {
+        return 0;
+    }
+
+    if (required_bytes > (size_t)ULLONG_MAX || free_bytes > (size_t)ULLONG_MAX) {
+        Set_Hamiltonian_abort("OpenACC memory check", "memory size does not fit unsigned long long", myid);
+    }
+
+    local_required = (unsigned long long)required_bytes;
+    local_free = (unsigned long long)free_bytes;
+    MPI_Allreduce(&local_required, &group_required, 1, MPI_UNSIGNED_LONG_LONG, MPI_SUM, device_comm);
+    MPI_Allreduce(&local_free, &group_free, 1, MPI_UNSIGNED_LONG_LONG, MPI_MIN, device_comm);
+    MPI_Comm_rank(device_comm, &device_rank);
+    MPI_Comm_size(device_comm, &device_ranks);
+    MPI_Comm_free(&device_comm);
+
+    if (group_free < group_required) {
+        if (device_rank == 0) {
+            fprintf(stderr,
+                    "Set_Hamiltonian: %s: GPU device %d is shared by %d rank(s), has %.3f MiB free "
+                    "(%.3f MiB total on rank %d), but %.3f MiB is required in total; switching to CPU path.\n",
+                    where, cuda_device, device_ranks, (double)group_free / (1024.0 * 1024.0),
+                    (double)total_bytes / (1024.0 * 1024.0), myid,
+                    (double)group_required / (1024.0 * 1024.0));
+            fflush(stderr);
+        }
+        return 0;
+    }
+
+    return 1;
 }
 
-static int Set_Hamiltonian_MatrixElements_Use_OpenACC(void)
+static int Set_Hamiltonian_Base_Use_OpenACC(int SCF_iter, int myid)
 {
-    return Set_Hamiltonian_Use_OpenACC();
+    size_t required_bytes;
+
+    if (!Set_Hamiltonian_OpenACC_Threshold()) {
+        return 0;
+    }
+
+    required_bytes = Set_Hamiltonian_Base_OpenACC_DeviceBytes(SCF_iter, myid);
+    return Set_Hamiltonian_DeviceMemoryOK(required_bytes, "base OpenACC path", myid);
+}
+
+static int Set_Hamiltonian_MatrixElements_Use_OpenACC(int Cnt_kind, int myid)
+{
+    size_t required_bytes;
+
+    if (!Set_Hamiltonian_OpenACC_Threshold()) {
+        return 0;
+    }
+
+    required_bytes = Set_Hamiltonian_MatrixElements_OpenACC_DeviceBytes(Cnt_kind, myid);
+    return Set_Hamiltonian_DeviceMemoryOK(required_bytes, "matrix-elements OpenACC path", myid);
 }
 
 static void *Set_Hamiltonian_malloc(size_t bytes, const char *name, int myid)
@@ -128,7 +279,7 @@ double Set_Hamiltonian(char * mode, int MD_iter, int SCF_iter, int SCF_iter0, in
     if (measure_time)
         dtime(&time1);
 
-    if (Set_Hamiltonian_Base_Use_OpenACC()) {
+    if (Set_Hamiltonian_Base_Use_OpenACC(SCF_iter, myid)) {
         Set_Hamiltonian_Base_OpenACC(SCF_iter, H0, HNL, H);
     }
 
@@ -276,11 +427,143 @@ double Set_Hamiltonian(char * mode, int MD_iter, int SCF_iter, int SCF_iter0, in
 
 void Calc_MatrixElements_dVH_Vxc_VNA(int Cnt_kind)
 {
-    if (Set_Hamiltonian_MatrixElements_Use_OpenACC()) {
+    int myid;
+
+    MPI_Comm_rank(mpi_comm_level1, &myid);
+
+    if (Set_Hamiltonian_MatrixElements_Use_OpenACC(Cnt_kind, myid)) {
         Calc_MatrixElements_dVH_Vxc_VNA_OpenACC(Cnt_kind);
     } else {
         Calc_MatrixElements_dVH_Vxc_VNA_CPU(Cnt_kind);
     }
+}
+
+static size_t Set_Hamiltonian_Base_OpenACC_DeviceBytes(int SCF_iter, int myid)
+{
+    int Mc_AN, h_AN;
+    int spin_count, pair_count;
+    int add_hub, add_hch, use_vna;
+    size_t total_mat, total_h, bytes;
+
+    spin_count = (SpinP_switch == 3) ? 4 : (SpinP_switch + 1);
+    add_hub = ((Hub_U_switch == 1 || 1 <= Constraint_NCS_switch) && F_U_flag == 1 && 2 <= SCF_iter);
+    add_hch = (core_hole_state_flag == 1);
+    use_vna = (ProExpn_VNA != 0);
+
+    pair_count = 0;
+    total_mat = 0;
+    total_h = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int Cwan = WhatSpecies[Gc_AN];
+
+        for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+            int Gh_AN = natn[Gc_AN][h_AN];
+            int Hwan = WhatSpecies[Gh_AN];
+            size_t mat_size = Set_Hamiltonian_checked_mul((size_t)Spe_Total_NO[Cwan],
+                                                          (size_t)Spe_Total_NO[Hwan],
+                                                          "base matrix size", myid);
+            size_t h_size = Set_Hamiltonian_checked_mul((size_t)spin_count, mat_size,
+                                                        "base Hamiltonian size", myid);
+
+            total_mat = Set_Hamiltonian_checked_add(total_mat, mat_size, "base total matrix", myid);
+            total_h = Set_Hamiltonian_checked_add(total_h, h_size, "base total Hamiltonian", myid);
+            pair_count++;
+        }
+    }
+
+    bytes = 0;
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(int), "base pair_NO0", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(int), "base pair_NO1", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(size_t), "base pair_mat_offset", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(size_t), "base pair_h_offset", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, total_h, sizeof(double), "base hbuf", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, total_mat, sizeof(double), "base h0buf", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, total_h, sizeof(double), "base hnlbuf", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, use_vna ? total_mat : 1u, sizeof(double), "base hvnabuf", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, add_hub ? total_h : 1u, sizeof(double), "base hhubbuf", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, add_hch ? total_h : 1u, sizeof(double), "base hchbuf", myid);
+
+    return bytes;
+}
+
+static size_t Set_Hamiltonian_MatrixElements_OpenACC_DeviceBytes(int Cnt_kind, int myid)
+{
+    int Mc_AN, h_AN;
+    int spin_count, pair_count;
+    size_t total_h, total_nolg, total_orbs0, total_orbs1, bytes;
+
+    if (Cnt_kind != 0 && Cnt_kind != 1) {
+        Set_Hamiltonian_abort("Calc_MatrixElements_dVH_Vxc_VNA_OpenACC", "Cnt_kind must be 0 or 1", myid);
+    }
+
+    spin_count = (SpinP_switch == 3) ? 4 : (SpinP_switch + 1);
+
+    pair_count = 0;
+    total_h = 0;
+    total_nolg = 0;
+    total_orbs0 = 0;
+    total_orbs1 = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int Cwan = WhatSpecies[Gc_AN];
+
+        for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+            int Gh_AN = natn[Gc_AN][h_AN];
+            int Hwan = WhatSpecies[Gh_AN];
+            int NOLG = NumOLG[Mc_AN][h_AN];
+            int NO0, NO1;
+            size_t mat_size, h_size, orbs0_size, orbs1_size;
+
+            if (Cnt_kind == 0) {
+                NO0 = Spe_Total_NO[Cwan];
+                NO1 = Spe_Total_NO[Hwan];
+            } else {
+                NO0 = Spe_Total_CNO[Cwan];
+                NO1 = Spe_Total_CNO[Hwan];
+            }
+
+            mat_size = Set_Hamiltonian_checked_mul((size_t)NO0, (size_t)NO1,
+                                                   "matrix-elements matrix size", myid);
+            h_size = Set_Hamiltonian_checked_mul((size_t)spin_count, mat_size,
+                                                 "matrix-elements Hamiltonian size", myid);
+            orbs0_size = Set_Hamiltonian_checked_mul((size_t)NOLG, (size_t)NO0,
+                                                     "matrix-elements orbs0 size", myid);
+            orbs1_size = Set_Hamiltonian_checked_mul((size_t)NOLG, (size_t)NO1,
+                                                     "matrix-elements orbs1 size", myid);
+
+            total_h = Set_Hamiltonian_checked_add(total_h, h_size, "matrix-elements total Hamiltonian", myid);
+            total_nolg = Set_Hamiltonian_checked_add(total_nolg, (size_t)NOLG,
+                                                     "matrix-elements total NOLG", myid);
+            total_orbs0 = Set_Hamiltonian_checked_add(total_orbs0, orbs0_size,
+                                                      "matrix-elements total orbs0", myid);
+            total_orbs1 = Set_Hamiltonian_checked_add(total_orbs1, orbs1_size,
+                                                      "matrix-elements total orbs1", myid);
+            pair_count++;
+        }
+    }
+
+    bytes = 0;
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(int), "matrix-elements pair_NO0", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(int), "matrix-elements pair_NO1", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(int), "matrix-elements pair_NOLG", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(size_t),
+                                    "matrix-elements pair_h_offset", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(size_t),
+                                    "matrix-elements pair_nolg_offset", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(size_t),
+                                    "matrix-elements pair_orbs0_offset", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, (size_t)pair_count, sizeof(size_t),
+                                    "matrix-elements pair_orbs1_offset", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, total_h, sizeof(double), "matrix-elements hbuf", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes,
+                                    Set_Hamiltonian_checked_mul((size_t)spin_count, total_nolg,
+                                                                "matrix-elements vpotbuf", myid),
+                                    sizeof(double), "matrix-elements vpotbuf", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, total_orbs0, sizeof(Type_Orbs_Grid), "matrix-elements orbs0buf", myid);
+    Set_Hamiltonian_add_array_bytes(&bytes, total_orbs1, sizeof(Type_Orbs_Grid), "matrix-elements orbs1buf", myid);
+
+    return bytes;
 }
 
 static void Set_Hamiltonian_Base_OpenACC(int SCF_iter, double *****H0, double *****HNL, double *****H)

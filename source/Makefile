@@ -60,7 +60,7 @@ CC = mpicc -w -O3 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenm
 CC2 = mpicc -w -O1 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.1/math_libs/12.6/targets/x86_64-linux/include -I/usr/local/cuda-12.6/include 
 CC3 = mpicc -w -O2 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.1/math_libs/12.6/targets/x86_64-linux/include -I/usr/local/cuda-12.6/include
 FC = mpif90 -O2 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
-LIB= ${MKLROOT}/lib/intel64/libmkl_scalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_pgi_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a ${MKLROOT}/lib/intel64/libmkl_blacs_openmpi_lp64.a -Wl,--end-group -pgf90libs -mp -lpthread -lmpi_mpifh -lmpi -lm -ldl -L/usr/local/cuda-12.6/lib64 -lcudart -lcusolver -lcublas -cuda
+LIB= /opt/nvidia/hpc_sdk/Linux_x86_64/25.1/comm_libs/12.6/hpcx/hpcx-2.21/ompi/lib/libscalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_pgi_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -pgf90libs -mp -lpthread -lmpi_mpifh -lmpi -lm -ldl -L/usr/local/cuda-12.6/lib64 -lcudart -lcusolver -lcublas -cuda
 
 CFLAGS  = -g 
 

@@ -1737,6 +1737,14 @@ double Set_VNA2(double **** HVNA, double ***** HVNA2)
 
     dtime(&TStime);
     use_openacc = Set_ProExpn_VNA_Use_OpenACC();
+    /*
+      The Set_VNA2 OpenACC path launches one tiny reduction and copies
+      data for each atom-pair/basis/angular-channel combination.  For
+      large systems this degenerates into millions of synchronous CUDA
+      launches and looks like a freeze.  Keep this fine-grained stage on
+      the CPU; Set_ProExpn above still uses the coarse GPU path.
+    */
+    use_openacc = 0;
 
     /****************************************************
   allocation of arrays:
@@ -2506,6 +2514,11 @@ double Set_VNA3(double ***** HVNA3)
 
     dtime(&TStime);
     use_openacc = Set_ProExpn_VNA_Use_OpenACC();
+    /*
+      See Set_VNA2: this path has the same fine-grained OpenACC launch
+      pattern and is faster/reliable on the CPU for large systems.
+    */
+    use_openacc = 0;
 
     /****************************************************
   allocation of arrays:
