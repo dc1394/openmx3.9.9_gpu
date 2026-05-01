@@ -66,10 +66,10 @@ scf.criterion             1.0e-9       # default=1.0e-6 (Hartree)
 # MD or Geometry Optimization
 #
 
-MD.Type                     NEB        # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Type                      Opt
 MD.Opt.DIIS.History          5         # default=7
 MD.Opt.StartDIIS            10         # default=5
-MD.maxIter                  100        # default=1
+MD.maxIter                   1
 MD.TimeStep                1.0         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
 
@@ -87,3 +87,4 @@ MD.NEB.Number.Images        8          # default=10
    8   Si    4.19778252474940    4.09927764210375    1.52757782577684     2.0     2.0
    9    H    0.42001285851685    2.48354232538117    0.42003475932894     0.5     0.5
 NEB.Atoms.SpeciesAndCoordinates>
+scf.eigen.lib                cusolver

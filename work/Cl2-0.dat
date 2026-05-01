@@ -62,11 +62,13 @@ scf.criterion             1.0e-8       # default=1.0e-6 (Hartree)
 # MD or Geometry Optimization
 #
 
-MD.Type                    nomd        # Nomd|Opt|NVE|NVT_VS|NVT_NH
+MD.Type                      Opt
                                        # Constraint_Opt|DIIS2|Constraint_DIIS2
 MD.Opt.DIIS.History          4
 MD.Opt.StartDIIS            20         # default=5
-MD.maxIter                 100         # default=1
+MD.maxIter                   1
 MD.TimeStep                1.0         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
 
+
+scf.eigen.lib                cusolver

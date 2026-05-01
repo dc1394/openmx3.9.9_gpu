@@ -210,10 +210,11 @@ scf.criterion             1.0e-7       # default=1.0e-6 (Hartree)
 # MD or Geometry Optimization
 #
 
-MD.Type               Nomd    # Opt|EF|BFGS|RF|DIIS
+MD.Type                      Opt
 MD.Opt.DIIS.History   10    # default=3
 MD.Opt.StartDIIS      6     # default=5
 MD.Opt.EveryDIIS      5     # default=10
-MD.maxIter            200   #
+MD.maxIter                   1
 MD.Opt.criterion    1.0e-4  # default=1.0e-4 (a.u.)
 
+scf.eigen.lib                cusolver

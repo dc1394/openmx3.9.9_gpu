@@ -130,12 +130,12 @@ orderN.Expand.Core          on
 # MD or Geometry Optimization
 #
 
-MD.Type                    Nomd        # Nomd|Constant_Energy_MD|Opt
+MD.Type                      Opt
                                        # Constraint_Opt|DIIS2|Constraint_DIIS2
 MD.Opt.DIIS.History         10         # default=3
 MD.Opt.StartDIIS            20         # default=5
 MD.Opt.EveryDIIS           200         # default=200
-MD.maxIter                 200         # default=1
+MD.maxIter                   1
 MD.TimeStep                1.2         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-3       # default=1.0e-4 (Hartree/bohr)
 MD.Opt.DIIS_Mixing          0.4        # default=0.5
@@ -183,3 +183,5 @@ Dos.Kgrid                 6  6  6     # default = Kgrid1 Kgrid2 Kgrid3
 
 
 
+
+scf.eigen.lib                cusolver

@@ -70,9 +70,9 @@ scf.ProExpn.VNA             on
 # MD or Geometry Optimization
 #
 
-MD.Type                    NVT_VS      # Nomd|Constant_Energy_MD|Opt
+MD.Type                      Opt
                                        # Constraint_Opt|DIIS2|Constraint_DIIS2
-MD.maxIter                  700        # default=1
+MD.maxIter                   1
 MD.TimeStep                0.2         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-11      # default=1.0e-4 (Hartree/bohr)
 MD.Opt.DIIS_Mixing          0.1        # default=0.5
@@ -82,3 +82,4 @@ MD.Opt.DIIS_Mixing          0.1        # default=0.5
   400  10   700.0  0.4
   700  40   500.0  0.7
 MD.TempControl>
+scf.eigen.lib                cusolver

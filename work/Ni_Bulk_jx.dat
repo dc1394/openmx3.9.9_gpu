@@ -41,8 +41,8 @@ scf.Mixing.History         30          # default=5
 scf.Mixing.StartPulay      40          # default=6
 scf.criterion             1.0e-7       # default=1.0e-6 (Hartree)
 
-MD.Type  nomd
-MD.maxIter  1
+MD.Type                      Opt
+MD.maxIter                   1
 MD.Opt_criterion  0.000300
 
 Band.dispersion  off
@@ -59,3 +59,4 @@ Band.kpath>
 
 Dos.fileout  off
 Dos.Kgrid  0 0 0
+scf.eigen.lib                cusolver

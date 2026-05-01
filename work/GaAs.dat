@@ -100,8 +100,8 @@ orderN.NumHoppings           1         # default=2
 # MD or Geometry Optimization
 #
 
-MD.Type                      opt       # Nomd|Constant_Energy_MD|Opt
-MD.maxIter                    1        # default=1
+MD.Type                      Opt
+MD.maxIter                   1
 MD.TimeStep                   1        # default=0.5 (fs)
 MD.Opt.criterion         1.0e-5        # default=1.0e-4 (Hartree/bohr)
 
@@ -192,3 +192,4 @@ Wannier.Minimizing.Conv.Criterion        1e-10
 
 
 Wannier.Readin.Overlap.Matrix            off    
+scf.eigen.lib                cusolver

@@ -63,7 +63,7 @@ scf.criterion             1.0e-7       # default=1.0e-6 (Hartree)
 # MD or Geometry Optimization
 #
 
-MD.Type                   Nomd        # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Type                      Opt
 
 #
 # Band dispersion
@@ -111,3 +111,5 @@ Filename.xyzdata   sic_primitive_BD_MC_C_p3     # default: default
 Num.of.Extract.Atom        1                 # default: 1
 Extract.Atom               1                 # default: 1 2 ... (Num.of.Extract.Atom)
 Data.Reduction             2                 # default: 1
+MD.maxIter                   1
+scf.eigen.lib                cusolver

@@ -64,8 +64,8 @@ scf.restart                  off       # on|off, default=off
 # MD or Geometry Optimization
 #
 
-MD.Type                     nomd       # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
-MD.maxIter                    1        # default=1
+MD.Type                      Opt
+MD.maxIter                   1
 MD.TimeStep                   1        # default=0.5 (fs)
 MD.Opt.criterion         1.0e-5        # default=1.0e-4 (Hartree/bohr)
 
@@ -108,3 +108,5 @@ Dos.Kgrid                12 12 12      # default = Kgrid1 Kgrid2 Kgrid3
 
 
 HS.fileout                   on        # on|off, default=off
+
+scf.eigen.lib                cusolver

@@ -10,6 +10,7 @@
 #include  <math.h>
 #include <ctype.h>
 #include <string.h>
+#include <strings.h>
 
 #define MAXNEST   14
 
@@ -69,7 +70,7 @@ static int strlen_trim(const char *str)
   int i;
   len = strlen(str);
   for (i=len-1;i>=0;i++) {
-    if (str[i]!=' ' || str[i]!='\t') return i+1;
+    if (!isspace((unsigned char)str[i])) return i+1;
   }
   return 0;
 }
@@ -183,6 +184,7 @@ int input_logical(const char *key, int *ret,const  int defval)
   rewind(fp);
   while ( fgets(buf,size,fp) ) {
     nread=sscanf(buf,"%s %s",key_inbuf,val_inbuf); 
+    if (nread < 1) continue;
     buflen=strlen_trim(key_inbuf);
     if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
       if (nread!=2) {
@@ -223,6 +225,7 @@ int input_int(const char *key, int *ret, const int defval)
   rewind(fp);
   while ( fgets(buf,size,fp) ) {
     nread=sscanf(buf,"%s %s",key_inbuf,val_inbuf);
+    if (nread < 1) continue;
     buflen =strlen_trim(key_inbuf);
     if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
       if (nread!=2) {
@@ -260,6 +263,7 @@ int input_double(const char *key, double *ret, const double defval)
   rewind(fp);
   while ( fgets(buf,size,fp) ) {
     nread=sscanf(buf,"%s %s",key_inbuf,val_inbuf);
+    if (nread < 1) continue;
     buflen = strlen_trim(key_inbuf);
     if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
       if (nread!=2) {
@@ -297,6 +301,7 @@ int input_string(const char *key, char *ret,const char *defval)
   rewind(fp);
   while ( fgets(buf,size,fp) ) {
     nread=sscanf(buf,"%s %s",key_inbuf,val_inbuf);
+    if (nread < 1) continue;
     buflen = strlen_trim(key_inbuf);
     if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
       /*      printf("<%s> found val=<%s>\n",key,val_inbuf); */
@@ -334,6 +339,7 @@ int input_string2int(const char *key, int *ret, int nvals,
   rewind(fp);
   while ( fgets(buf,size,fp) ) {
     nread=sscanf(buf,"%s %s",key_inbuf,val_inbuf);
+    if (nread < 1) continue;
     buflen = strlen_trim(key_inbuf);
     if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
       if (nread!=2) {
@@ -363,7 +369,7 @@ int input_stringv(const char *key,const int nret, char **ret, char  **defval)
 {
   const int size=BUFSIZE;
   char buf[BUFSIZE], *c;
-  int keylen,buflen;
+  int keylen,buflen,nread;
   char key_inbuf[BUFSIZE];
   int i;
 
@@ -374,7 +380,8 @@ int input_stringv(const char *key,const int nret, char **ret, char  **defval)
   }
   rewind(fp);
   while ((c=fgets(buf,size,fp)) != NULL) { 
-    sscanf(buf,"%s",key_inbuf);
+    nread=sscanf(buf,"%s",key_inbuf);
+    if (nread < 1) continue;
     buflen = strlen_trim(key_inbuf);
     if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
       c=strstr(buf,key)+ keylen+1;
@@ -408,7 +415,7 @@ double *ret, double *defval)
 {
   const int size=BUFSIZE;
   char buf[BUFSIZE], *c;
-  int keylen,buflen;
+  int keylen,buflen,nread;
   char key_inbuf[BUFSIZE];
   int i;
 
@@ -419,7 +426,8 @@ double *ret, double *defval)
   }
   rewind(fp);
   while ((c=fgets(buf,size,fp)) != NULL) { 
-    sscanf(buf,"%s",key_inbuf);
+    nread=sscanf(buf,"%s",key_inbuf);
+    if (nread < 1) continue;
     buflen = strlen_trim(key_inbuf);
     if (keylen == buflen && strncasecmp(key,key_inbuf,keylen)==0) {
       c=mystrcasestr(buf,key); c=&c[keylen+1];
@@ -455,7 +463,7 @@ int input_intv(const char *key, int nret, int *ret, int *defval)
 {
   const int size=BUFSIZE;
   char buf[BUFSIZE], *c;
-  int keylen,buflen;
+  int keylen,buflen,nread;
   char key_inbuf[BUFSIZE];
   int i;
 
@@ -466,7 +474,8 @@ int input_intv(const char *key, int nret, int *ret, int *defval)
   }
   rewind(fp);
   while ((c=fgets(buf,size,fp)) != NULL) {
-    sscanf(buf,"%s",key_inbuf);
+    nread=sscanf(buf,"%s",key_inbuf);
+    if (nread < 1) continue;
     buflen = strlen_trim(key_inbuf);
     if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
       /*    printf("<%s> found\n",key); */
@@ -503,13 +512,14 @@ FILE *input_find(const char *key)
   const int size=BUFSIZE;
   char buf[BUFSIZE] ;
   char key_inbuf[BUFSIZE];
-  int keylen,buflen;
+  int keylen,buflen,nread;
 
   keylen=strlen_trim(key);
 
   rewind(fp);
   while ( fgets(buf,size,fp) ) {
-    sscanf(buf,"%s",key_inbuf);
+    nread=sscanf(buf,"%s",key_inbuf);
+    if (nread < 1) continue;
     buflen = strlen_trim(key_inbuf);
     if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
       return fp;
@@ -524,13 +534,14 @@ int input_last(const char *key)
   const int size=BUFSIZE;
   char buf[BUFSIZE];
   char key_inbuf[BUFSIZE];
-  int keylen,buflen;
+  int keylen,buflen,nread;
 
   keylen=strlen_trim(key);
 
-  fgets(buf,size,fp); 
-  fgets(buf,size,fp); 
-  sscanf(buf,"%s",key_inbuf);
+  if (fgets(buf,size,fp)==NULL) return 0;
+  if (fgets(buf,size,fp)==NULL) return 0;
+  nread=sscanf(buf,"%s",key_inbuf);
+  if (nread < 1) return 0;
   buflen=strlen_trim(key_inbuf);
   /*  printf("last=<%s>\n",buf); */
   if (keylen==buflen && strncasecmp(key,key_inbuf,keylen)==0) {
@@ -539,4 +550,3 @@ int input_last(const char *key)
 
   return 0;
 }
-

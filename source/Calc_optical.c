@@ -709,6 +709,9 @@ void Calc_band_optical_col_1(double kx,double ky,double kz,int spin_index,int n,
   }
 
   int numm=3;
+  dcomplex MME_x_cui_x_cuj_x_pf[9];
+  dcomplex MME_x_cuj_x_pf[9];
+
   if (CDDF_approach==1) numm=9;
 
   for (ul=n5[myid2]; ul<n5[myid2+1]; ul++){
@@ -750,12 +753,10 @@ void Calc_band_optical_col_1(double kx,double ky,double kz,int spin_index,int n,
           phase_factorR[2] = RCmul( l1*tv[1][3] + l2*tv[2][3] + l3*tv[3][3] , phase_factor );
         }
 
-        dcomplex MME_x_cui_x_cuj_x_pf[numm];
         for (k=0; k<numm; k++) MME_x_cui_x_cuj_x_pf[k]=Complex(0.0,0.0);
 
         for (k=0; k< tno0 ; k++){ /* the fifth loop  - orbital index k within atom i */
 
-          dcomplex MME_x_cuj_x_pf[numm];
           for (o=0; o<numm; o++) MME_x_cuj_x_pf[o]=Complex(0.0,0.0); 
 
           dcomplex cuj_x_pf = Complex(0.0,0.0),cuj_x_pfR[3];

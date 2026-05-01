@@ -107,9 +107,9 @@ orderN.NumHoppings           1         # default=2
 # MD or Geometry Optimization
 #
 
-MD.Type                     nomd       # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Type                      Opt
 MD.Opt.DIIS.History          3         # default=7
-MD.maxIter                  100        # default=1
+MD.maxIter                   1
 MD.TimeStep                0.5         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
 
@@ -150,3 +150,5 @@ Dos.fileout                  on        # on|off, default=off
 Dos.Erange              -10.0  10.0    # default = -20 20 
 Dos.Kgrid                11  11  11    # default = Kgrid1 Kgrid2 Kgrid3
 
+
+scf.eigen.lib                cusolver

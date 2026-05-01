@@ -771,9 +771,12 @@ void Input_std(char *file)
   i_vec[0]=2;        i_vec[1]=0;        i_vec[2]=1;        i_vec[3]=3;        
   input_string2int("scf.lapack.dste", &dste_flag, 4, s_vec,i_vec);
 
-  s_vec[0]="elpa1"; s_vec[1]="lapack"; s_vec[2]="elpa2"; s_vec[3]="cusolver";
-  i_vec[0]=1;       i_vec[1]=0;        i_vec[2]=2;       i_vec[3]=3;           
-  input_string2int("scf.eigen.lib", &scf_eigen_lib_flag, 4, s_vec, i_vec);
+  i = 0;
+  s_vec[i]="elpa1";    i_vec[i]=ELPA1;    i++;
+  s_vec[i]="lapack";   i_vec[i]=0;        i++;
+  s_vec[i]="elpa2";    i_vec[i]=ELPA2;    i++;
+  s_vec[i]="cusolver"; i_vec[i]=CuSOLVER; i++;
+  input_string2int("scf.eigen.lib", &scf_eigen_lib_flag, i, s_vec, i_vec);
 
   // use GPU?
   input_int("scf.Gpu.Num", &SCF_Gpu_Num, 30);
@@ -6127,7 +6130,6 @@ void Get_Rotational_Matrix(double alpha, double beta, double gamma, int L, doubl
   }
 
 } /* end of Get_Rotational_Matrix */
-
 
 
 

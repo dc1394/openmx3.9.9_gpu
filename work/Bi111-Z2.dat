@@ -74,7 +74,7 @@ orderN.NumHoppings           2         # default=2
 # MD or Geometry Optimization
 #
 
-MD.Type                    nomd        # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.Type                      Opt
 
 Band.dispersion              on        # on|off, default=off
 # if <Band.KPath.UnitCell does not exist,
@@ -110,3 +110,6 @@ MO.kpoint>
 Dos.fileout                  off
 Dos.Erange                   -3.0 3.0
 Dos.Kgrid                    100 100 1
+
+scf.eigen.lib                cusolver
+MD.maxIter                   1

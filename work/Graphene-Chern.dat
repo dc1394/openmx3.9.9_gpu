@@ -104,10 +104,10 @@ orderN.NumHoppings           2         # default=2
 # MD or Geometry Optimization
 #
 
-MD.Type                     Nomd       # Nomd|Opt|NVE|NVT_VS|NVT_NH
+MD.Type                      Opt
 MD.Opt.DIIS.History         5          # default=7
 MD.Opt.StartDIIS            1          # default=5
-MD.maxIter                  100        # default=1
+MD.maxIter                   1
 MD.Opt.EveryDIIS            200        # default=200
 #MD.TimeStep                0.2         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-3       # default=1.0e-4 (Hartree/bohr)
@@ -153,3 +153,4 @@ Dos.Kgrid             100  100  1      # default = Kgrid1 Kgrid2 Kgrid3
 HS.fileout                   on       # on|off, default=off
 
 Voronoi.charge                off      # on|off, default = off
+scf.eigen.lib                cusolver

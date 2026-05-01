@@ -63,14 +63,14 @@ scf.criterion             1.0e-7       # default=1.0e-6 (Hartree)
 # MD or Geometry Optimization
 #
 
-MD.Type                    NPT_VS_WV
+MD.Type                      Opt
 
 #MD.Type                    OptC5
 # Nomd|Opt|RFC5|DIIS|NVE|NVT_VS|NVT_NH|
 # NPT_VS_PR : NPT Velcity-Scaling with Parrinelo-Rahman
 # NPT_VS_WV : NPT Velcity-Scaling with Wentzcovitch
 
-MD.maxIter                 500         # default=1
+MD.maxIter                   1
 MD.TimeStep                 1.0        # default=0.5 (fs)
 #NH.Mass.HeatBath	    20.0       # Q in atomic mass unit
 #NPT.Mass.Barostat	    1.0        # W in atomic mass unit for PR
@@ -90,3 +90,4 @@ MD.TempControl>
   1
  500   10.0                           # step, pressure[GPa]
 MD.CellPressureControl>
+scf.eigen.lib                cusolver

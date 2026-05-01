@@ -56,4 +56,7 @@ scf.criterion                        1.0e-8       # default=1.0e-6 (Hartree)
 scf.Constraint.NC.Spin                 on          # on|off, default=off
 scf.Constraint.NC.Spin.v               0.5         # default=0.0(eV)
 
-MD.Type                                nomd        # Nomd|Opt|NVE|NVT_VS|NVT_NH
+MD.Type                      Opt
+
+scf.eigen.lib                cusolver
+MD.maxIter                   1

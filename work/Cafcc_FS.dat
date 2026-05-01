@@ -59,3 +59,7 @@ scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstevx
 Dos.fileout                  on        # on|off, default=off
 Dos.Erange              -20.0  20.0    # default = -20 20 
 Dos.Kgrid                 61 61 61     # default = Kgrid1 Kgrid2 Kgrid3
+
+scf.eigen.lib                cusolver
+MD.Type                      Opt
+MD.maxIter                   1

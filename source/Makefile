@@ -59,6 +59,7 @@
 CC = mpicc -w -O3 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.1/math_libs/12.6/targets/x86_64-linux/include -I/usr/local/cuda-12.6/include 
 CC2 = mpicc -w -O1 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.1/math_libs/12.6/targets/x86_64-linux/include -I/usr/local/cuda-12.6/include 
 CC3 = mpicc -w -O2 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.1/math_libs/12.6/targets/x86_64-linux/include -I/usr/local/cuda-12.6/include
+CC_NOACC = $(filter-out -Minfo=accel -acc,$(CC2))
 FC = mpif90 -O2 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
 LIB= /opt/nvidia/hpc_sdk/Linux_x86_64/25.1/comm_libs/12.6/hpcx/hpcx-2.21/ompi/lib/libscalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_pgi_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -pgf90libs -mp -lpthread -lmpi_mpifh -lmpi -lm -ldl -L/usr/local/cuda-12.6/lib64 -lcudart -lcusolver -lcublas -cuda
 
@@ -312,8 +313,9 @@ Smoothing_Func.o: Smoothing_Func.c openmx_common.h
 	$(CC) -c Smoothing_Func.c
 Gauss_Legendre.o: Gauss_Legendre.c openmx_common.h
 	$(CC) -c Gauss_Legendre.c
+# NVHPC 25.1 + -acc makes DSYGV fail here, corrupting ON2 poles.
 zero_cfrac.o: zero_cfrac.c openmx_common.h
-	$(CC) -c zero_cfrac.c
+	$(CC_NOACC) -c zero_cfrac.c
 xyz2spherical.o: xyz2spherical.c openmx_common.h
 	$(CC) -c xyz2spherical.c
 AngularF.o: AngularF.c openmx_common.h

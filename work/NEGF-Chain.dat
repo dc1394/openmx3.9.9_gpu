@@ -127,3 +127,6 @@ scf.Mixing.StartPulay       20         # default=6
 scf.criterion             1.0e-7       # default=1.0e-6 (Hartree)
 scf.Kerker.factor          30.0        # default=1
 NEGF.Poisson.Solver       FFT
+MD.Type                      Opt
+MD.maxIter                   1
+scf.eigen.lib                cusolver
