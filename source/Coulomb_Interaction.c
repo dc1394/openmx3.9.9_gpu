@@ -517,8 +517,8 @@ static double Integrate_Bessel(int mode, int N, double start, double end, int is
 
   break;
 
-  step = 0;
   case 2:   /* Calculating Slater integral */
+    step = 0;
     for(i=start; i<=end; i+=2.0*Ndi){
       
       /* Integration using Simpson's rule */
@@ -1069,6 +1069,5 @@ static double FAC(int num){
 
   return result;
 }
-
 
 

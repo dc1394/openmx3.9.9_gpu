@@ -512,7 +512,7 @@ my_cublasZgemm.o: my_cublasZgemm.c openmx_common.h
 Divide_Conquer_Dosout.o: Divide_Conquer_Dosout.c openmx_common.h
 	$(CC) -c Divide_Conquer_Dosout.c
 Krylov.o: Krylov.c openmx_common.h
-	$(CC) -c Krylov.c
+	$(CC_NOACC) -c Krylov.c
 EGAC_DFT.o: EGAC_DFT.c openmx_common.h
 	$(CC) -c EGAC_DFT.c
 LNO.o: LNO.c openmx_common.h

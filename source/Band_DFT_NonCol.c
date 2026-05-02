@@ -3851,7 +3851,7 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
 
     dtime(&EiloopTime);
 
-    if (myid0 == Host_ID && 0 < level_stdout && scf_eigen_lib_flag != CuSOLVER) {
+    if (myid0 == Host_ID && 0 < level_stdout) {
         printf("<Band_DFT>  DM, time=%lf\n", EiloopTime - SiloopTime);
         fflush(stdout);
     }
