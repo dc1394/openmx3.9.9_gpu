@@ -40,6 +40,7 @@ void elpa_solve_evp_complex_2stage_double_impl_(int * n, int * MaxN, dcomplex * 
 static void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, double * S1, double * H1,
                                 double k1, double k2, double k3, dcomplex * Cs, dcomplex * Hs, int n,
                                 int owns_global_dense_rank);
+static int  BandCol_LastConstructOnDevice(void);
 
 static double get_max_value(double localValue);
 
@@ -113,6 +114,7 @@ typedef struct
     int l1;
     int l2;
     int l3;
+    int phase_index;
 } BandColConstructEntry;
 
 typedef struct
@@ -129,11 +131,20 @@ typedef struct
     unsigned long long     fingerprint;
     int                    dense_count;
     int                    local_count;
+    int                    h_count;
+    int                    dense_phase_count;
+    int                    dense_device_valid;
+    int *                  dense_phase_l1;
+    int *                  dense_phase_l2;
+    int *                  dense_phase_l3;
+    double *               dense_phase_r;
+    double *               dense_phase_i;
     BandColConstructEntry *dense_entries;
     BandColConstructEntry *local_entries;
 } BandColConstructCache;
 
 static BandColConstructCache BandCol_construct_cache = {0};
+static int                   BandCol_last_construct_on_device = 0;
 
 static void BandCol_AbortWithMessage(const char * msg)
 {
@@ -143,8 +154,28 @@ static void BandCol_AbortWithMessage(const char * msg)
 
 static void BandCol_ConstructCache_Reset(void)
 {
+    if (BandCol_construct_cache.dense_device_valid) {
+        BandColConstructEntry *dense_entries = BandCol_construct_cache.dense_entries;
+        double *               phase_r       = BandCol_construct_cache.dense_phase_r;
+        double *               phase_i       = BandCol_construct_cache.dense_phase_i;
+        int                    dense_count   = BandCol_construct_cache.dense_count;
+        int                    phase_count   = BandCol_construct_cache.dense_phase_count;
+
+        if (dense_entries != NULL && 0 < dense_count) {
+#pragma acc exit data delete(dense_entries[0 : dense_count])
+        }
+        if (phase_r != NULL && phase_i != NULL && 0 < phase_count) {
+#pragma acc exit data delete(phase_r[0 : phase_count], phase_i[0 : phase_count])
+        }
+    }
+
     free(BandCol_construct_cache.dense_entries);
     free(BandCol_construct_cache.local_entries);
+    free(BandCol_construct_cache.dense_phase_l1);
+    free(BandCol_construct_cache.dense_phase_l2);
+    free(BandCol_construct_cache.dense_phase_l3);
+    free(BandCol_construct_cache.dense_phase_r);
+    free(BandCol_construct_cache.dense_phase_i);
     memset(&BandCol_construct_cache, 0, sizeof(BandCol_construct_cache));
 }
 
@@ -183,6 +214,8 @@ static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
     unsigned long long     fingerprint = BandCol_ConstructFingerprint(order_GA, MP);
     int                    dense_count = 0;
     int                    local_count = 0;
+    int                    dense_phase_count = 0;
+    int                    prev_dense_l1 = 0x7fffffff, prev_dense_l2 = 0x7fffffff, prev_dense_l3 = 0x7fffffff;
 
     if (cache->valid && cache->n == n && cache->na_rows == na_rows && cache->na_cols == na_cols &&
         cache->nblk == nblk && cache->np_rows == np_rows && cache->np_cols == np_cols && cache->my_prow == my_prow &&
@@ -200,9 +233,14 @@ static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
 
         for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
             int GB_AN = natn[GA_AN][LB_AN];
+            int Rn    = ncn[GA_AN][LB_AN];
             int wanB  = WhatSpecies[GB_AN];
             int tnoB  = Spe_Total_CNO[wanB];
             int Bnum  = MP[GB_AN];
+            int l1    = atv_ijk[Rn][1];
+            int l2    = atv_ijk[Rn][2];
+            int l3    = atv_ijk[Rn][3];
+            int block_dense_count = 0;
 
             for (int i = 0; i < tnoA; i++) {
                 int ig = Anum + i;
@@ -217,6 +255,7 @@ static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
                 }
 
                 dense_count += tnoB - j_start;
+                block_dense_count += tnoB - j_start;
 
                 for (int j = 0; j < tnoB; j++) {
                     int jg   = Bnum + j;
@@ -228,19 +267,38 @@ static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
                     }
                 }
             }
+
+            if (0 < block_dense_count &&
+                (l1 != prev_dense_l1 || l2 != prev_dense_l2 || l3 != prev_dense_l3)) {
+                dense_phase_count++;
+                prev_dense_l1 = l1;
+                prev_dense_l2 = l2;
+                prev_dense_l3 = l3;
+            }
         }
     }
 
     cache->dense_entries = (BandColConstructEntry *)malloc(sizeof(BandColConstructEntry) * (size_t)(dense_count + 1));
     cache->local_entries = (BandColConstructEntry *)malloc(sizeof(BandColConstructEntry) * (size_t)(local_count + 1));
+    cache->dense_phase_l1 = (int *)malloc(sizeof(int) * (size_t)(dense_phase_count + 1));
+    cache->dense_phase_l2 = (int *)malloc(sizeof(int) * (size_t)(dense_phase_count + 1));
+    cache->dense_phase_l3 = (int *)malloc(sizeof(int) * (size_t)(dense_phase_count + 1));
+    cache->dense_phase_r  = (double *)malloc(sizeof(double) * (size_t)(dense_phase_count + 1));
+    cache->dense_phase_i  = (double *)malloc(sizeof(double) * (size_t)(dense_phase_count + 1));
 
-    if (cache->dense_entries == NULL || cache->local_entries == NULL) {
+    if (cache->dense_entries == NULL || cache->local_entries == NULL || cache->dense_phase_l1 == NULL ||
+        cache->dense_phase_l2 == NULL || cache->dense_phase_l3 == NULL || cache->dense_phase_r == NULL ||
+        cache->dense_phase_i == NULL) {
         BandCol_ConstructCache_Reset();
         BandCol_AbortWithMessage("Failed to allocate Construct_Band_CsHs cache in Band_DFT_Col.c.");
     }
 
     dense_count = 0;
     local_count = 0;
+    dense_phase_count = 0;
+    prev_dense_l1 = 0x7fffffff;
+    prev_dense_l2 = 0x7fffffff;
+    prev_dense_l3 = 0x7fffffff;
     int h_index = 0;
     for (int AN = 1; AN <= atomnum; AN++) {
         int GA_AN = order_GA[AN];
@@ -257,6 +315,7 @@ static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
             int l1    = atv_ijk[Rn][1];
             int l2    = atv_ijk[Rn][2];
             int l3    = atv_ijk[Rn][3];
+            int phase_index = -1;
 
             for (int i = 0; i < tnoA; i++) {
                 int ig = Anum + i;
@@ -274,6 +333,20 @@ static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
                     int jg = Bnum + j;
 
                     if (j_start <= j) {
+                        if (phase_index < 0) {
+                            if (l1 != prev_dense_l1 || l2 != prev_dense_l2 || l3 != prev_dense_l3) {
+                                phase_index = dense_phase_count++;
+                                cache->dense_phase_l1[phase_index] = l1;
+                                cache->dense_phase_l2[phase_index] = l2;
+                                cache->dense_phase_l3[phase_index] = l3;
+                                prev_dense_l1 = l1;
+                                prev_dense_l2 = l2;
+                                prev_dense_l3 = l3;
+                            } else {
+                                phase_index = dense_phase_count - 1;
+                            }
+                        }
+
                         BandColConstructEntry *entry = &cache->dense_entries[dense_count++];
                         entry->h_index = h_index;
                         entry->index0  = (jg - 1) * n + (ig - 1);
@@ -281,6 +354,7 @@ static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
                         entry->l1      = l1;
                         entry->l2      = l2;
                         entry->l3      = l3;
+                        entry->phase_index = phase_index;
                     }
 
                     int bcol = (jg - 1) / nblk;
@@ -311,6 +385,7 @@ static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
                         entry->l1      = l1;
                         entry->l2      = l2;
                         entry->l3      = l3;
+                        entry->phase_index = -1;
                     }
                 }
             }
@@ -329,6 +404,32 @@ static void BandCol_ConstructCache_Ensure(int *order_GA, int *MP, int n)
     cache->fingerprint = fingerprint;
     cache->dense_count = dense_count;
     cache->local_count = local_count;
+    cache->h_count     = h_index;
+    cache->dense_phase_count = dense_phase_count;
+}
+
+static void BandCol_ConstructCache_EnsureDenseDevice(void)
+{
+    BandColConstructCache *cache = &BandCol_construct_cache;
+
+    if (cache->dense_device_valid) {
+        return;
+    }
+
+    if (0 < cache->dense_count) {
+        BandColConstructEntry *entries = cache->dense_entries;
+        int count = cache->dense_count;
+#pragma acc enter data copyin(entries[0 : count])
+    }
+
+    if (0 < cache->dense_phase_count) {
+        double *phase_r = cache->dense_phase_r;
+        double *phase_i = cache->dense_phase_i;
+        int phase_count = cache->dense_phase_count;
+#pragma acc enter data create(phase_r[0 : phase_count], phase_i[0 : phase_count])
+    }
+
+    cache->dense_device_valid = 1;
 }
 
 static void BandCol_DMWorkspace_Reset(void)
@@ -894,7 +995,9 @@ static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, 
     matrix_bytes = sizeof(dcomplex) * (size_t)n * (size_t)n;
 
     if (build_from_overlap) {
-        wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
+        if (Ss != NULL) {
+            wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
+        }
         BandCol_CuSolver_Eigen(ctx->d_S, n, n, ko + 1);
 
         if (n > ctx->scale_dim) {
@@ -927,7 +1030,11 @@ static void BandCol_CuSolver_PrepareTransformedS(int build_from_overlap, int n, 
         }
 
     } else {
-        wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
+        if (Ss != NULL) {
+            wait_cudafunc(cudaMemcpy(ctx->d_S, Ss, matrix_bytes, cudaMemcpyHostToDevice));
+        } else if (!(ctx->transformed_s_valid && ctx->transformed_s_dim == n)) {
+            BandCol_AbortWithMessage("Device overlap is not ready in BandCol_CuSolver_PrepareTransformedS.");
+        }
     }
 
     ctx->transformed_s_valid = 1;
@@ -981,7 +1088,9 @@ static dcomplex *BandCol_CuSolver_SolveHamiltonianImpl(int n, int maxn, const dc
 
     matrix_bytes = sizeof(dcomplex) * (size_t)n * (size_t)n;
 
-    wait_cudafunc(cudaMemcpy(ctx->d_H, H_in, matrix_bytes, cudaMemcpyHostToDevice));
+    if (H_in != NULL) {
+        wait_cudafunc(cudaMemcpy(ctx->d_H, H_in, matrix_bytes, cudaMemcpyHostToDevice));
+    }
 
     wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_H, n,
                               (cuDoubleComplex *)ctx->d_S, n, &beta, (cuDoubleComplex *)ctx->d_tmp, n));
@@ -1015,9 +1124,139 @@ static dcomplex *BandCol_CuSolver_SolveHamiltonianDeviceOnly(int n, int maxn, co
     return BandCol_CuSolver_SolveHamiltonianImpl(n, maxn, H_in, ko, NULL, 1);
 }
 
+static dcomplex *BandCol_CuSolver_SolveHamiltonianDeviceInput(int n, int maxn, double *ko)
+{
+    return BandCol_CuSolver_SolveHamiltonianImpl(n, maxn, NULL, ko, NULL, 1);
+}
+
 static dcomplex *BandCol_CuSolver_DeviceEigenvectors(void)
 {
     return BandCol_cusolver_ctx.d_tmp;
+}
+
+static int BandCol_LastConstructOnDevice(void)
+{
+    return BandCol_last_construct_on_device;
+}
+
+static void BandCol_ConstructDenseCsHs_OpenACC(int need_s, int n, double k1, double k2, double k3, const double *S1,
+                                               const double *H1)
+{
+    BandColConstructCache *cache = &BandCol_construct_cache;
+    BandColCuSolverCtx *   ctx = &BandCol_cusolver_ctx;
+    BandColConstructEntry *entries = cache->dense_entries;
+    double *phase_r = cache->dense_phase_r;
+    double *phase_i = cache->dense_phase_i;
+    int count = cache->dense_count;
+    int phase_count = cache->dense_phase_count;
+    int h_count = cache->h_count;
+    long long matrix_count = (long long)n * (long long)n;
+    dcomplex *d_H;
+    dcomplex *d_S;
+
+    BandCol_CuSolver_EnsureMatrixCapacity(n);
+    BandCol_ConstructCache_EnsureDenseDevice();
+
+    d_H = ctx->d_H;
+    d_S = ctx->d_S;
+
+    for (int p = 0; p < phase_count; ++p) {
+        double kRn = k1 * (double)cache->dense_phase_l1[p] + k2 * (double)cache->dense_phase_l2[p] +
+                     k3 * (double)cache->dense_phase_l3[p];
+        phase_i[p] = sin(2.0 * PI * kRn);
+        phase_r[p] = cos(2.0 * PI * kRn);
+    }
+
+    if (0 < phase_count) {
+#pragma acc update device(phase_r[0 : phase_count], phase_i[0 : phase_count])
+    }
+
+    if (need_s) {
+#pragma acc parallel loop deviceptr(d_H, d_S)
+        for (long long idx = 0; idx < matrix_count; ++idx) {
+            d_H[idx].r = 0.0;
+            d_H[idx].i = 0.0;
+            d_S[idx].r = 0.0;
+            d_S[idx].i = 0.0;
+        }
+
+#pragma acc data copyin(H1[0 : h_count], S1[0 : h_count]) present(entries[0 : count], phase_r[0 : phase_count], phase_i[0 : phase_count])
+        {
+#pragma acc parallel loop deviceptr(d_H, d_S)
+            for (int idx = 0; idx < count; ++idx) {
+                const int h_index = entries[idx].h_index;
+                const int index0 = entries[idx].index0;
+                const int index1 = entries[idx].index1;
+                const int phase_index = entries[idx].phase_index;
+                const double pr = phase_r[phase_index];
+                const double pi = phase_i[phase_index];
+                const double h_real = H1[h_index] * pr;
+                const double h_imag = H1[h_index] * pi;
+                const double s_real = S1[h_index] * pr;
+                const double s_imag = S1[h_index] * pi;
+
+#pragma acc atomic update
+                d_H[index0].r += h_real;
+#pragma acc atomic update
+                d_H[index0].i += h_imag;
+
+                if (0 <= index1) {
+#pragma acc atomic update
+                    d_H[index1].r += h_real;
+#pragma acc atomic update
+                    d_H[index1].i += -h_imag;
+                }
+
+#pragma acc atomic update
+                d_S[index0].r += s_real;
+#pragma acc atomic update
+                d_S[index0].i += s_imag;
+
+                if (0 <= index1) {
+#pragma acc atomic update
+                    d_S[index1].r += s_real;
+#pragma acc atomic update
+                    d_S[index1].i += -s_imag;
+                }
+            }
+        }
+    } else {
+#pragma acc parallel loop deviceptr(d_H)
+        for (long long idx = 0; idx < matrix_count; ++idx) {
+            d_H[idx].r = 0.0;
+            d_H[idx].i = 0.0;
+        }
+
+#pragma acc data copyin(H1[0 : h_count]) present(entries[0 : count], phase_r[0 : phase_count], phase_i[0 : phase_count])
+        {
+#pragma acc parallel loop deviceptr(d_H)
+            for (int idx = 0; idx < count; ++idx) {
+                const int h_index = entries[idx].h_index;
+                const int index0 = entries[idx].index0;
+                const int index1 = entries[idx].index1;
+                const int phase_index = entries[idx].phase_index;
+                const double pr = phase_r[phase_index];
+                const double pi = phase_i[phase_index];
+                const double h_real = H1[h_index] * pr;
+                const double h_imag = H1[h_index] * pi;
+
+#pragma acc atomic update
+                d_H[index0].r += h_real;
+#pragma acc atomic update
+                d_H[index0].i += h_imag;
+
+                if (0 <= index1) {
+#pragma acc atomic update
+                    d_H[index1].r += h_real;
+#pragma acc atomic update
+                    d_H[index1].i += -h_imag;
+                }
+            }
+        }
+    }
+
+#pragma acc wait
+    BandCol_last_construct_on_device = 1;
 }
 
 double Band_DFT_Col(int SCF_iter, int knum_i, int knum_j, int knum_k, int SpinP_switch, double ***** nh,
@@ -1828,6 +2067,7 @@ diagonalize1:
 
                 Construct_Band_CsHs(SCF_iter, all_knum, order_GA, MP, S1, H1, k1, k2, k3, Ss, Hs, n,
                                     owns_global_dense_rank);
+                const int construct_on_device = BandCol_LastConstructOnDevice();
                 if (measure_time) {
                     dtime(&endtimesh);
 
@@ -1853,7 +2093,8 @@ diagonalize1:
                         dtime(&Stime);
 
                     if (!transformed_s_ready) {
-                        BandCol_CuSolver_PrepareTransformedS(SCF_iter == 1, n, Ss, ko, koS);
+                        BandCol_CuSolver_PrepareTransformedS(SCF_iter == 1, n, construct_on_device ? NULL : Ss, ko,
+                                                             koS);
                         transformed_s_ready = 1;
 
                         if (SCF_iter == 1 && measure_time) {
@@ -1867,7 +2108,11 @@ diagonalize1:
                             dtime(&Stime);
                     }
 
-                    BandCol_CuSolver_SolveHamiltonianDeviceOnly(n, MaxN, Hs, ko);
+                    if (construct_on_device) {
+                        BandCol_CuSolver_SolveHamiltonianDeviceInput(n, MaxN, ko);
+                    } else {
+                        BandCol_CuSolver_SolveHamiltonianDeviceOnly(n, MaxN, Hs, ko);
+                    }
 
                     if (measure_time) {
                         dtime(&Etime);
@@ -3752,6 +3997,8 @@ void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, d
     const int dense_cusolver_owner =
         (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && owns_global_dense_rank);
 
+    BandCol_last_construct_on_device = 0;
+
     if (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && !owns_global_dense_rank) {
         return;
     }
@@ -3759,56 +4006,11 @@ void Construct_Band_CsHs(int SCF_iter, int all_knum, int * order_GA, int * MP, d
     BandCol_ConstructCache_Ensure(order_GA, MP, n);
 
     if (dense_cusolver_owner) {
-        const BandColConstructEntry *entries = BandCol_construct_cache.dense_entries;
-        const int count = BandCol_construct_cache.dense_count;
-        int prev_l1 = 0x7fffffff, prev_l2 = 0x7fffffff, prev_l3 = 0x7fffffff;
-        double phase_real = 0.0, phase_imag = 0.0;
+        BandCol_ConstructDenseCsHs_OpenACC(need_s, n, k1, k2, k3, S1, H1);
+        return;
+    }
 
-        BandCol_ZeroComplex(Hs, (size_t)n * (size_t)n);
-        if (need_s) {
-            BandCol_ZeroComplex(Cs, (size_t)n * (size_t)n);
-        }
-
-        for (int idx = 0; idx < count; ++idx) {
-            const BandColConstructEntry *entry = &entries[idx];
-
-            if (entry->l1 != prev_l1 || entry->l2 != prev_l2 || entry->l3 != prev_l3) {
-                double kRn = k1 * (double)entry->l1 + k2 * (double)entry->l2 + k3 * (double)entry->l3;
-                phase_imag = sin(2.0 * PI * kRn);
-                phase_real = cos(2.0 * PI * kRn);
-                prev_l1 = entry->l1;
-                prev_l2 = entry->l2;
-                prev_l3 = entry->l3;
-            }
-
-            {
-                const int h_index = entry->h_index;
-                const double real_val = H1[h_index] * phase_real;
-                const double imag_val = H1[h_index] * phase_imag;
-
-                Hs[entry->index0].r += real_val;
-                Hs[entry->index0].i += imag_val;
-
-                if (0 <= entry->index1) {
-                    Hs[entry->index1].r += real_val;
-                    Hs[entry->index1].i -= imag_val;
-                }
-
-                if (need_s) {
-                    const double real_val_s = S1[h_index] * phase_real;
-                    const double imag_val_s = S1[h_index] * phase_imag;
-
-                    Cs[entry->index0].r += real_val_s;
-                    Cs[entry->index0].i += imag_val_s;
-
-                    if (0 <= entry->index1) {
-                        Cs[entry->index1].r += real_val_s;
-                        Cs[entry->index1].i -= imag_val_s;
-                    }
-                }
-            }
-        }
-    } else {
+    {
         const BandColConstructEntry *entries = BandCol_construct_cache.local_entries;
         const int count = BandCol_construct_cache.local_count;
         int prev_l1 = 0x7fffffff, prev_l2 = 0x7fffffff, prev_l3 = 0x7fffffff;
