@@ -2538,6 +2538,8 @@ void Allocate_Free_Band_NonCol(int todo_flag)
     int        ZERO = 0, ONE = 1, info, myid0, numprocs0, myid1, numprocs1, myid2, numprocs2;
     ;
     int    spinmax, i, j, k, ii, ij, ik, nblk_m, nblk_m2, wanA, spin, size_EVec1_Cx;
+    int    cusolver_single_kloop, cusolver_dense_owner, cusolver_direct_single_k_dm;
+    size_t ss_cx_count;
     double tmp, tmp1;
 
     MPI_Barrier(mpi_comm_level1);
@@ -2695,6 +2697,11 @@ void Allocate_Free_Band_NonCol(int todo_flag)
 
         MPI_Comm_size(MPI_CommWD2[myworld2], &numprocs2);
         MPI_Comm_rank(MPI_CommWD2[myworld2], &myid2);
+        cusolver_single_kloop = (scf_eigen_lib_flag == CuSOLVER && T_knum <= numprocs1);
+        cusolver_direct_single_k_dm = (scf_eigen_lib_flag == CuSOLVER && T_knum == 1 && GB_switch == 0 && CDDF_on != 1);
+        cusolver_dense_owner =
+            (scf_eigen_lib_flag == CuSOLVER &&
+             ((cusolver_single_kloop && myid0 == Host_ID) || (!cusolver_single_kloop && myid2 == 0)));
 
         double av_num;
         int    ke, ks, n3;
@@ -2709,6 +2716,11 @@ void Allocate_Free_Band_NonCol(int todo_flag)
         if (myid1 == (numprocs2 - 1))
             ke = n3;
         k = ke - ks + 2;
+
+        if (cusolver_direct_single_k_dm) {
+            k = 1;
+            n3 = 1;
+        }
 
         EVec1_Cx = (dcomplex **)malloc(sizeof(dcomplex *) * spinmax);
         for (spin = 0; spin < spinmax; spin++) {
@@ -2747,20 +2759,26 @@ void Allocate_Free_Band_NonCol(int todo_flag)
         ictxt2   = bhandle2;
         Cblacs_gridinit(&ictxt2, "Row", np_rows, np_cols);
 
-        if (scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
-            Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
+        if (cusolver_dense_owner) {
+            ss_cx_count = (size_t)n * (size_t)n;
+            if (cusolver_single_kloop) {
+                ss_cx_count *= (size_t)T_knum;
+            }
+            Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * ss_cx_count);
             Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
         } else if (scf_eigen_lib_flag == CuSOLVER) {
+            ss_cx_count = 1;
             Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
             Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
         } else {
+            ss_cx_count = (size_t)na_rows * (size_t)na_cols;
             Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
             Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
         }
 
         MPI_Allreduce(&na_rows, &na_rows_max, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
         MPI_Allreduce(&na_cols, &na_cols_max, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
-        if (scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
+        if (cusolver_dense_owner) {
             Cs_Cx    = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
             rHs11_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
             rHs12_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
@@ -2823,7 +2841,7 @@ void Allocate_Free_Band_NonCol(int todo_flag)
         ictxt1_2   = bhandle1_2;
 
         Cblacs_gridinit(&ictxt1_2, "Row", np_rows2, np_cols2);
-        if (scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
+        if (cusolver_dense_owner) {
             Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
         } else if (scf_eigen_lib_flag == CuSOLVER) {
             Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
@@ -2831,15 +2849,17 @@ void Allocate_Free_Band_NonCol(int todo_flag)
             Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows2 * na_cols2);
         }
 
-        if (scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
+        if (cusolver_dense_owner) {
             Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
+        } else if (scf_eigen_lib_flag == CuSOLVER && cusolver_single_kloop) {
+            Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
         } else {
             Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows2 * na_cols2);
         }
 
         MPI_Allreduce(&na_rows2, &na_rows_max2, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
         MPI_Allreduce(&na_cols2, &na_cols_max2, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
-        if (scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
+        if (cusolver_dense_owner) {
             Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
         } else if (scf_eigen_lib_flag == CuSOLVER) {
             Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
@@ -2900,7 +2920,7 @@ void Allocate_Free_Band_NonCol(int todo_flag)
             PrintMemory("Allocate_Free_Band_NonCol: Comm_World_StartID2", sizeof(int) * Num_Comm_World2, NULL);
             PrintMemory("Allocate_Free_Band_NonCol: MPI_CommWD2", sizeof(MPI_Comm) * Num_Comm_World2, NULL);
             PrintMemory("Allocate_Free_Band_NonCol: EVec1_Cx", sizeof(dcomplex) * size_EVec1_Cx, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: Ss_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: Ss_Cx", sizeof(dcomplex) * ss_cx_count, NULL);
             PrintMemory("Allocate_Free_Band_NonCol: Hs_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
             PrintMemory("Allocate_Free_Band_NonCol: Cs_Cx", sizeof(dcomplex) * na_rows_max * na_cols_max, NULL);
             PrintMemory("Allocate_Free_Band_NonCol: rHs11_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
@@ -3072,7 +3092,9 @@ void Allocate_Free_Cluster_Col(int todo_flag)
 {
     static int firsttime = 1;
     int        ZERO = 0, ONE = 1, info, myid0, numprocs0, myid1, numprocs1;
-    int        i, k, nblk_m, nblk_m2, wanA, spin, size_EVec1;
+    int        i, k, nblk_m, nblk_m2, wanA, spin;
+    int        cluster_col_cusolver_direct_device_dm;
+    size_t     size_EVec1, evec1_re_count, ss_re_count, hs_re_count, cs_re_count;
     double     tmp, tmp1;
 
     MPI_Barrier(mpi_comm_level1);
@@ -3139,6 +3161,10 @@ void Allocate_Free_Cluster_Col(int todo_flag)
         MPI_Comm_size(MPI_CommWD1[myworld1], &numprocs1);
         MPI_Comm_rank(MPI_CommWD1[myworld1], &myid1);
 
+        cluster_col_cusolver_direct_device_dm =
+            (scf_eigen_lib_flag == CuSOLVER && MO_fileout != 1 && xanes_calc != 1 && xanes_gs_fileout != 1 &&
+             !cal_partial_charge && !Dos_fileout && !DosGauss_fileout && !(SpinP_switch == 1 && numprocs0 == 1));
+
         double av_num;
         int    ke, ks;
         av_num = (double)n / (double)numprocs1;
@@ -3150,11 +3176,12 @@ void Allocate_Free_Cluster_Col(int todo_flag)
             ke = n;
         k = ke - ks + 2;
 
+        evec1_re_count = cluster_col_cusolver_direct_device_dm ? 1 : (size_t)k * (size_t)n;
         EVec1_Re = (double **)malloc(sizeof(double *) * (SpinP_switch + 1));
         for (spin = 0; spin < (SpinP_switch + 1); spin++) {
-            EVec1_Re[spin] = (double *)malloc(sizeof(double) * k * n);
+            EVec1_Re[spin] = (double *)malloc(sizeof(double) * evec1_re_count);
         }
-        size_EVec1 = (SpinP_switch + 1) * k * n;
+        size_EVec1 = (size_t)(SpinP_switch + 1) * evec1_re_count;
 
         is2 = (int *)malloc(sizeof(int) * numprocs1);
         ie2 = (int *)malloc(sizeof(int) * numprocs1);
@@ -3189,26 +3216,31 @@ void Allocate_Free_Cluster_Col(int todo_flag)
 
         Cblacs_gridinit(&ictxt1, "Row", np_rows, np_cols);
         if (scf_eigen_lib_flag == CuSOLVER && myid1 == 0) {
-            Ss_Re = (double *)malloc(sizeof(double) * n * n);
+            ss_re_count = (size_t)n * (size_t)n;
         } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Ss_Re = (double *)malloc(sizeof(double) * 1);
+            ss_re_count = 1;
         } else {
-            Ss_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
+            ss_re_count = (size_t)na_rows * (size_t)na_cols;
         }
+        Ss_Re = (double *)malloc(sizeof(double) * ss_re_count);
 
         // Ss_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
-        Hs_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
+        hs_re_count = cluster_col_cusolver_direct_device_dm ? 1 : (size_t)na_rows * (size_t)na_cols;
+        Hs_Re = (double *)malloc(sizeof(double) * hs_re_count);
 
         MPI_Allreduce(&na_rows, &na_rows_max, 1, MPI_INT, MPI_MAX, MPI_CommWD1[myworld1]);
         MPI_Allreduce(&na_cols, &na_cols_max, 1, MPI_INT, MPI_MAX, MPI_CommWD1[myworld1]);
 
-        if (scf_eigen_lib_flag == CuSOLVER && myid1 == 0) {
-            Cs_Re = (double *)malloc(sizeof(double) * n * n);
+        if (cluster_col_cusolver_direct_device_dm) {
+            cs_re_count = 1;
+        } else if (scf_eigen_lib_flag == CuSOLVER && myid1 == 0) {
+            cs_re_count = (size_t)n * (size_t)n;
         } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Cs_Re = (double *)malloc(sizeof(double) * 1);
+            cs_re_count = 1;
         } else {
-            Cs_Re = (double *)malloc(sizeof(double) * na_rows_max * na_cols_max);
+            cs_re_count = (size_t)na_rows_max * (size_t)na_cols_max;
         }
+        Cs_Re = (double *)malloc(sizeof(double) * cs_re_count);
 
         descinit_(descS, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt1, &na_rows, &info);
         descinit_(descH, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt1, &na_rows, &info);
@@ -3235,12 +3267,12 @@ void Allocate_Free_Cluster_Col(int todo_flag)
             PrintMemory("Allocate_Free_Cluster_Col: NPROCS_WD1", sizeof(int) * Num_Comm_World1, NULL);
             PrintMemory("Allocate_Free_Cluster_Col: Comm_World_StartID1", sizeof(int) * Num_Comm_World1, NULL);
             PrintMemory("Allocate_Free_Cluster_Col: MPI_CommWD1", sizeof(MPI_Comm) * Num_Comm_World1, NULL);
-            PrintMemory("Allocate_Free_Cluster_Col: EVec1_Re", sizeof(dcomplex) * size_EVec1, NULL);
+            PrintMemory("Allocate_Free_Cluster_Col: EVec1_Re", (long int)(sizeof(double) * size_EVec1), NULL);
             PrintMemory("Allocate_Free_Cluster_Col: is2", sizeof(int) * numprocs1, NULL);
             PrintMemory("Allocate_Free_Cluster_Col: ie2", sizeof(int) * numprocs1, NULL);
-            PrintMemory("Allocate_Free_Cluster_Col: Ss_Re", sizeof(double) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Cluster_Col: Hs_Re", sizeof(double) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Cluster_Col: Cs_Re", sizeof(double) * na_rows_max * na_cols_max, NULL);
+            PrintMemory("Allocate_Free_Cluster_Col: Ss_Re", (long int)(sizeof(double) * ss_re_count), NULL);
+            PrintMemory("Allocate_Free_Cluster_Col: Hs_Re", (long int)(sizeof(double) * hs_re_count), NULL);
+            PrintMemory("Allocate_Free_Cluster_Col: Cs_Re", (long int)(sizeof(double) * cs_re_count), NULL);
         }
 
         firsttime = 0;

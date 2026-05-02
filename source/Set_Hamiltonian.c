@@ -79,6 +79,10 @@ static int Set_Hamiltonian_OpenACC_Threshold(void)
 {
     int AN, total_basis;
 
+    if (SpinP_switch == 3 && Solver == 3 && scf_eigen_lib_flag == CuSOLVER) {
+        return 0;
+    }
+
     if (scf_eigen_lib_flag != CuSOLVER) {
         return 0;
     }
