@@ -2282,6 +2282,12 @@ void Allocate_Free_Band_Col(int todo_flag)
 
         double av_num;
         int    ke, ks, n3;
+        int    band_col_cusolver_single_kloop;
+        int    evec1_cx_count;
+        size_t ss_cx_count, hs_cx_count, cs_cx_count;
+
+        band_col_cusolver_single_kloop =
+            (scf_eigen_lib_flag == CuSOLVER && T_knum <= numprocs1 && !(SpinP_switch == 1 && numprocs0 == 1));
 
         n3     = n;
         av_num = (double)n3 / (double)numprocs2;
@@ -2293,11 +2299,16 @@ void Allocate_Free_Band_Col(int todo_flag)
             ke = n3;
         k = ke - ks + 2;
 
+        evec1_cx_count = k * n3;
+        if (band_col_cusolver_single_kloop) {
+            evec1_cx_count = 1;
+        }
+
         EVec1_Cx = (dcomplex **)malloc(sizeof(dcomplex *) * spinmax);
         for (spin = 0; spin < spinmax; spin++) {
-            EVec1_Cx[spin] = (dcomplex *)malloc(sizeof(dcomplex) * k * n3);
+            EVec1_Cx[spin] = (dcomplex *)malloc(sizeof(dcomplex) * evec1_cx_count);
         }
-        size_EVec1_Cx = spinmax * k * n3;
+        size_EVec1_Cx = spinmax * evec1_cx_count;
 
         /* ***************************************************
           setting for BLACS in the matrix size of n
@@ -2329,29 +2340,31 @@ void Allocate_Free_Band_Col(int todo_flag)
         bhandle2 = Csys2blacs_handle(MPI_CommWD2[myworld2]);
         ictxt2   = bhandle2;
         Cblacs_gridinit(&ictxt2, "Row", np_rows, np_cols);
-        if (scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
-            Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
+        if (scf_eigen_lib_flag == CuSOLVER) {
+            if (myid2 == 0) {
+                ss_cx_count = (size_t)n * (size_t)n;
+                hs_cx_count = (size_t)n * (size_t)n;
+                cs_cx_count = band_col_cusolver_single_kloop ? 1 : (size_t)n * (size_t)n;
+            } else {
+                ss_cx_count = 1;
+                hs_cx_count = band_col_cusolver_single_kloop ? 1 : (size_t)na_rows * (size_t)na_cols;
+                cs_cx_count = 1;
+            }
         } else {
-            Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
+            ss_cx_count = (size_t)na_rows * (size_t)na_cols;
+            hs_cx_count = (size_t)na_rows * (size_t)na_cols;
+            cs_cx_count = 1;
         }
 
-        if (scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
-            Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-        } else {
-            Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
-        }
+        Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * ss_cx_count);
+        Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * hs_cx_count);
 
         MPI_Allreduce(&na_rows, &na_rows_max, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
         MPI_Allreduce(&na_cols, &na_cols_max, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
-        if (scf_eigen_lib_flag == CuSOLVER && myid2 == 0) {
-            Cs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Cs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-        } else {
-            Cs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows_max * na_cols_max);
+        if (scf_eigen_lib_flag != CuSOLVER) {
+            cs_cx_count = (size_t)na_rows_max * (size_t)na_cols_max;
         }
+        Cs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * cs_cx_count);
 
         descinit_(descS, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt2, &na_rows, &info);
         descinit_(descH, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt2, &na_rows, &info);
@@ -2391,9 +2404,9 @@ void Allocate_Free_Band_Col(int todo_flag)
             PrintMemory("Allocate_Free_Band_Col: Comm_World_StartID2", sizeof(int) * Num_Comm_World2, NULL);
             PrintMemory("Allocate_Free_Band_Col: MPI_CommWD2", sizeof(MPI_Comm) * Num_Comm_World2, NULL);
             PrintMemory("Allocate_Free_Band_Col: EVec1_Cx", sizeof(dcomplex) * size_EVec1_Cx, NULL);
-            PrintMemory("Allocate_Free_Band_Col: Ss_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Band_Col: Hs_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Band_Col: Cs_Cx", sizeof(dcomplex) * na_rows_max * na_cols_max, NULL);
+            PrintMemory("Allocate_Free_Band_Col: Ss_Cx", sizeof(dcomplex) * ss_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_Col: Hs_Cx", sizeof(dcomplex) * hs_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_Col: Cs_Cx", sizeof(dcomplex) * cs_cx_count, NULL);
             if (CDDF_on == 1) {
                 PrintMemory("Allocate_Free_Band_Col: H_Band_Col", sizeof(dcomplex) * (n + 1) * (n + 1), NULL);
             }
