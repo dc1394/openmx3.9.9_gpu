@@ -177,8 +177,8 @@ static int HamiltonianClusterHs_FindDenseRoot(int spin, int myworld1, int myid, 
     return dense_root;
 }
 
-static void HamiltonianClusterHs_BuildDenseSymmetricFromGathered(const double *H1, const int *order_GA, int *MP,
-                                                                 double *Hs, int n, int tnum)
+static void HamiltonianClusterHs_BuildDenseFromGathered(const double *H1, const int *order_GA, int *MP, double *Hs,
+                                                        int n, int tnum)
 {
     int      AN, GA_AN, LB_AN, GB_AN;
     int      wanA, wanB, tnoA, tnoB;
@@ -238,7 +238,6 @@ static void HamiltonianClusterHs_BuildDenseSymmetricFromGathered(const double *H
             int ig = Anum_local + i;
 
             for (int LB_AN_local = 0; LB_AN_local <= FNAN[GA_AN_local]; LB_AN_local++) {
-                int j_start;
                 int GB_AN_local;
                 int wanB_local;
                 int tnoB_local;
@@ -249,16 +248,7 @@ static void HamiltonianClusterHs_BuildDenseSymmetricFromGathered(const double *H
                 tnoB_local  = Spe_Total_CNO[wanB_local];
                 Bnum_local  = MP[GB_AN_local];
 
-                j_start = ig - Bnum_local;
-                if (j_start < 0) {
-                    j_start = 0;
-                } else if (tnoB_local < j_start) {
-                    j_start = tnoB_local;
-                }
-
-                k_local += (size_t)j_start;
-
-                for (int j = j_start; j < tnoB_local; j++) {
+                for (int j = 0; j < tnoB_local; j++) {
                     double value;
                     int    jg;
 
@@ -271,10 +261,6 @@ static void HamiltonianClusterHs_BuildDenseSymmetricFromGathered(const double *H
 
                     value = H1[k_local];
                     Hs[(size_t)(jg - 1) * (size_t)n + (size_t)(ig - 1)] += value;
-
-                    if (jg > ig) {
-                        Hs[(size_t)(ig - 1) * (size_t)n + (size_t)(jg - 1)] += value;
-                    }
 
                     k_local++;
                 }
@@ -384,7 +370,7 @@ static void HamiltonianClusterHs_CuSolver(double **** RH, double * Hs, int * MP,
             gathered_nzeros = h1_displs[numprocs - 1] + recv_nzeros[numprocs - 1];
         }
 
-        HamiltonianClusterHs_BuildDenseSymmetricFromGathered(gathered_H1, order_GA, MP, Hs, n, gathered_nzeros);
+        HamiltonianClusterHs_BuildDenseFromGathered(gathered_H1, order_GA, MP, Hs, n, gathered_nzeros);
     }
 
     free(gathered_H1);

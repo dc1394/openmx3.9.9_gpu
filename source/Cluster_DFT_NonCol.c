@@ -716,23 +716,19 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
 
     ClusterNonCol_ValidateMode(mode);
 
-    /* Cluster non-collinear calculations are stable on the ELPA1 path. */
+    /* Cluster non-collinear calculations without a GPU use the ELPA1 path. */
     original_scf_eigen_lib_flag  = scf_eigen_lib_flag;
     effective_scf_eigen_lib_flag = scf_eigen_lib_flag;
 
-    if (effective_scf_eigen_lib_flag == 0 || effective_scf_eigen_lib_flag == CuSOLVER) {
+    if (effective_scf_eigen_lib_flag == 0) {
         effective_scf_eigen_lib_flag = ELPA1;
 
         if (myid == Host_ID && 0 < level_stdout) {
-            if (original_scf_eigen_lib_flag == CuSOLVER) {
-                printf("Cluster_DFT_NonCol: fallback scf.eigen.lib from cusolver to elpa1 for cluster non-collinear calculations.\n");
-            } else {
-                printf("Cluster_DFT_NonCol: fallback scf.eigen.lib from lapack to elpa1 for cluster non-collinear calculations.\n");
-            }
+            printf("Cluster_DFT_NonCol: fallback scf.eigen.lib from lapack to elpa1 for cluster non-collinear calculations.\n");
         }
     }
 
-    if (original_scf_eigen_lib_flag == CuSOLVER) {
+    if (original_scf_eigen_lib_flag == CuSOLVER && effective_scf_eigen_lib_flag != CuSOLVER) {
         size_t local_real_elems = ClusterNonCol_CheckedMulCount((size_t)na_rows, (size_t)na_cols,
                                                                 "Cluster_DFT_NonCol ELPA fallback real matrix");
         size_t local_cpx_elems  = ClusterNonCol_CheckedMulCount((size_t)na_rows2, (size_t)na_cols2,

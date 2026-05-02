@@ -299,10 +299,11 @@ Poisson_ESM.o: Poisson_ESM.c openmx_common.h
 	$(CC) -c Poisson_ESM.c
 Mulliken_Charge.o: Mulliken_Charge.c openmx_common.h
 	$(CC) -c Mulliken_Charge.c
+# NVHPC 25.1 + -acc miscompiles LDA+U Type2/cFLL occupation/potential paths.
 Occupation_Number_LDA_U.o: Occupation_Number_LDA_U.c openmx_common.h
-	$(CC) -c Occupation_Number_LDA_U.c
+	$(CC_NOACC) -c Occupation_Number_LDA_U.c
 Eff_Hub_Pot.o: Eff_Hub_Pot.c openmx_common.h
-	$(CC) -c Eff_Hub_Pot.c
+	$(CC_NOACC) -c Eff_Hub_Pot.c
 Coulomb_Interaction.o: Coulomb_Interaction.c openmx_common.h
 	$(CC) -c Coulomb_Interaction.c
 EulerAngle_Spin.o: EulerAngle_Spin.c openmx_common.h
@@ -365,8 +366,9 @@ Kerker_Mixing_Rhok.o: Kerker_Mixing_Rhok.c openmx_common.h
 	$(CC) -c Kerker_Mixing_Rhok.c
 DIIS_Mixing_Rhok.o: DIIS_Mixing_Rhok.c openmx_common.h
 	$(CC) -c DIIS_Mixing_Rhok.c
+# Same LDA+U Type2/cFLL workaround as above.
 Total_Energy.o: Total_Energy.c openmx_common.h
-	$(CC) -c Total_Energy.c
+	$(CC_NOACC) -c Total_Energy.c
 Contract_Hamiltonian.o: Contract_Hamiltonian.c openmx_common.h
 	$(CC) -c Contract_Hamiltonian.c
 Contract_iHNL.o: Contract_iHNL.c openmx_common.h
