@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define SETOLPKIN_CALLOC(count, size, label) SetOLPKin_Calloc((count), (size), (label), __LINE__)
@@ -147,6 +148,77 @@ static uint64_t SetOLPKin_HashStep(uint64_t hash, int value)
 {
     hash ^= (uint64_t)(uint32_t)value;
     hash *= 1099511628211ULL;
+    return hash;
+}
+
+static uint64_t SetOLPKin_HashBytes(uint64_t hash, const void *data, size_t size)
+{
+    const unsigned char *bytes = (const unsigned char *)data;
+    size_t               i;
+
+    for (i = 0; i < size; i++) {
+        hash ^= (uint64_t)bytes[i];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+static uint64_t SetOLPKin_HashDouble(uint64_t hash, double value)
+{
+    uint64_t bits;
+
+    memcpy(&bits, &value, sizeof(bits));
+    return SetOLPKin_HashBytes(hash, &bits, sizeof(bits));
+}
+
+static uint64_t SetOLPKin_HashString(uint64_t hash, const char *value)
+{
+    if (value == NULL) {
+        return SetOLPKin_HashStep(hash, -1);
+    }
+
+    while (*value != '\0') {
+        hash ^= (uint64_t)(unsigned char)*value;
+        hash *= 1099511628211ULL;
+        value++;
+    }
+
+    hash ^= 0xffU;
+    hash *= 1099511628211ULL;
+    return hash;
+}
+
+static uint64_t SetOLPKin_RFBesselSignature(int l_dim, int mul_dim, int grid_dim)
+{
+    int      species, L;
+    uint64_t hash = 1469598103934665603ULL;
+
+    hash = SetOLPKin_HashStep(hash, SpeciesNum);
+    hash = SetOLPKin_HashStep(hash, l_dim);
+    hash = SetOLPKin_HashStep(hash, mul_dim);
+    hash = SetOLPKin_HashStep(hash, grid_dim);
+    hash = SetOLPKin_HashStep(hash, OneD_Grid);
+    hash = SetOLPKin_HashDouble(hash, Radial_kmin);
+    hash = SetOLPKin_HashDouble(hash, PAO_Nkmax);
+    hash = SetOLPKin_HashString(hash, DFT_DATA_PATH);
+
+    for (species = 0; species < SpeciesNum; species++) {
+        hash = SetOLPKin_HashString(hash, SpeName[species]);
+        hash = SetOLPKin_HashString(hash, SpeBasis[species]);
+        hash = SetOLPKin_HashString(hash, SpeBasisName[species]);
+        hash = SetOLPKin_HashStep(hash, Spe_MaxL_Basis[species]);
+        hash = SetOLPKin_HashStep(hash, Spe_Num_Mesh_PAO[species]);
+
+        if (0 < Spe_Num_Mesh_PAO[species]) {
+            hash = SetOLPKin_HashDouble(hash, Spe_PAO_RV[species][0]);
+            hash = SetOLPKin_HashDouble(hash, Spe_PAO_RV[species][Spe_Num_Mesh_PAO[species] - 1]);
+        }
+
+        for (L = 0; L <= Spe_MaxL_Basis[species]; L++) {
+            hash = SetOLPKin_HashStep(hash, Spe_Num_Basis[species][L]);
+        }
+    }
+
     return hash;
 }
 
@@ -310,15 +382,11 @@ double Set_OLP_Kin(double ***** OLP, double ***** H0)
     static int     Gaunt_cache_max_l = -1;
     static size_t  Gaunt_cache_size = 0;
     static double *RF_Bessel_cache = NULL;
-    static int     RF_Bessel_cache_species_num = -1;
-    static int     RF_Bessel_cache_l_dim = -1;
-    static int     RF_Bessel_cache_mul_dim = -1;
-    static int     RF_Bessel_cache_grid_dim = -1;
-    static double  RF_Bessel_cache_kmin = 0.0;
-    static double  RF_Bessel_cache_kmax = 0.0;
+    static uint64_t RF_Bessel_cache_signature = 0;
     static size_t  RF_Bessel_cache_size = 0;
     int            l_dim, mul_dim, m_dim, grid_dim;
     int            gaunt_l_count, gaunt_m_dim, gaunt_m_offset;
+    uint64_t       rf_bessel_signature;
     size_t         size_SumS0, size_TmpOLP;
     double     time0;
     double     TStime, TEtime;
@@ -357,17 +425,11 @@ double Set_OLP_Kin(double ***** OLP, double ***** H0)
         Gaunt_cache_max_l = List_YOUSO[25];
     }
 
-    if (RF_Bessel_cache == NULL || RF_Bessel_cache_species_num != SpeciesNum || RF_Bessel_cache_l_dim != l_dim ||
-        RF_Bessel_cache_mul_dim != mul_dim || RF_Bessel_cache_grid_dim != grid_dim ||
-        RF_Bessel_cache_kmin != Radial_kmin || RF_Bessel_cache_kmax != PAO_Nkmax) {
+    rf_bessel_signature = SetOLPKin_RFBesselSignature(l_dim, mul_dim, grid_dim);
+    if (RF_Bessel_cache == NULL || RF_Bessel_cache_signature != rf_bessel_signature) {
         free(RF_Bessel_cache);
         RF_Bessel_cache = SetOLPKin_BuildRFBesselCache(l_dim, mul_dim, grid_dim, &RF_Bessel_cache_size);
-        RF_Bessel_cache_species_num = SpeciesNum;
-        RF_Bessel_cache_l_dim = l_dim;
-        RF_Bessel_cache_mul_dim = mul_dim;
-        RF_Bessel_cache_grid_dim = grid_dim;
-        RF_Bessel_cache_kmin = Radial_kmin;
-        RF_Bessel_cache_kmax = PAO_Nkmax;
+        RF_Bessel_cache_signature = rf_bessel_signature;
     }
 
     /* PrintMemory */

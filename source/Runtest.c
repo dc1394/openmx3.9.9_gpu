@@ -248,6 +248,16 @@ void Runtest(char *mode, int argc, char *argv[])
 
       MPI_Bcast(&fname_dat, YOUSO10, MPI_CHAR, Host_ID, mpi_comm_level1);
 
+      if (myid==Host_ID){
+        input_open(fname_dat);
+        input_string("System.Name",fname_dat2,"default");
+        input_close();
+
+        sprintf(fname_out1,"%s.out",fname_dat2);
+        remove(fname_out1);
+      }
+      MPI_Barrier(mpi_comm_level1);
+
       /* run openmx */
 
       argv[1] = fname_dat;
