@@ -3345,6 +3345,8 @@ void Allocate_Free_Cluster_NonCol(int todo_flag)
     static int firsttime = 1;
     int        ZERO = 0, ONE = 1, info, size_EVec1;
     int        i, k, nblk_m, nblk_m2, wanA, myid0, numprocs0, numprocs1;
+    int        cluster_noncol_cusolver_direct_dm;
+    size_t     evec1_noncol_count;
     double     tmp, tmp1;
 
     MPI_Barrier(mpi_comm_level1);
@@ -3388,9 +3390,14 @@ void Allocate_Free_Cluster_NonCol(int todo_flag)
             ks = 1;
         if (myid0 == (numprocs0 - 1))
             ke = n * 2;
-        k            = ke - ks + 2;
-        EVec1_NonCol = (dcomplex *)malloc(sizeof(dcomplex) * k * n * 2);
-        size_EVec1   = k * n * 2;
+        k = ke - ks + 2;
+
+        cluster_noncol_cusolver_direct_dm =
+            (scf_eigen_lib_flag == CuSOLVER && MO_fileout != 1 && xanes_calc != 1 && xanes_gs_fileout != 1 &&
+             !cal_partial_charge && !Dos_fileout && !DosGauss_fileout);
+        evec1_noncol_count = cluster_noncol_cusolver_direct_dm ? 1 : (size_t)k * (size_t)n * 2;
+        EVec1_NonCol       = (dcomplex *)malloc(sizeof(dcomplex) * evec1_noncol_count);
+        size_EVec1         = (int)evec1_noncol_count;
 
         /* ***************************************************
        setting for BLACS in the matrix size of n
@@ -3496,6 +3503,8 @@ void Allocate_Free_Cluster_NonCol(int todo_flag)
         Cblacs_gridinit(&ictxt1_2, "Row", np_rows2, np_cols2);
         if (scf_eigen_lib_flag == CuSOLVER && myid0 == 0) {
             Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
+        } else if (cluster_noncol_cusolver_direct_dm) {
+            Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
         } else {
             Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows2 * na_cols2);
         }

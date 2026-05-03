@@ -150,6 +150,28 @@ typedef struct
 
 static ClusterNonColDMWorkspace ClusterNonCol_dm_workspace = {0};
 
+typedef struct
+{
+    int                valid;
+    int                n;
+    int                entry_count;
+    unsigned long long fingerprint;
+    int *              basis0;
+    int *              basis1;
+} ClusterNonColDMEntryCache;
+
+typedef struct
+{
+    int      max_state_capacity;
+    size_t   dm_buffer_elems;
+    double * occ;
+    double * occ_e;
+    double * dm_buffer;
+} ClusterNonColRootDMWorkspace;
+
+static ClusterNonColDMEntryCache   ClusterNonCol_dm_entry_cache = {0};
+static ClusterNonColRootDMWorkspace ClusterNonCol_root_dm_workspace = {0};
+
 static void ClusterNonCol_DMWorkspace_Reset(void)
 {
     ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
@@ -166,6 +188,134 @@ static void ClusterNonCol_DMWorkspace_Reset(void)
     free(ws->dm_buffer);
 
     memset(ws, 0, sizeof(*ws));
+}
+
+static void ClusterNonCol_DMEntryCache_Reset(void)
+{
+    free(ClusterNonCol_dm_entry_cache.basis0);
+    free(ClusterNonCol_dm_entry_cache.basis1);
+    memset(&ClusterNonCol_dm_entry_cache, 0, sizeof(ClusterNonCol_dm_entry_cache));
+}
+
+static unsigned long long ClusterNonCol_DMEntryFingerprint(int *MP, int n)
+{
+    unsigned long long h = 1469598103934665603ULL;
+
+#define CLUSTERNONCOL_HASH_INT(v)                                                                                        \
+    do {                                                                                                                  \
+        h ^= (unsigned long long)(unsigned int)(v);                                                                        \
+        h *= 1099511628211ULL;                                                                                            \
+    } while (0)
+
+    CLUSTERNONCOL_HASH_INT(n);
+    CLUSTERNONCOL_HASH_INT(atomnum);
+    for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
+        int wanA = WhatSpecies[GA_AN];
+
+        CLUSTERNONCOL_HASH_INT(GA_AN);
+        CLUSTERNONCOL_HASH_INT(MP[GA_AN]);
+        CLUSTERNONCOL_HASH_INT(wanA);
+        CLUSTERNONCOL_HASH_INT(Spe_Total_CNO[wanA]);
+        CLUSTERNONCOL_HASH_INT(FNAN[GA_AN]);
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+
+            CLUSTERNONCOL_HASH_INT(GB_AN);
+            CLUSTERNONCOL_HASH_INT(wanB);
+            CLUSTERNONCOL_HASH_INT(Spe_Total_CNO[wanB]);
+            CLUSTERNONCOL_HASH_INT(MP[GB_AN]);
+        }
+    }
+
+#undef CLUSTERNONCOL_HASH_INT
+
+    return h;
+}
+
+static void ClusterNonCol_DMEntryCache_Ensure(int *MP, int n)
+{
+    ClusterNonColDMEntryCache *cache       = &ClusterNonCol_dm_entry_cache;
+    unsigned long long         fingerprint = ClusterNonCol_DMEntryFingerprint(MP, n);
+    int                        entry_count = 0;
+
+    if (cache->valid && cache->n == n && cache->fingerprint == fingerprint) {
+        return;
+    }
+
+    ClusterNonCol_DMEntryCache_Reset();
+
+    for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
+        int wanA = WhatSpecies[GA_AN];
+        int tnoA = Spe_Total_CNO[wanA];
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+            int tnoB  = Spe_Total_CNO[wanB];
+
+            entry_count += tnoA * tnoB;
+        }
+    }
+
+    cache->basis0 = (int *)ClusterNonCol_MallocArray((size_t)(entry_count + 1), sizeof(int), "DM basis0 cache");
+    cache->basis1 = (int *)ClusterNonCol_MallocArray((size_t)(entry_count + 1), sizeof(int), "DM basis1 cache");
+
+    entry_count = 0;
+    for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
+        int wanA = WhatSpecies[GA_AN];
+        int tnoA = Spe_Total_CNO[wanA];
+        int Anum = MP[GA_AN];
+
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+            int GB_AN = natn[GA_AN][LB_AN];
+            int wanB  = WhatSpecies[GB_AN];
+            int tnoB  = Spe_Total_CNO[wanB];
+            int Bnum  = MP[GB_AN];
+
+            for (int i = 0; i < tnoA; i++) {
+                int ibasis = Anum + i - 1;
+
+                for (int j = 0; j < tnoB; j++) {
+                    cache->basis0[entry_count] = ibasis;
+                    cache->basis1[entry_count] = Bnum + j - 1;
+                    entry_count++;
+                }
+            }
+        }
+    }
+
+    cache->valid       = 1;
+    cache->n           = n;
+    cache->fingerprint = fingerprint;
+    cache->entry_count = entry_count;
+}
+
+static void ClusterNonCol_RootDMWorkspace_Reset(void)
+{
+    free(ClusterNonCol_root_dm_workspace.occ);
+    free(ClusterNonCol_root_dm_workspace.occ_e);
+    free(ClusterNonCol_root_dm_workspace.dm_buffer);
+    memset(&ClusterNonCol_root_dm_workspace, 0, sizeof(ClusterNonCol_root_dm_workspace));
+}
+
+static void ClusterNonCol_RootDMWorkspace_Ensure(int max_state, size_t dm_buffer_elems)
+{
+    ClusterNonColRootDMWorkspace *ws = &ClusterNonCol_root_dm_workspace;
+
+    if (max_state <= ws->max_state_capacity && dm_buffer_elems <= ws->dm_buffer_elems) {
+        return;
+    }
+
+    ClusterNonCol_RootDMWorkspace_Reset();
+
+    ws->occ       = (double *)ClusterNonCol_MallocArray((size_t)max_state, sizeof(double), "root DM occupations");
+    ws->occ_e     = (double *)ClusterNonCol_MallocArray((size_t)max_state, sizeof(double), "root DM energy occupations");
+    ws->dm_buffer = (double *)ClusterNonCol_MallocArray(dm_buffer_elems, sizeof(double), "root DM buffer");
+
+    ws->max_state_capacity = max_state;
+    ws->dm_buffer_elems    = dm_buffer_elems;
 }
 
 static void ClusterNonCol_GetDMMaxDims(int * max_tno, int * max_cols)
@@ -521,6 +671,216 @@ static void ClusterNonCol_StorePartialDMBuffer(int myid, int size_H1, int * MP, 
     }
 }
 
+static double ClusterNonCol_CalcDMRootDense_OpenACC(int myid, int size_H1, int * MP, int n, int n2, int max_state,
+                                                    double ***** CDM, double ***** iDM0, double ***** EDM, double * ko,
+                                                    const dcomplex * dense_evec, int calc_edm)
+{
+    ClusterNonColRootDMWorkspace *ws = &ClusterNonCol_root_dm_workspace;
+    ClusterNonColDMEntryCache *   cache;
+    const int *                   basis0;
+    const int *                   basis1;
+    const double *                occ;
+    const double *                occ_e;
+    const dcomplex *              evec_ptr = dense_evec;
+    const int                     dm_components = calc_edm ? 10 : 6;
+    const int                     dm_chunk_size = 131072;
+    size_t                        dm_elems;
+    size_t                        evec_count;
+    int                           nk_occ = 0;
+    double                        stime;
+    double                        etime;
+
+    if (max_state <= 0) {
+        return 0.0;
+    }
+
+    dm_elems = (size_t)size_H1 * (size_t)dm_components;
+    ClusterNonCol_RootDMWorkspace_Ensure(max_state, dm_elems);
+
+    dtime(&stime);
+
+    memset(ws->dm_buffer, 0, sizeof(double) * dm_elems);
+
+    if (myid == Host_ID) {
+        ClusterNonCol_DMEntryCache_Ensure(MP, n);
+        cache = &ClusterNonCol_dm_entry_cache;
+
+        if (cache->entry_count != size_H1) {
+            ClusterNonCol_AbortWithMessage("DM entry cache size mismatch in Cluster_DFT_NonCol.c.");
+        }
+
+        nk_occ = ClusterNonCol_PrecomputeOccupations(1, max_state, ko, ws->occ, ws->occ_e);
+
+        if (0 < nk_occ) {
+            double *rDM11  = ws->dm_buffer;
+            double *rDM22  = ws->dm_buffer + (size_t)size_H1;
+            double *rDM12  = ws->dm_buffer + (size_t)size_H1 * 2;
+            double *iDM12  = ws->dm_buffer + (size_t)size_H1 * 3;
+            double *iDM11  = ws->dm_buffer + (size_t)size_H1 * 4;
+            double *iDM22  = ws->dm_buffer + (size_t)size_H1 * 5;
+            double *rEDM11 = ws->dm_buffer + (size_t)size_H1 * 6;
+            double *rEDM22 = ws->dm_buffer + (size_t)size_H1 * 7;
+            double *rEDM12 = ws->dm_buffer + (size_t)size_H1 * 8;
+            double *iEDM12 = ws->dm_buffer + (size_t)size_H1 * 9;
+            int     entry_count;
+
+            basis0      = cache->basis0;
+            basis1      = cache->basis1;
+            occ         = ws->occ;
+            occ_e       = ws->occ_e;
+            entry_count = cache->entry_count;
+            evec_count  = (size_t)n2 * (size_t)n2;
+
+#pragma acc data present(evec_ptr[0 : evec_count]) copyin(occ[0 : nk_occ])
+            {
+                if (calc_edm) {
+#pragma acc data copyin(occ_e[0 : nk_occ])
+                    {
+                        for (int offset = 0; offset < entry_count; offset += dm_chunk_size) {
+                            const int    chunk_count = (entry_count - offset < dm_chunk_size) ? (entry_count - offset) : dm_chunk_size;
+                            const int *  basis0_chunk = basis0 + offset;
+                            const int *  basis1_chunk = basis1 + offset;
+                            double *     rDM11_chunk = rDM11 + offset;
+                            double *     rDM22_chunk = rDM22 + offset;
+                            double *     rDM12_chunk = rDM12 + offset;
+                            double *     iDM12_chunk = iDM12 + offset;
+                            double *     iDM11_chunk = iDM11 + offset;
+                            double *     iDM22_chunk = iDM22 + offset;
+                            double *     rEDM11_chunk = rEDM11 + offset;
+                            double *     rEDM22_chunk = rEDM22 + offset;
+                            double *     rEDM12_chunk = rEDM12 + offset;
+                            double *     iEDM12_chunk = iEDM12 + offset;
+
+#pragma acc data copyin(basis0_chunk[0 : chunk_count], basis1_chunk[0 : chunk_count])                              \
+    copyout(rDM11_chunk[0 : chunk_count], rDM22_chunk[0 : chunk_count], rDM12_chunk[0 : chunk_count],               \
+            iDM12_chunk[0 : chunk_count], iDM11_chunk[0 : chunk_count], iDM22_chunk[0 : chunk_count],               \
+            rEDM11_chunk[0 : chunk_count], rEDM22_chunk[0 : chunk_count], rEDM12_chunk[0 : chunk_count],             \
+            iEDM12_chunk[0 : chunk_count])
+                            {
+#pragma acc parallel loop gang present(evec_ptr[0 : evec_count], occ[0 : nk_occ], occ_e[0 : nk_occ])
+                                for (int p = 0; p < chunk_count; p++) {
+                                    const int ia = basis0_chunk[p];
+                                    const int ib = basis1_chunk[p];
+                                    double    dm11_r = 0.0;
+                                    double    dm22_r = 0.0;
+                                    double    dm12_r = 0.0;
+                                    double    dm12_i = 0.0;
+                                    double    dm11_i = 0.0;
+                                    double    dm22_i = 0.0;
+                                    double    edm11_r = 0.0;
+                                    double    edm22_r = 0.0;
+                                    double    edm12_r = 0.0;
+                                    double    edm12_i = 0.0;
+
+#pragma acc loop seq
+                                    for (int k = 0; k < nk_occ; k++) {
+                                        const double   w  = occ[k];
+                                        const double   ew = occ_e[k];
+                                        const dcomplex va_up = evec_ptr[(size_t)ia * (size_t)n2 + (size_t)k];
+                                        const dcomplex vb_up = evec_ptr[(size_t)ib * (size_t)n2 + (size_t)k];
+                                        const dcomplex va_dn = evec_ptr[(size_t)(ia + n) * (size_t)n2 + (size_t)k];
+                                        const dcomplex vb_dn = evec_ptr[(size_t)(ib + n) * (size_t)n2 + (size_t)k];
+                                        const double   re11 = va_up.r * vb_up.r + va_up.i * vb_up.i;
+                                        const double   im11 = va_up.r * vb_up.i - va_up.i * vb_up.r;
+                                        const double   re22 = va_dn.r * vb_dn.r + va_dn.i * vb_dn.i;
+                                        const double   im22 = va_dn.r * vb_dn.i - va_dn.i * vb_dn.r;
+                                        const double   re12 = va_up.r * vb_dn.r + va_up.i * vb_dn.i;
+                                        const double   im12 = va_up.r * vb_dn.i - va_up.i * vb_dn.r;
+
+                                        dm11_r += w * re11;
+                                        dm22_r += w * re22;
+                                        dm12_r += w * re12;
+                                        dm12_i += w * im12;
+                                        dm11_i += w * im11;
+                                        dm22_i += w * im22;
+                                        edm11_r += ew * re11;
+                                        edm22_r += ew * re22;
+                                        edm12_r += ew * re12;
+                                        edm12_i += ew * im12;
+                                    }
+
+                                    rDM11_chunk[p]  = dm11_r;
+                                    rDM22_chunk[p]  = dm22_r;
+                                    rDM12_chunk[p]  = dm12_r;
+                                    iDM12_chunk[p]  = dm12_i;
+                                    iDM11_chunk[p]  = dm11_i;
+                                    iDM22_chunk[p]  = dm22_i;
+                                    rEDM11_chunk[p] = edm11_r;
+                                    rEDM22_chunk[p] = edm22_r;
+                                    rEDM12_chunk[p] = edm12_r;
+                                    iEDM12_chunk[p] = edm12_i;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    for (int offset = 0; offset < entry_count; offset += dm_chunk_size) {
+                        const int    chunk_count = (entry_count - offset < dm_chunk_size) ? (entry_count - offset) : dm_chunk_size;
+                        const int *  basis0_chunk = basis0 + offset;
+                        const int *  basis1_chunk = basis1 + offset;
+                        double *     rDM11_chunk = rDM11 + offset;
+                        double *     rDM22_chunk = rDM22 + offset;
+                        double *     rDM12_chunk = rDM12 + offset;
+                        double *     iDM12_chunk = iDM12 + offset;
+                        double *     iDM11_chunk = iDM11 + offset;
+                        double *     iDM22_chunk = iDM22 + offset;
+
+#pragma acc data copyin(basis0_chunk[0 : chunk_count], basis1_chunk[0 : chunk_count])                              \
+    copyout(rDM11_chunk[0 : chunk_count], rDM22_chunk[0 : chunk_count], rDM12_chunk[0 : chunk_count],               \
+            iDM12_chunk[0 : chunk_count], iDM11_chunk[0 : chunk_count], iDM22_chunk[0 : chunk_count])
+                        {
+#pragma acc parallel loop gang present(evec_ptr[0 : evec_count], occ[0 : nk_occ])
+                            for (int p = 0; p < chunk_count; p++) {
+                                const int ia = basis0_chunk[p];
+                                const int ib = basis1_chunk[p];
+                                double    dm11_r = 0.0;
+                                double    dm22_r = 0.0;
+                                double    dm12_r = 0.0;
+                                double    dm12_i = 0.0;
+                                double    dm11_i = 0.0;
+                                double    dm22_i = 0.0;
+
+#pragma acc loop seq
+                                for (int k = 0; k < nk_occ; k++) {
+                                    const double   w  = occ[k];
+                                    const dcomplex va_up = evec_ptr[(size_t)ia * (size_t)n2 + (size_t)k];
+                                    const dcomplex vb_up = evec_ptr[(size_t)ib * (size_t)n2 + (size_t)k];
+                                    const dcomplex va_dn = evec_ptr[(size_t)(ia + n) * (size_t)n2 + (size_t)k];
+                                    const dcomplex vb_dn = evec_ptr[(size_t)(ib + n) * (size_t)n2 + (size_t)k];
+
+                                    dm11_r += w * (va_up.r * vb_up.r + va_up.i * vb_up.i);
+                                    dm22_r += w * (va_dn.r * vb_dn.r + va_dn.i * vb_dn.i);
+                                    dm12_r += w * (va_up.r * vb_dn.r + va_up.i * vb_dn.i);
+                                    dm12_i += w * (va_up.r * vb_dn.i - va_up.i * vb_dn.r);
+                                    dm11_i += w * (va_up.r * vb_up.i - va_up.i * vb_up.r);
+                                    dm22_i += w * (va_dn.r * vb_dn.i - va_dn.i * vb_dn.r);
+                                }
+
+                                rDM11_chunk[p] = dm11_r;
+                                rDM22_chunk[p] = dm22_r;
+                                rDM12_chunk[p] = dm12_r;
+                                iDM12_chunk[p] = dm12_i;
+                                iDM11_chunk[p] = dm11_i;
+                                iDM22_chunk[p] = dm22_i;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    MPI_Allreduce(MPI_IN_PLACE, ws->dm_buffer, (int)dm_elems, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+    ClusterNonCol_StoreDMBuffer(myid, size_H1, MP, CDM, iDM0, ws->dm_buffer);
+
+    if (calc_edm) {
+        ClusterNonCol_StoreEDMBuffer(myid, size_H1, MP, EDM, ws->dm_buffer + (size_t)size_H1 * 6);
+    }
+
+    dtime(&etime);
+    return etime - stime;
+}
+
 static double ClusterNonCol_CalcEDMAll(int myid, int size_H1, int * is2, int * ie2, int * MP, int n, int n2,
                                        double ***** EDM, double * ko, dcomplex * EVec1)
 {
@@ -685,6 +1045,8 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     int        ig, jg;
     int        numprocs, myid, ID;
     int        original_scf_eigen_lib_flag, effective_scf_eigen_lib_flag;
+    int        use_cusolver_direct_cluster_dm = 0;
+    int        cusolver_direct_evec_on_device = 0;
     int        ke, ks, nblk_m, nblk_m2;
     int        ID0, IDS, IDR, Max_Num_Snd_EV, Max_Num_Rcv_EV;
     int *      Num_Snd_EV, *Num_Rcv_EV;
@@ -805,6 +1167,9 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     }
 
     scf_eigen_lib_flag = effective_scf_eigen_lib_flag;
+    use_cusolver_direct_cluster_dm =
+        (scf_eigen_lib_flag == CuSOLVER && strcasecmp(mode, "scf") == 0 && MO_fileout != 1 && xanes_calc != 1 &&
+         xanes_gs_fileout != 1 && !cal_partial_charge && !Dos_fileout && !DosGauss_fileout);
 
     MPI_Barrier(mpi_comm_level1);
     dtime(&TStime);
@@ -946,23 +1311,25 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
         Num_Rcv_EV[ID] = 0;
     }
 
-    for (i = 0; i < na_rows2; i++) {
+    if (!use_cusolver_direct_cluster_dm) {
+        for (i = 0; i < na_rows2; i++) {
 
-        ig = np_rows2 * nblk2 * ((i) / nblk2) + (i) % nblk2 + ((np_rows2 + my_prow2) % np_rows2) * nblk2 + 1;
+            ig = np_rows2 * nblk2 * ((i) / nblk2) + (i) % nblk2 + ((np_rows2 + my_prow2) % np_rows2) * nblk2 + 1;
 
-        ID0 = ClusterNonCol_FindOwner(ig, numprocs, is2, ie2, "eigenvector row");
-        Num_Snd_EV[ID0] += na_cols2;
-    }
+            ID0 = ClusterNonCol_FindOwner(ig, numprocs, is2, ie2, "eigenvector row");
+            Num_Snd_EV[ID0] += na_cols2;
+        }
 
-    for (ID = 0; ID < numprocs; ID++) {
-        IDS = (myid + ID) % numprocs;
-        IDR = (myid - ID + numprocs) % numprocs;
-        if (ID != 0) {
-            MPI_Isend(&Num_Snd_EV[IDS], 1, MPI_INT, IDS, 999, mpi_comm_level1, &request);
-            MPI_Recv(&Num_Rcv_EV[IDR], 1, MPI_INT, IDR, 999, mpi_comm_level1, &stat);
-            MPI_Wait(&request, &stat);
-        } else {
-            Num_Rcv_EV[IDR] = Num_Snd_EV[IDS];
+        for (ID = 0; ID < numprocs; ID++) {
+            IDS = (myid + ID) % numprocs;
+            IDR = (myid - ID + numprocs) % numprocs;
+            if (ID != 0) {
+                MPI_Isend(&Num_Snd_EV[IDS], 1, MPI_INT, IDS, 999, mpi_comm_level1, &request);
+                MPI_Recv(&Num_Rcv_EV[IDR], 1, MPI_INT, IDR, 999, mpi_comm_level1, &stat);
+                MPI_Wait(&request, &stat);
+            } else {
+                Num_Rcv_EV[IDR] = Num_Snd_EV[IDS];
+            }
         }
     }
 
@@ -1230,16 +1597,24 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
 
             my_cublasZgemm_openacc(CUBLAS_OP_T, CUBLAS_OP_T, n2, n2, n2, Hs2, Ss2, Cs2);
 
-#pragma acc update    self(ko[0 : n2 + 1], Cs2[0 : n2 * n2])
+            if (use_cusolver_direct_cluster_dm) {
+#pragma acc update self(ko[0 : n2 + 1])
+#pragma acc exit data delete(Hs2[0 : n2 * n2], Ss2[0 : n2 * n2], ko[0 : n2 + 1])
+                cusolver_direct_evec_on_device = 1;
+            } else {
+#pragma acc update self(ko[0 : n2 + 1], Cs2[0 : n2 * n2])
 #pragma acc exit data delete(Hs2[0 : n2 * n2], Ss2[0 : n2 * n2], Cs2[0 : n2 * n2], ko[0 : n2 + 1])
+            }
         }
 
-        int desc_global2[9];
-        int i_zero = 0;
-        int i_one  = 1;
+        if (!use_cusolver_direct_cluster_dm) {
+            int desc_global2[9];
+            int i_zero = 0;
+            int i_one  = 1;
 
-        descinit_(desc_global2, &n2, &n2, &n2, &n2, &i_zero, &i_zero, &ictxt1_2, &n2, &info);
-        pzgemr2d_(&n2, &n2, Cs2, &i_one, &i_one, desc_global2, Hs2, &i_one, &i_one, descH2, &ictxt1_2);
+            descinit_(desc_global2, &n2, &n2, &n2, &n2, &i_zero, &i_zero, &ictxt1_2, &n2, &info);
+            pzgemr2d_(&n2, &n2, Cs2, &i_one, &i_one, desc_global2, Hs2, &i_one, &i_one, descH2, &ictxt1_2);
+        }
 
         MPI_Bcast(ko, n2 + 1, MPI_DOUBLE, 0, mpi_comm_level1);
     } else {
@@ -1519,76 +1894,78 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
 
     /* MPI communications of Hs2 */
 
-    for (ID = 0; ID < numprocs; ID++) {
+    if (!use_cusolver_direct_cluster_dm) {
+        for (ID = 0; ID < numprocs; ID++) {
 
-        IDS = (myid + ID) % numprocs;
-        IDR = (myid - ID + numprocs) % numprocs;
+            IDS = (myid + ID) % numprocs;
+            IDR = (myid - ID + numprocs) % numprocs;
 
-        k = 0;
-        for (i = 0; i < na_rows2; i++) {
-            ig = np_rows2 * nblk2 * ((i) / nblk2) + (i) % nblk2 + ((np_rows2 + my_prow2) % np_rows2) * nblk2 + 1;
+            k = 0;
+            for (i = 0; i < na_rows2; i++) {
+                ig = np_rows2 * nblk2 * ((i) / nblk2) + (i) % nblk2 + ((np_rows2 + my_prow2) % np_rows2) * nblk2 + 1;
 
-            if (is2[IDS] <= ig && ig <= ie2[IDS]) {
+                if (is2[IDS] <= ig && ig <= ie2[IDS]) {
 
-                for (j = 0; j < na_cols2; j++) {
-                    jg =
-                        np_cols2 * nblk2 * ((j) / nblk2) + (j) % nblk2 + ((np_cols2 + my_pcol2) % np_cols2) * nblk2 + 1;
+                    for (j = 0; j < na_cols2; j++) {
+                        jg = np_cols2 * nblk2 * ((j) / nblk2) + (j) % nblk2 +
+                             ((np_cols2 + my_pcol2) % np_cols2) * nblk2 + 1;
 
-                    index_Snd_i[k]      = ig;
-                    index_Snd_j[k]      = jg;
-                    EVec_Snd[2 * k]     = Hs2[j * na_rows2 + i].r;
-                    EVec_Snd[2 * k + 1] = Hs2[j * na_rows2 + i].i;
-                    k++;
+                        index_Snd_i[k]      = ig;
+                        index_Snd_j[k]      = jg;
+                        EVec_Snd[2 * k]     = Hs2[j * na_rows2 + i].r;
+                        EVec_Snd[2 * k + 1] = Hs2[j * na_rows2 + i].i;
+                        k++;
+                    }
                 }
             }
-        }
 
-        if (ID != 0) {
+            if (ID != 0) {
 
-            if (Num_Snd_EV[IDS] != 0) {
-                MPI_Isend(index_Snd_i, Num_Snd_EV[IDS], MPI_INT, IDS, 999, mpi_comm_level1, &request);
-            }
-            if (Num_Rcv_EV[IDR] != 0) {
-                MPI_Recv(index_Rcv_i, Num_Rcv_EV[IDR], MPI_INT, IDR, 999, mpi_comm_level1, &stat);
-            }
-            if (Num_Snd_EV[IDS] != 0) {
-                MPI_Wait(&request, &stat);
+                if (Num_Snd_EV[IDS] != 0) {
+                    MPI_Isend(index_Snd_i, Num_Snd_EV[IDS], MPI_INT, IDS, 999, mpi_comm_level1, &request);
+                }
+                if (Num_Rcv_EV[IDR] != 0) {
+                    MPI_Recv(index_Rcv_i, Num_Rcv_EV[IDR], MPI_INT, IDR, 999, mpi_comm_level1, &stat);
+                }
+                if (Num_Snd_EV[IDS] != 0) {
+                    MPI_Wait(&request, &stat);
+                }
+
+                if (Num_Snd_EV[IDS] != 0) {
+                    MPI_Isend(index_Snd_j, Num_Snd_EV[IDS], MPI_INT, IDS, 999, mpi_comm_level1, &request);
+                }
+                if (Num_Rcv_EV[IDR] != 0) {
+                    MPI_Recv(index_Rcv_j, Num_Rcv_EV[IDR], MPI_INT, IDR, 999, mpi_comm_level1, &stat);
+                }
+                if (Num_Snd_EV[IDS] != 0) {
+                    MPI_Wait(&request, &stat);
+                }
+
+                if (Num_Snd_EV[IDS] != 0) {
+                    MPI_Isend(EVec_Snd, Num_Snd_EV[IDS] * 2, MPI_DOUBLE, IDS, 999, mpi_comm_level1, &request);
+                }
+                if (Num_Rcv_EV[IDR] != 0) {
+                    MPI_Recv(EVec_Rcv, Num_Rcv_EV[IDR] * 2, MPI_DOUBLE, IDR, 999, mpi_comm_level1, &stat);
+                }
+                if (Num_Snd_EV[IDS] != 0) {
+                    MPI_Wait(&request, &stat);
+                }
+            } else {
+                for (k = 0; k < Num_Snd_EV[IDS]; k++) {
+                    index_Rcv_i[k]      = index_Snd_i[k];
+                    index_Rcv_j[k]      = index_Snd_j[k];
+                    EVec_Rcv[2 * k]     = EVec_Snd[2 * k];
+                    EVec_Rcv[2 * k + 1] = EVec_Snd[2 * k + 1];
+                }
             }
 
-            if (Num_Snd_EV[IDS] != 0) {
-                MPI_Isend(index_Snd_j, Num_Snd_EV[IDS], MPI_INT, IDS, 999, mpi_comm_level1, &request);
+            for (k = 0; k < Num_Rcv_EV[IDR]; k++) {
+                ig         = index_Rcv_i[k];
+                jg         = index_Rcv_j[k];
+                m          = (ig - is2[myid]) * n2 + jg - 1;
+                EVec1[m].r = EVec_Rcv[2 * k];
+                EVec1[m].i = EVec_Rcv[2 * k + 1];
             }
-            if (Num_Rcv_EV[IDR] != 0) {
-                MPI_Recv(index_Rcv_j, Num_Rcv_EV[IDR], MPI_INT, IDR, 999, mpi_comm_level1, &stat);
-            }
-            if (Num_Snd_EV[IDS] != 0) {
-                MPI_Wait(&request, &stat);
-            }
-
-            if (Num_Snd_EV[IDS] != 0) {
-                MPI_Isend(EVec_Snd, Num_Snd_EV[IDS] * 2, MPI_DOUBLE, IDS, 999, mpi_comm_level1, &request);
-            }
-            if (Num_Rcv_EV[IDR] != 0) {
-                MPI_Recv(EVec_Rcv, Num_Rcv_EV[IDR] * 2, MPI_DOUBLE, IDR, 999, mpi_comm_level1, &stat);
-            }
-            if (Num_Snd_EV[IDS] != 0) {
-                MPI_Wait(&request, &stat);
-            }
-        } else {
-            for (k = 0; k < Num_Snd_EV[IDS]; k++) {
-                index_Rcv_i[k]      = index_Snd_i[k];
-                index_Rcv_j[k]      = index_Snd_j[k];
-                EVec_Rcv[2 * k]     = EVec_Snd[2 * k];
-                EVec_Rcv[2 * k + 1] = EVec_Snd[2 * k + 1];
-            }
-        }
-
-        for (k = 0; k < Num_Rcv_EV[IDR]; k++) {
-            ig         = index_Rcv_i[k];
-            jg         = index_Rcv_j[k];
-            m          = (ig - is2[myid]) * n2 + jg - 1;
-            EVec1[m].r = EVec_Rcv[2 * k];
-            EVec1[m].i = EVec_Rcv[2 * k + 1];
         }
     }
 
@@ -1876,33 +2253,47 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
         if (measure_time)
             dtime(&stime);
 
-        /*
-         * The batched DM path changes the summation order enough to move the
-         * self-consistent solution for sensitive non-collinear cluster cases
-         * such as Cr2. Keep the original per-component accumulation here.
-         */
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(1, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(2, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(3, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(4, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(5, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
-        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(6, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                         iDM[0], EDM, ko, DM1, Work1, EVec1);
+        if (use_cusolver_direct_cluster_dm) {
+            if (myid == Host_ID && !cusolver_direct_evec_on_device) {
+                ClusterNonCol_AbortWithMessage("CuSOLVER device eigenvectors are not available in Cluster_DFT_NonCol.c.");
+            }
 
-        if (Cnt_switch == 1) {
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(7, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+            time6 += ClusterNonCol_CalcDMRootDense_OpenACC(myid, size_H1, MP, n, n2, MaxN, CDM, iDM[0], EDM, ko, Cs2,
+                                                           Cnt_switch == 1);
+
+            if (myid == Host_ID && cusolver_direct_evec_on_device) {
+#pragma acc exit data delete(Cs2[0 : n2 * n2])
+                cusolver_direct_evec_on_device = 0;
+            }
+        } else {
+            /*
+             * The batched DM path changes the summation order enough to move the
+             * self-consistent solution for sensitive non-collinear cluster cases
+             * such as Cr2. Keep the original per-component accumulation here.
+             */
+            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(1, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
                                                              iDM[0], EDM, ko, DM1, Work1, EVec1);
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(8, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(2, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
                                                              iDM[0], EDM, ko, DM1, Work1, EVec1);
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(9, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(3, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
                                                              iDM[0], EDM, ko, DM1, Work1, EVec1);
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(10, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(4, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
                                                              iDM[0], EDM, ko, DM1, Work1, EVec1);
+            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(5, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                             iDM[0], EDM, ko, DM1, Work1, EVec1);
+            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(6, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                             iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+            if (Cnt_switch == 1) {
+                time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(7, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                                 iDM[0], EDM, ko, DM1, Work1, EVec1);
+                time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(8, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                                 iDM[0], EDM, ko, DM1, Work1, EVec1);
+                time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(9, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                                 iDM[0], EDM, ko, DM1, Work1, EVec1);
+                time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(10, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
+                                                                 iDM[0], EDM, ko, DM1, Work1, EVec1);
+            }
         }
 
         /****************************************************
