@@ -2258,8 +2258,14 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                 ClusterNonCol_AbortWithMessage("CuSOLVER device eigenvectors are not available in Cluster_DFT_NonCol.c.");
             }
 
+            /*
+             * The direct CuSOLVER path keeps eigenvectors on the device and does
+             * not populate the distributed host EVec1 buffer used by DFT.c's
+             * post-SCF EDM rebuild. Build EDM here as well so force evaluation
+             * never reads stale host eigenvector data after a runtest case switch.
+             */
             time6 += ClusterNonCol_CalcDMRootDense_OpenACC(myid, size_H1, MP, n, n2, MaxN, CDM, iDM[0], EDM, ko, Cs2,
-                                                           Cnt_switch == 1);
+                                                           1);
 
             if (myid == Host_ID && cusolver_direct_evec_on_device) {
 #pragma acc exit data delete(Cs2[0 : n2 * n2])

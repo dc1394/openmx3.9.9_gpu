@@ -1175,20 +1175,25 @@ double DFT(int MD_iter, int Cnt_Now)
   *******************************************************************/
 
     if (Solver == 2 && SpinP_switch == 3) {
+        const int cluster_noncol_cusolver_direct_dm =
+            (scf_eigen_lib_flag == CuSOLVER && MO_fileout != 1 && xanes_calc != 1 && xanes_gs_fileout != 1 &&
+             !cal_partial_charge && !Dos_fileout && !DosGauss_fileout);
 
         /* EDM */
 
-        time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(7, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2, DM[0],
-                                                         iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
+        if (!cluster_noncol_cusolver_direct_dm) {
+            time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(7, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
+                                                             DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
 
-        time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(8, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2, DM[0],
-                                                         iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
+            time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(8, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
+                                                             DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
 
-        time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(9, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2, DM[0],
-                                                         iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
+            time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(9, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
+                                                             DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
 
-        time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(10, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2, DM[0],
-                                                         iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
+            time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(10, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
+                                                             DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
+        }
 
         /* Partial_DM */
 

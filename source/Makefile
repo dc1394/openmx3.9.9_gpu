@@ -49,21 +49,23 @@
 #
 # Miyabi at Center for Computational Sciences, University of Tsukuba
 #
-# module purge && module load nvidia ompi-cuda/4.1.6-12.6 && module load fftw/3.3.10
-# CC = mpicc -O3 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I/work/opt/local/aarch64/apps/nvidia/24.9/fftw/3.3.10/include/fftw -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/12.6/targets/sbsa-linux/include -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/12.6/include 
-# CC2 = mpicc -O1 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I/work/opt/local/aarch64/apps/nvidia/24.9/fftw/3.3.10/include/fftw -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/12.6/targets/sbsa-linux/include -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/12.6/include 
-# CC3 = mpicc -O2 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I/work/opt/local/aarch64/apps/nvidia/24.9/fftw/3.3.10/include/fftw -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/12.6/targets/sbsa-linux/include -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/12.6/include
+# module purge && module load nvidia ompi-cuda/4.1.6-13.1 && module load fftw/3.3.10
+# CC = mpicc -O3 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I/work/opt/local/aarch64/apps/nvidia/24.9/fftw/3.3.10/include/fftw -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/13.1/targets/sbsa-linux/include -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/13.1/include 
+# CC2 = mpicc -O1 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I/work/opt/local/aarch64/apps/nvidia/24.9/fftw/3.3.10/include/fftw -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/13.1/targets/sbsa-linux/include -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/13.1/include 
+# CC3 = mpicc -O2 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I/work/opt/local/aarch64/apps/nvidia/24.9/fftw/3.3.10/include/fftw -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/13.1/targets/sbsa-linux/include -I/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/13.1/include
 # FC = mpif90 -O2 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
-# -L/home/x10402/nvpl-linux-sbsa-24.7/lib -lnvpl_scalapack_lp64 -lnvpl_blacs_lp64_openmpi4 -lnvpl_lapack_lp64_gomp -lnvpl_blas_lp64_gomp -pgf90libs -lmpi_mpifh -lfftw3 -lpthread -lgfortran -lm -ldl -L/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/12.6/lib64 -L/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/12.6/targets/sbsa-linux/lib -lcudart -lcusolver -lcublas -cuda
+# -L/home/x10402/nvpl-linux-sbsa-24.7/lib -lnvpl_scalapack_lp64 -lnvpl_blacs_lp64_openmpi4 -lnvpl_lapack_lp64_gomp -lnvpl_blas_lp64_gomp -pgf90libs -lmpi_mpifh -lfftw3 -lpthread -lgfortran -lm -ldl -L/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/13.1/lib64 -L/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/13.1/targets/sbsa-linux/lib -lcudart -lcusolver -lcublas -cuda
 
-CC = mpicc -w -O3 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.1/math_libs/12.6/targets/x86_64-linux/include -I/usr/local/cuda-12.6/include 
-CC2 = mpicc -w -O1 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.1/math_libs/12.6/targets/x86_64-linux/include -I/usr/local/cuda-12.6/include 
-CC3 = mpicc -w -O2 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/25.1/math_libs/12.6/targets/x86_64-linux/include -I/usr/local/cuda-12.6/include
+CC = mpicc -w -O3 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/include -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda/13.1/targets/x86_64-linux/include 
+CC2 = mpicc -w -O1 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/include -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda/13.1/targets/x86_64-linux/include 
+CC3 = mpicc -w -O2 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/include -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda/13.1/targets/x86_64-linux/include
 CC_NOACC = $(filter-out -Minfo=accel -acc,$(CC2))
+CC_DFTD3 = gcc -w -O1 -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/include -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda/13.1/targets/x86_64-linux/include $(shell mpicc --showme:compile)
 FC = mpif90 -O2 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
-LIB= /opt/nvidia/hpc_sdk/Linux_x86_64/25.1/comm_libs/12.6/hpcx/hpcx-2.21/ompi/lib/libscalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_pgi_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -pgf90libs -mp -lpthread -lmpi_mpifh -lmpi -lm -ldl -L/usr/local/cuda-12.6/lib64 -lcudart -lcusolver -lcublas -cuda
+LIB= /opt/nvidia/hpc_sdk/Linux_x86_64/26.3/comm_libs/13.1/hpcx/hpcx-2.25.1/ompi/lib/libscalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_pgi_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -pgf90libs -mp -lpthread -lmpi_mpifh -lmpi -lm -ldl -L/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/cuda/13.1/lib64 -L/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/lib -lcudart -lcusolver -lcublas -cuda
 
 CFLAGS  = -g 
+CPPFLAGS =
 
 OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o init.o LU_inverse.o ReLU_inverse.o \
           truncation.o readfile.o FT_PAO.o FT_NLP.o FT_ProExpn_VNA.o FT_VNA.o FT_ProductPAO.o \
@@ -299,7 +301,7 @@ Poisson_ESM.o: Poisson_ESM.c openmx_common.h
 	$(CC) -c Poisson_ESM.c
 Mulliken_Charge.o: Mulliken_Charge.c openmx_common.h
 	$(CC) -c Mulliken_Charge.c
-# NVHPC 25.1 + -acc miscompiles LDA+U Type2/cFLL occupation/potential paths.
+# NVHPC 26.3 + -acc miscompiles LDA+U Type2/cFLL occupation/potential paths.
 Occupation_Number_LDA_U.o: Occupation_Number_LDA_U.c openmx_common.h
 	$(CC_NOACC) -c Occupation_Number_LDA_U.c
 Eff_Hub_Pot.o: Eff_Hub_Pot.c openmx_common.h
@@ -314,7 +316,7 @@ Smoothing_Func.o: Smoothing_Func.c openmx_common.h
 	$(CC) -c Smoothing_Func.c
 Gauss_Legendre.o: Gauss_Legendre.c openmx_common.h
 	$(CC) -c Gauss_Legendre.c
-# NVHPC 25.1 + -acc makes DSYGV fail here, corrupting ON2 poles.
+# NVHPC 26.3 + -acc makes DSYGV fail here, corrupting ON2 poles.
 zero_cfrac.o: zero_cfrac.c openmx_common.h
 	$(CC_NOACC) -c zero_cfrac.c
 xyz2spherical.o: xyz2spherical.c openmx_common.h
@@ -578,7 +580,7 @@ Generate_Wannier.o: Generate_Wannier.c openmx_common.h
 DFTDvdW_init.o: DFTDvdW_init.c openmx_common.h
 	$(CC) -c DFTDvdW_init.c
 DFTD3vdW_init.o: DFTD3vdW_init.c openmx_common.h
-	$(CC2) -c DFTD3vdW_init.c
+	$(CC_DFTD3) -c DFTD3vdW_init.c
 neb.o:	neb.c openmx_common.h Inputtools.h lapack_prototypes.h
 	$(CC) -c neb.c
 neb_run.o: neb_run.c openmx_common.h
@@ -606,12 +608,12 @@ Calc_optical.o: Calc_optical.c openmx_common.h
 	$(CC) -c Calc_optical.c
 Band_DFT_NonCol_Optical.o: Band_DFT_NonCol_Optical.c openmx_common.h
 	$(CC) -c Band_DFT_NonCol_Optical.c
-Cluster_DFT_Col_Optical.o: Cluster_DFT_Col_Optical.c openmx_common.h
-	$(CC) -c Cluster_DFT_Col_Optical.c
+Cluster_DFT_Optical.o: Cluster_DFT_Optical.c openmx_common.h
+	$(CC) -c Cluster_DFT_Optical.c
 Band_DFT_Col_Optical_ScaLAPACK.o: Band_DFT_Col_Optical_ScaLAPACK.c openmx_common.h
 	$(CC) -c Band_DFT_Col_Optical_ScaLAPACK.c
-Cluster_DFT_Col_Optical_ScaLAPACK.o: Cluster_DFT_Col_Optical_ScaLAPACK.c openmx_common.h
-	$(CC) -c Cluster_DFT_Col_Optical_ScaLAPACK.c
+Cluster_DFT_Optical_ScaLAPACK.o: Cluster_DFT_Optical_ScaLAPACK.c openmx_common.h
+	$(CC) -c Cluster_DFT_Optical_ScaLAPACK.c
 
 #
 #
@@ -967,39 +969,39 @@ mod_precision.o: $(LIBELPADIR)/mod_precision.F90
 	$(FC) -c $(LIBELPADIR)/mod_precision.F90
 elpa_utilities.o: $(LIBELPADIR)/elpa_utilities.F90
 	$(FC) -c $(LIBELPADIR)/elpa_utilities.F90
-elpa1_compute_real.o: $(LIBELPADIR)/elpa1_compute_real.F90
+elpa1_compute_real.o: $(LIBELPADIR)/elpa1_compute_real.F90 elpa_utilities.o
 	$(FC) -c $(LIBELPADIR)/elpa1_compute_real.F90
-elpa1_compute_complex.o: $(LIBELPADIR)/elpa1_compute_complex.F90
+elpa1_compute_complex.o: $(LIBELPADIR)/elpa1_compute_complex.F90 elpa_utilities.o
 	$(FC) -c $(LIBELPADIR)/elpa1_compute_complex.F90
 aligned_mem.o: $(LIBELPADIR)/aligned_mem.F90
 	$(FC) -c $(LIBELPADIR)/aligned_mem.F90
-mod_pack_unpack_cpu_real.o: $(LIBELPADIR)/mod_pack_unpack_cpu_real.F90
+mod_pack_unpack_cpu_real.o: $(LIBELPADIR)/mod_pack_unpack_cpu_real.F90 mod_precision.o
 	$(FC) -c $(LIBELPADIR)/mod_pack_unpack_cpu_real.F90
-mod_pack_unpack_cpu_complex.o: $(LIBELPADIR)/mod_pack_unpack_cpu_complex.F90
+mod_pack_unpack_cpu_complex.o: $(LIBELPADIR)/mod_pack_unpack_cpu_complex.F90 mod_precision.o
 	$(FC) -c $(LIBELPADIR)/mod_pack_unpack_cpu_complex.F90
-mod_redist_band_real.o: $(LIBELPADIR)/mod_redist_band_real.F90
+mod_redist_band_real.o: $(LIBELPADIR)/mod_redist_band_real.F90 elpa2_determine_workload.o mod_precision.o elpa_utilities.o
 	$(FC) -c $(LIBELPADIR)/mod_redist_band_real.F90
-mod_redist_band_complex.o: $(LIBELPADIR)/mod_redist_band_complex.F90
+mod_redist_band_complex.o: $(LIBELPADIR)/mod_redist_band_complex.F90 elpa2_determine_workload.o mod_precision.o elpa_utilities.o
 	$(FC) -c $(LIBELPADIR)/mod_redist_band_complex.F90
-elpa2_determine_workload.o: $(LIBELPADIR)/elpa2_determine_workload.F90
+elpa2_determine_workload.o: $(LIBELPADIR)/elpa2_determine_workload.F90 mod_precision.o
 	$(FC) -c $(LIBELPADIR)/elpa2_determine_workload.F90
-real.o: $(LIBELPADIR)/real.F90
+real.o: $(LIBELPADIR)/real.F90 mod_precision.o
 	$(FC) -c $(LIBELPADIR)/real.F90
-complex.o: $(LIBELPADIR)/complex.F90
+complex.o: $(LIBELPADIR)/complex.F90 mod_precision.o
 	$(FC) -c $(LIBELPADIR)/complex.F90
-mod_single_hh_trafo_real.o: $(LIBELPADIR)/mod_single_hh_trafo_real.F90
+mod_single_hh_trafo_real.o: $(LIBELPADIR)/mod_single_hh_trafo_real.F90 mod_precision.o
 	$(FC) -c $(LIBELPADIR)/mod_single_hh_trafo_real.F90
-mod_compute_hh_trafo_real.o: $(LIBELPADIR)/mod_compute_hh_trafo_real.F90
+mod_compute_hh_trafo_real.o: $(LIBELPADIR)/mod_compute_hh_trafo_real.F90 mod_precision.o mod_single_hh_trafo_real.o real.o
 	$(FC) -c $(LIBELPADIR)/mod_compute_hh_trafo_real.F90
-mod_compute_hh_trafo_complex.o: $(LIBELPADIR)/mod_compute_hh_trafo_complex.F90
+mod_compute_hh_trafo_complex.o: $(LIBELPADIR)/mod_compute_hh_trafo_complex.F90 mod_precision.o complex.o
 	$(FC) -c $(LIBELPADIR)/mod_compute_hh_trafo_complex.F90
-elpa2_compute_real.o: $(LIBELPADIR)/elpa2_compute_real.F90
+elpa2_compute_real.o: $(LIBELPADIR)/elpa2_compute_real.F90 elpa_utilities.o elpa1_compute_real.o mod_precision.o aligned_mem.o elpa2_determine_workload.o mod_redist_band_real.o mod_pack_unpack_cpu_real.o mod_compute_hh_trafo_real.o
 	$(FC) -c $(LIBELPADIR)/elpa2_compute_real.F90
-elpa2_compute_complex.o: $(LIBELPADIR)/elpa2_compute_complex.F90
+elpa2_compute_complex.o: $(LIBELPADIR)/elpa2_compute_complex.F90 elpa_utilities.o elpa1_compute_complex.o mod_precision.o aligned_mem.o mod_redist_band_complex.o mod_pack_unpack_cpu_complex.o mod_compute_hh_trafo_complex.o
 	$(FC) -c $(LIBELPADIR)/elpa2_compute_complex.F90
-elpa_solve_evp_real_2stage_double_impl.o: $(LIBELPADIR)/elpa_solve_evp_real_2stage_double_impl.F90
+elpa_solve_evp_real_2stage_double_impl.o: $(LIBELPADIR)/elpa_solve_evp_real_2stage_double_impl.F90 elpa2_compute_real.o elpa1_compute_real.o mod_precision.o
 	$(FC) -c $(LIBELPADIR)/elpa_solve_evp_real_2stage_double_impl.F90
-elpa_solve_evp_complex_2stage_double_impl.o: $(LIBELPADIR)/elpa_solve_evp_complex_2stage_double_impl.F90
+elpa_solve_evp_complex_2stage_double_impl.o: $(LIBELPADIR)/elpa_solve_evp_complex_2stage_double_impl.F90 elpa2_compute_complex.o elpa1_compute_complex.o elpa1_compute_real.o elpa_utilities.o mod_precision.o
 	$(FC) -c $(LIBELPADIR)/elpa_solve_evp_complex_2stage_double_impl.F90
 
 
