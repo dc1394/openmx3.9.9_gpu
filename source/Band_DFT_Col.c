@@ -1053,8 +1053,8 @@ static void BandCol_CuSolver_Zgemm_OpenACC(cublasOperation_t transa, cublasOpera
 #pragma acc data present(A[0 : m * k], B[0 : k * n], C[0 : m * n])
 #pragma acc host_data use_device(A, B, C)
     {
-        wait_cudafunc(cublasZgemm(ctx->cublas, transa, transb, m, n, k, &alpha, (cuDoubleComplex const *)A, m,
-                                  (cuDoubleComplex const *)B, k, &beta, (cuDoubleComplex *)C, m));
+        wait_cudafunc(openmx_gemmul8Zgemm(ctx->cublas, transa, transb, m, n, k, &alpha, (cuDoubleComplex const *)A, m,
+                                             (cuDoubleComplex const *)B, k, &beta, (cuDoubleComplex *)C, m));
     }
 }
 
@@ -1092,11 +1092,13 @@ static dcomplex *BandCol_CuSolver_SolveHamiltonianImpl(int n, int maxn, const dc
         wait_cudafunc(cudaMemcpy(ctx->d_H, H_in, matrix_bytes, cudaMemcpyHostToDevice));
     }
 
-    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_H, n,
-                              (cuDoubleComplex *)ctx->d_S, n, &beta, (cuDoubleComplex *)ctx->d_tmp, n));
+    wait_cudafunc(openmx_gemmul8Zgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha,
+                                         (cuDoubleComplex *)ctx->d_H, n, (cuDoubleComplex *)ctx->d_S, n, &beta,
+                                         (cuDoubleComplex *)ctx->d_tmp, n));
 
-    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_S, n,
-                              (cuDoubleComplex *)ctx->d_tmp, n, &beta, (cuDoubleComplex *)ctx->d_H, n));
+    wait_cudafunc(openmx_gemmul8Zgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, n, n, n, &alpha,
+                                         (cuDoubleComplex *)ctx->d_S, n, (cuDoubleComplex *)ctx->d_tmp, n, &beta,
+                                         (cuDoubleComplex *)ctx->d_H, n));
 
     BandCol_CuSolver_Eigen(ctx->d_H, n, maxn, ko + 1);
 
@@ -1104,8 +1106,9 @@ static dcomplex *BandCol_CuSolver_SolveHamiltonianImpl(int n, int maxn, const dc
         return NULL;
     }
 
-    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, &alpha, (cuDoubleComplex *)ctx->d_H, n,
-                              (cuDoubleComplex *)ctx->d_S, n, &beta, (cuDoubleComplex *)ctx->d_tmp, n));
+    wait_cudafunc(openmx_gemmul8Zgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, &alpha,
+                                         (cuDoubleComplex *)ctx->d_H, n, (cuDoubleComplex *)ctx->d_S, n, &beta,
+                                         (cuDoubleComplex *)ctx->d_tmp, n));
 
     if (C_out != NULL) {
         wait_cudafunc(cudaMemcpy(C_out, ctx->d_tmp, matrix_bytes, cudaMemcpyDeviceToHost));

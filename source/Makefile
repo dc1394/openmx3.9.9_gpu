@@ -64,6 +64,23 @@ CC_DFTD3 = gcc -w -O1 -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}
 FC = mpif90 -O2 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
 LIB= /opt/nvidia/hpc_sdk/Linux_x86_64/26.3/comm_libs/13.1/hpcx/hpcx-2.25.1/ompi/lib/libscalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_pgi_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -pgf90libs -mp -lpthread -lmpi_mpifh -lmpi -lm -ldl -L/usr/local/cuda-13.2/lib64 -L/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/lib -lcudart -lcusolver -lcublas -cuda
 
+GEMMUL8_REPO_URL ?= https://github.com/RIKEN-RCCS/GEMMul8.git
+GEMMUL8_REPO_DIR ?= GEMMul8
+GEMMUL8_DIR      ?= $(GEMMUL8_REPO_DIR)/GEMMul8
+GEMMUL8_LIB      ?= $(GEMMUL8_DIR)/lib/libgemmul8.a
+GEMMUL8_OPENMX_OBJ ?= $(GEMMUL8_DIR)/src/gemmul8_openmx.o
+GEMMUL8_CUDA_PATH ?= /usr/local/cuda-13.2
+GEMMUL8_GPU_ARCH ?= auto
+GEMMUL8_DETECTED_GPU_ARCH := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '.')
+ifeq ($(GEMMUL8_GPU_ARCH),auto)
+GEMMUL8_BUILD_GPU_ARCH := $(GEMMUL8_DETECTED_GPU_ARCH)
+else
+GEMMUL8_BUILD_GPU_ARCH := $(GEMMUL8_GPU_ARCH)
+endif
+NVCC ?= $(GEMMUL8_CUDA_PATH)/bin/nvcc
+NVCC_GEMMUL8_FLAGS = -std=c++20 -O3 -I$(GEMMUL8_DIR)/include -I$(GEMMUL8_DIR)/src -I$(GEMMUL8_CUDA_PATH)/include -gencode arch=compute_$(GEMMUL8_BUILD_GPU_ARCH),code=sm_$(GEMMUL8_BUILD_GPU_ARCH)
+LIB += -lcublasLt -lcuda -lnvidia-ml -lstdc++
+
 CFLAGS  = -g 
 CPPFLAGS =
 
@@ -90,7 +107,7 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o init.o LU_inverse.o 
           Get_Cnt_dOrbitals.o Gaunt.o Find_CGrids.o MD_pac.o \
           RestartFileDFT.o Output_CompTime.o Merge_LogFile.o Make_FracCoord.o \
           Make_InputFile_with_FinalCoord.o Output_Energy_Decomposition.o \
-          Divide_Conquer.o Divide_Conquer_LNO.o my_cublasDgemm.o my_cublasZgemm.o Krylov.o \
+          Divide_Conquer.o Divide_Conquer_LNO.o my_cublasDgemm.o my_cublasZgemm.o gemmul8_bridge.o Krylov.o \
           Divide_Conquer_Dosout.o EGAC_DFT.o LNO.o \
           Eigen_lapack.o cusolver_Syevd.o cusolver_Syevdx.o set_cuda_default_device_from_local_rank.o set_openacc_device_from_local_rank.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
           Eigen_PReHH.o BroadCast_ReMatrix.o \
@@ -169,8 +186,8 @@ UTIL 	= DosMain jx analysis_example esp polB calB Z2FH bandgnu13 bin2txt cube2xs
 # OpenMX
 #
 
-openmx:	$(OBJS)
-	$(CC) $(OBJS) $(STACK) $(LIB) -lm -o openmx
+openmx:	$(GEMMUL8_LIB) $(OBJS)
+	$(CC) $(OBJS) $(STACK) $(GEMMUL8_LIB) $(LIB) -lm -o openmx
 	
 #
 #
@@ -513,6 +530,15 @@ my_cublasDgemm.o: my_cublasDgemm.c openmx_common.h
 	$(CC) -c my_cublasDgemm.c
 my_cublasZgemm.o: my_cublasZgemm.c openmx_common.h
 	$(CC) -c my_cublasZgemm.c
+gemmul8_bridge.o: gemmul8_bridge.cu openmx_common.h $(GEMMUL8_DIR)/include/gemmul8.hpp $(GEMMUL8_LIB)
+	$(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_bridge.cu -o gemmul8_bridge.o
+$(GEMMUL8_DIR)/Makefile:
+	git clone --depth 1 $(GEMMUL8_REPO_URL) $(GEMMUL8_REPO_DIR)
+$(GEMMUL8_OPENMX_OBJ): gemmul8_openmx.cu $(GEMMUL8_DIR)/Makefile
+	$(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_openmx.cu -o $(GEMMUL8_OPENMX_OBJ)
+$(GEMMUL8_LIB): $(GEMMUL8_OPENMX_OBJ)
+	mkdir -p $(GEMMUL8_DIR)/lib
+	ar rcs $(GEMMUL8_LIB) $(GEMMUL8_OPENMX_OBJ)
 Divide_Conquer_Dosout.o: Divide_Conquer_Dosout.c openmx_common.h
 	$(CC) -c Divide_Conquer_Dosout.c
 Krylov.o: Krylov.c openmx_common.h
@@ -660,7 +686,7 @@ install: $(PROG)
 #
 
 clean:
-	rm -f $(PROG) $(OBJS) $(OBJS_jx) $(UTIL) *.o *.mod *.dbg 
+	rm -f $(PROG) $(OBJS) $(OBJS_jx) $(UTIL) *.o *.mod *.dbg $(GEMMUL8_OPENMX_OBJ) $(GEMMUL8_LIB)
 
 #
 #

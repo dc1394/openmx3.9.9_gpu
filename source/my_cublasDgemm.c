@@ -20,7 +20,7 @@ void my_cublasDgemm(cublasOperation_t transa, cublasOperation_t transb, int m, i
     double const alpha = 1.0;
     double const beta  = 0.0;
 
-    wait_cudafunc(cublasDgemm(handle, transa, transb, m, n, k, &alpha, d_A, m, d_B, k, &beta, d_C, m));
+    wait_cudafunc(openmx_gemmul8Dgemm(handle, transa, transb, m, n, k, &alpha, d_A, m, d_B, k, &beta, d_C, m));
 
     wait_cudafunc(cudaMemcpy(C, d_C, m * n * sizeof(double), cudaMemcpyDeviceToHost));
 
@@ -42,7 +42,7 @@ void my_cublasDgemm_openacc(cublasOperation_t transa, cublasOperation_t transb, 
         double const alpha = 1.0;
         double const beta  = 0.0;
 
-        wait_cudafunc(cublasDgemm(handle, transa, transb, m, n, k, &alpha, A, m, B, k, &beta, C, m));
+        wait_cudafunc(openmx_gemmul8Dgemm(handle, transa, transb, m, n, k, &alpha, A, m, B, k, &beta, C, m));
 
         wait_cudafunc(cublasDestroy(handle));
     }

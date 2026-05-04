@@ -3090,6 +3090,14 @@ void my_cublasZgemm(cublasOperation_t transa, cublasOperation_t transb, int m, i
 void my_cublasZgemm_openacc(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, dcomplex const * A,
                             dcomplex const * B, dcomplex * C);
 
+cublasStatus_t openmx_gemmul8Dgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m,
+                                   int n, int k, const double *alpha, const double *A, int lda, const double *B,
+                                   int ldb, const double *beta, double *C, int ldc);
+cublasStatus_t openmx_gemmul8Zgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m,
+                                   int n, int k, const cuDoubleComplex *alpha, const cuDoubleComplex *A, int lda,
+                                   const cuDoubleComplex *B, int ldb, const cuDoubleComplex *beta, cuDoubleComplex *C,
+                                   int ldc);
+
 int getDeviceCount();
 
 // void init_cublasmp(int myworld2, MPI_Comm* MPI_CommWD2, Options* opts, Options2* opts2);

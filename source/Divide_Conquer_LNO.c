@@ -426,16 +426,16 @@ static void DCLNO_Solve_Col_CuSolver(int NUM, int NUM2, double *Smat, double *Hm
     wait_cudafunc(cublasDdgmm(ctx->cublas, CUBLAS_SIDE_RIGHT, NUM, NUM,
                               ctx->d_S, NUM, ctx->d_W, 1, ctx->d_tmp, NUM));
 
-    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, NUM, NUM, NUM,
-                              &alpha, ctx->d_H, NUM, ctx->d_tmp, NUM, &beta, ctx->d_S, NUM));
+    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, NUM, NUM, NUM, &alpha, ctx->d_H, NUM,
+                                     ctx->d_tmp, NUM, &beta, ctx->d_S, NUM));
 
-    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, NUM, NUM, NUM,
-                              &alpha, ctx->d_tmp, NUM, ctx->d_S, NUM, &beta, ctx->d_H, NUM));
+    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, NUM, NUM, NUM, &alpha, ctx->d_tmp, NUM,
+                                     ctx->d_S, NUM, &beta, ctx->d_H, NUM));
 
     DCLNO_CuSolver_Eigen(ctx->d_H, NUM, NUM2, ko + 1);
 
-    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, NUM, NUM2, NUM,
-                              &alpha, ctx->d_tmp, NUM, ctx->d_H, NUM, &beta, ctx->d_S, NUM));
+    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, NUM, NUM2, NUM, &alpha, ctx->d_tmp,
+                                     NUM, ctx->d_H, NUM, &beta, ctx->d_S, NUM));
 
     wait_cudafunc(cudaMemcpyAsync(Hmat, ctx->d_S, partial_bytes,
                                   cudaMemcpyDeviceToHost, ctx->stream));

@@ -889,25 +889,25 @@ static int BandNonCol_DMGpuGemm(BandNonColDMWorkspace * ws, int tnoA, int total_
     wait_cudafunc(cudaMemcpyAsync(ctx->d_cols_up, ws->cols_up, cols_bytes, cudaMemcpyHostToDevice, ctx->stream));
     wait_cudafunc(cudaMemcpyAsync(ctx->d_cols_dn, ws->cols_dn, cols_bytes, cudaMemcpyHostToDevice, ctx->stream));
 
-    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
-                              (cuDoubleComplex *)ctx->d_vec_up, nk, (cuDoubleComplex *)ctx->d_cols_up, nk, &beta,
-                              (cuDoubleComplex *)ctx->d_mat11, tnoA));
+    wait_cudafunc(openmx_gemmul8Zgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                                     (cuDoubleComplex *)ctx->d_vec_up, nk, (cuDoubleComplex *)ctx->d_cols_up, nk,
+                                     &beta, (cuDoubleComplex *)ctx->d_mat11, tnoA));
 
-    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
-                              (cuDoubleComplex *)ctx->d_vec_dn, nk, (cuDoubleComplex *)ctx->d_cols_dn, nk, &beta,
-                              (cuDoubleComplex *)ctx->d_mat22, tnoA));
+    wait_cudafunc(openmx_gemmul8Zgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                                     (cuDoubleComplex *)ctx->d_vec_dn, nk, (cuDoubleComplex *)ctx->d_cols_dn, nk,
+                                     &beta, (cuDoubleComplex *)ctx->d_mat22, tnoA));
 
-    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
-                              (cuDoubleComplex *)ctx->d_vec_up, nk, (cuDoubleComplex *)ctx->d_cols_dn, nk, &beta,
-                              (cuDoubleComplex *)ctx->d_mat12, tnoA));
+    wait_cudafunc(openmx_gemmul8Zgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                                     (cuDoubleComplex *)ctx->d_vec_up, nk, (cuDoubleComplex *)ctx->d_cols_dn, nk,
+                                     &beta, (cuDoubleComplex *)ctx->d_mat12, tnoA));
 
-    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
-                              (cuDoubleComplex *)ctx->d_vec_up_e, nk, (cuDoubleComplex *)ctx->d_cols_up, nk, &beta,
-                              (cuDoubleComplex *)ctx->d_mat11e, tnoA));
+    wait_cudafunc(openmx_gemmul8Zgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                                     (cuDoubleComplex *)ctx->d_vec_up_e, nk, (cuDoubleComplex *)ctx->d_cols_up, nk,
+                                     &beta, (cuDoubleComplex *)ctx->d_mat11e, tnoA));
 
-    wait_cudafunc(cublasZgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
-                              (cuDoubleComplex *)ctx->d_vec_dn_e, nk, (cuDoubleComplex *)ctx->d_cols_dn, nk, &beta,
-                              (cuDoubleComplex *)ctx->d_mat22e, tnoA));
+    wait_cudafunc(openmx_gemmul8Zgemm(ctx->cublas, CUBLAS_OP_C, CUBLAS_OP_N, tnoA, total_cols, nk, &alpha,
+                                     (cuDoubleComplex *)ctx->d_vec_dn_e, nk, (cuDoubleComplex *)ctx->d_cols_dn, nk,
+                                     &beta, (cuDoubleComplex *)ctx->d_mat22e, tnoA));
 
     wait_cudafunc(cudaMemcpyAsync(ws->mat11, ctx->d_mat11, mat_bytes, cudaMemcpyDeviceToHost, ctx->stream));
     wait_cudafunc(cudaMemcpyAsync(ws->mat22, ctx->d_mat22, mat_bytes, cudaMemcpyDeviceToHost, ctx->stream));

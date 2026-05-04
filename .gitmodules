@@ -1,0 +1,3 @@
+[submodule "source/source/GEMMul8"]
+	path = source/source/GEMMul8
+	url = https://github.com/RIKEN-RCCS/GEMMul8

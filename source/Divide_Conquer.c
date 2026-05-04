@@ -405,10 +405,10 @@ static void DCCol_CuSolver_SolveHamiltonian(int n, int p_min, double **H_DC_spin
     DCCol_CuSolver_PackMatrix(n, H_DC_spin, ctx->h_matrix);
     wait_cudafunc(cudaMemcpyAsync(ctx->d_H, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
 
-    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_H, n, ctx->d_S, n, &beta,
-                              ctx->d_tmp, n));
-    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_S, n, ctx->d_tmp, n,
-                              &beta, ctx->d_H, n));
+    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_H, n, ctx->d_S,
+                                     n, &beta, ctx->d_tmp, n));
+    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_S, n,
+                                     ctx->d_tmp, n, &beta, ctx->d_H, n));
 
     wait_cudafunc(cudaMemcpy2DAsync(ctx->d_A, sizeof(double) * (size_t)num1,
                                     ctx->d_H + (size_t)(p_min - 1) * (size_t)n + (size_t)(p_min - 1),
@@ -417,8 +417,9 @@ static void DCCol_CuSolver_SolveHamiltonian(int n, int p_min, double **H_DC_spin
 
     DC_CuSolver_Eigen(ctx->d_A, num1, num1, ko + 1);
 
-    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, num1, num1, &alpha,
-                              ctx->d_S + (size_t)(p_min - 1) * (size_t)n, n, ctx->d_A, num1, &beta, ctx->d_C, n));
+    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, num1, num1, &alpha,
+                                     ctx->d_S + (size_t)(p_min - 1) * (size_t)n, n, ctx->d_A, num1, &beta,
+                                     ctx->d_C, n));
 
     wait_cudafunc(cudaMemcpyAsync(ctx->h_matrix, ctx->d_C, sizeof(double) * (size_t)n * (size_t)num1,
                                   cudaMemcpyDeviceToHost, ctx->stream));

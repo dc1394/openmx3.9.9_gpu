@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 void my_cublasZgemm(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, dcomplex const * A,
-                    dcomplex const * B, dcomplex * C)
+    dcomplex const * B, dcomplex * C)
 {
     cublasHandle_t handle;
     wait_cudafunc(cublasCreate(&handle));
@@ -20,7 +20,7 @@ void my_cublasZgemm(cublasOperation_t transa, cublasOperation_t transb, int m, i
     cuDoubleComplex const alpha = make_cuDoubleComplex(1.0, 0.0);
     cuDoubleComplex const beta  = make_cuDoubleComplex(0.0, 0.0);
 
-    wait_cudafunc(cublasZgemm(handle, transa, transb, m, n, k, &alpha, d_A, m, d_B, k, &beta, d_C, m));
+    wait_cudafunc(openmx_gemmul8Zgemm(handle, transa, transb, m, n, k, &alpha, d_A, m, d_B, k, &beta, d_C, m));
 
     wait_cudafunc(cudaMemcpy(C, d_C, m * n * sizeof(cuDoubleComplex), cudaMemcpyDeviceToHost));
 
@@ -31,7 +31,7 @@ void my_cublasZgemm(cublasOperation_t transa, cublasOperation_t transb, int m, i
 }
 
 void my_cublasZgemm_openacc(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, dcomplex const * A,
-                            dcomplex const * B, dcomplex * C)
+    dcomplex const * B, dcomplex * C)
 {
     cublasHandle_t handle;
     wait_cudafunc(cublasCreate(&handle));
@@ -50,7 +50,8 @@ void my_cublasZgemm_openacc(cublasOperation_t transa, cublasOperation_t transb, 
         cuDoubleComplex const alpha = make_cuDoubleComplex(1.0, 0.0);
         cuDoubleComplex const beta  = make_cuDoubleComplex(0.0, 0.0);
 
-        wait_cudafunc(cublasZgemm(handle, transa, transb, m, n, k, &alpha, A, m, B, k, &beta, C, m));
+        wait_cudafunc(openmx_gemmul8Zgemm(handle, transa, transb, m, n, k, &alpha, (cuDoubleComplex const *)A, m,
+                                  (cuDoubleComplex const *)B, k, &beta, (cuDoubleComplex *)C, m));
 
         // wait_cudafunc(cudaMemcpy(C, d_C, m * n * sizeof(cuDoubleComplex), cudaMemcpyDeviceToHost));
 

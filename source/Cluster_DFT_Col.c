@@ -608,8 +608,8 @@ static double *ClusterCol_CuSolver_SolveHamiltonianImpl(int n, int maxn, const d
     wait_cudafunc(cublasDsymm(ctx->cublas, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_LOWER, n, n,
                               &alpha, ctx->d_H, n, ctx->d_S, n, &beta, ctx->d_tmp, n));
 
-    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n,
-                              &alpha, ctx->d_S, n, ctx->d_tmp, n, &beta, ctx->d_H, n));
+    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_S, n,
+                                     ctx->d_tmp, n, &beta, ctx->d_H, n));
 
     ClusterCol_CuSolver_Eigen(ctx->d_H, n, maxn, ko_spin + 1);
 
@@ -617,8 +617,8 @@ static double *ClusterCol_CuSolver_SolveHamiltonianImpl(int n, int maxn, const d
         return NULL;
     }
 
-    wait_cudafunc(cublasDgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_T, n, n, n,
-                              &alpha, ctx->d_H, n, ctx->d_S, n, &beta, ctx->d_tmp, n));
+    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_T, n, n, n, &alpha, ctx->d_H, n,
+                                     ctx->d_S, n, &beta, ctx->d_tmp, n));
 
     if (H_out != NULL) {
         wait_cudafunc(cudaMemcpyAsync(H_out, ctx->d_tmp, matrix_bytes, cudaMemcpyDeviceToHost, ctx->stream));
