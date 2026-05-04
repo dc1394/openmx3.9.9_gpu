@@ -66,6 +66,110 @@ static inline double DC_FermiWeight(double eval, double chemP, double beta, doub
     return 1.0 / (1.0 + exp(x));
 }
 
+static inline void DC_DotDensityResidueReal(int n, const double * restrict residue,
+                                            const double * restrict weight,
+                                            const double * restrict eweight,
+                                            double * restrict cdm,
+                                            double * restrict edm)
+{
+    int    i;
+    double c0 = 0.0, c1 = 0.0, c2 = 0.0, c3 = 0.0;
+    double e0 = 0.0, e1 = 0.0, e2 = 0.0, e3 = 0.0;
+
+    for (i = 0; i + 3 < n; i += 4) {
+        const double r0 = residue[i];
+        const double r1 = residue[i + 1];
+        const double r2 = residue[i + 2];
+        const double r3 = residue[i + 3];
+
+        c0 += weight[i] * r0;
+        e0 += eweight[i] * r0;
+        c1 += weight[i + 1] * r1;
+        e1 += eweight[i + 1] * r1;
+        c2 += weight[i + 2] * r2;
+        e2 += eweight[i + 2] * r2;
+        c3 += weight[i + 3] * r3;
+        e3 += eweight[i + 3] * r3;
+    }
+
+    for (; i < n; i++) {
+        const double r = residue[i];
+        c0 += weight[i] * r;
+        e0 += eweight[i] * r;
+    }
+
+    *cdm = (c0 + c1) + (c2 + c3);
+    *edm = (e0 + e1) + (e2 + e3);
+}
+
+static inline void DC_DotDensityResidueNonCol(int n, const dcomplex * restrict res0,
+                                              const dcomplex * restrict res1,
+                                              const dcomplex * restrict res2,
+                                              const double * restrict weight,
+                                              const double * restrict eweight, int use_iDM,
+                                              double * restrict cdm0, double * restrict edm0,
+                                              double * restrict cdm1, double * restrict edm1,
+                                              double * restrict cdm2, double * restrict edm2,
+                                              double * restrict cdm3, double * restrict edm3,
+                                              double * restrict idm00, double * restrict idm01)
+{
+    int    i;
+    double c0 = 0.0, c1 = 0.0, c2 = 0.0, c3 = 0.0;
+    double e0 = 0.0, e1 = 0.0, e2 = 0.0, e3 = 0.0;
+    double im00 = 0.0, im01 = 0.0;
+
+    if (use_iDM) {
+        for (i = 0; i < n; i++) {
+            const double f  = weight[i];
+            const double ef = eweight[i];
+            const double r0 = res0[i].r;
+            const double r1 = res1[i].r;
+            const double r2 = res2[i].r;
+            const double r3 = res2[i].i;
+
+            c0 += f * r0;
+            e0 += ef * r0;
+            c1 += f * r1;
+            e1 += ef * r1;
+            c2 += f * r2;
+            e2 += ef * r2;
+            c3 += f * r3;
+            e3 += ef * r3;
+            im00 += f * res0[i].i;
+            im01 += f * res1[i].i;
+        }
+    } else {
+        for (i = 0; i < n; i++) {
+            const double f  = weight[i];
+            const double ef = eweight[i];
+            const double r0 = res0[i].r;
+            const double r1 = res1[i].r;
+            const double r2 = res2[i].r;
+            const double r3 = res2[i].i;
+
+            c0 += f * r0;
+            e0 += ef * r0;
+            c1 += f * r1;
+            e1 += ef * r1;
+            c2 += f * r2;
+            e2 += ef * r2;
+            c3 += f * r3;
+            e3 += ef * r3;
+        }
+    }
+
+    *cdm0 = c0;
+    *edm0 = e0;
+    *cdm1 = c1;
+    *edm1 = e1;
+    *cdm2 = c2;
+    *edm2 = e2;
+    *cdm3 = c3;
+    *edm3 = e3;
+    *idm00 = im00;
+    *idm01 = im01;
+}
+
 static void DC_AbortWithMessage(const char *message)
 {
     fprintf(stderr, "%s\n", message);
@@ -502,6 +606,7 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
     /* MPI */
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
+    int is_scf_mode = (strcasecmp(mode, "scf") == 0);
 
     // Set the device to be used by CUDA and OpenACC
     if (scf_eigen_lib_flag == CuSOLVER) {
@@ -1654,6 +1759,12 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                 wanA = WhatSpecies[Gc_AN];
                 tno1 = Spe_Total_CNO[wanA];
 
+                if (is_scf_mode) {
+                    for (i1 = 0; i1 < Msize[Mc_AN]; i1++) {
+                        PDOS_DC[spin][Mc_AN][i1] = 0.0;
+                    }
+                }
+
                 for (i = 0; i < tno1; i++) {
                     for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                         Gh_AN = natn[Gc_AN][h_AN];
@@ -1661,8 +1772,13 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                         tno2  = Spe_Total_CNO[wanB];
                         Bnum  = MP[h_AN];
                         for (j = 0; j < tno2; j++) {
+                            tmp1 = OLP0[Mc_AN][h_AN][i][j];
                             for (i1 = 1; i1 <= NUM1; i1++) {
-                                Residues[spin][Mc_AN][h_AN][i][j][i1 - 1] = C[1 + i][i1] * C[Bnum + j][i1];
+                                tmp2 = C[1 + i][i1] * C[Bnum + j][i1];
+                                Residues[spin][Mc_AN][h_AN][i][j][i1 - 1] = tmp2;
+                                if (is_scf_mode) {
+                                    PDOS_DC[spin][Mc_AN][i1 - 1] += tmp2 * tmp1;
+                                }
                             }
                         }
                     }
@@ -1703,7 +1819,7 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
         free(MP);
     } /* //#pragma omp parallel */
 
-    if (strcasecmp(mode, "scf") == 0) {
+    if (is_scf_mode) {
 
         /****************************************************
                   calculate projected DOS
@@ -1712,55 +1828,7 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
         if (measure_time)
             dtime(&stime);
 
-        // #pragma omp parallel shared(FNAN, time_per_atom, Residues, OLP0, natn, PDOS_DC, Msize, Spe_Total_CNO, WhatSpecies, M2G, Matomnum, SpinP_switch) private(OMPID, Nthrds, Nprocs, Mc_AN, spin, Stime_atom, Etime_atom, Gc_AN, wanA, tno1, i1, i, h_AN, Gh_AN, wanB, tno2, j, tmp1)
-        {
-
-            /* get info. on OpenMP */
-
-            OMPID  = omp_get_thread_num();
-            Nthrds = omp_get_num_threads();
-            Nprocs = omp_get_num_procs();
-
-            for (Mc_AN = 1 + OMPID; Mc_AN <= Matomnum; Mc_AN += Nthrds) {
-                for (spin = 0; spin <= SpinP_switch; spin++) {
-
-                    dtime(&Stime_atom);
-
-                    Gc_AN = M2G[Mc_AN];
-                    wanA  = WhatSpecies[Gc_AN];
-                    tno1  = Spe_Total_CNO[wanA];
-
-                    for (i1 = 0; i1 < Msize[Mc_AN]; i1++) {
-                        PDOS_DC[spin][Mc_AN][i1] = 0.0;
-                    }
-
-                    for (i = 0; i < tno1; i++) {
-                        for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
-                            Gh_AN = natn[Gc_AN][h_AN];
-                            wanB  = WhatSpecies[Gh_AN];
-                            tno2  = Spe_Total_CNO[wanB];
-                            for (j = 0; j < tno2; j++) {
-
-                                tmp1 = OLP0[Mc_AN][h_AN][i][j];
-                                for (i1 = 0; i1 < Msize[Mc_AN]; i1++) {
-                                    PDOS_DC[spin][Mc_AN][i1] += Residues[spin][Mc_AN][h_AN][i][j][i1] * tmp1;
-                                }
-                            }
-                        }
-                    }
-
-                    dtime(&Etime_atom);
-                    time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
-
-                    /*
-                      for (i1=0; i1<Msize[Mc_AN]; i1++){
-                      printf("%4d  %18.15f\n",i1,PDOS_DC[spin][Mc_AN][i1]);
-                      }
-                    */
-                }
-            }
-
-        } /* //#pragma omp parallel */
+        /* PDOS_DC was accumulated while storing Residues, avoiding a second pass here. */
 
         if (measure_time) {
             dtime(&etime);
@@ -1828,17 +1896,43 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
             eigenenergy by summing up eigenvalues
         ****************************************************/
 
+        double ***FermiW =
+            (double ***)DC_MallocArray((size_t)(SpinP_switch + 1), sizeof(double **), "DC col Fermi weights");
+        double ***EFermiW =
+            (double ***)DC_MallocArray((size_t)(SpinP_switch + 1), sizeof(double **), "DC col energy Fermi weights");
+
         My_Eele0[0] = 0.0;
         My_Eele0[1] = 0.0;
         for (spin = 0; spin <= SpinP_switch; spin++) {
+            FermiW[spin] =
+                (double **)DC_MallocArray((size_t)(Matomnum + 1), sizeof(double *), "DC col Fermi weight atoms");
+            EFermiW[spin] = (double **)DC_MallocArray((size_t)(Matomnum + 1), sizeof(double *),
+                                                      "DC col energy Fermi weight atoms");
+            FermiW[spin][0]  = NULL;
+            EFermiW[spin][0] = NULL;
+
             for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
                 dtime(&Stime_atom);
 
                 Gc_AN = M2G[Mc_AN];
-                for (i = 0; i < Msize[Mc_AN]; i++) {
-                    FermiF = DC_FermiWeight(EVal[spin][Mc_AN][i], ChemP, Beta, max_x);
-                    My_Eele0[spin] += FermiF * EVal[spin][Mc_AN][i] * PDOS_DC[spin][Mc_AN][i];
+                {
+                    const int     n       = Msize[Mc_AN];
+                    const double *eval    = EVal[spin][Mc_AN];
+                    double *      weights = (double *)DC_MallocArray((size_t)(2 * n), sizeof(double),
+                                                                     "DC col Fermi weight buffer");
+                    double *      fweight = weights;
+                    double *      eweight = weights + n;
+
+                    FermiW[spin][Mc_AN]  = fweight;
+                    EFermiW[spin][Mc_AN] = eweight;
+
+                    for (i = 0; i < n; i++) {
+                        FermiF     = DC_FermiWeight(eval[i], ChemP, Beta, max_x);
+                        fweight[i] = FermiF;
+                        eweight[i] = FermiF * eval[i];
+                        My_Eele0[spin] += eweight[i] * PDOS_DC[spin][Mc_AN][i];
+                    }
                 }
 
                 dtime(&Etime_atom);
@@ -1867,6 +1961,14 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
         if (measure_time)
             dtime(&stime);
 
+        const int nspins_eele1 = SpinP_switch + 1;
+        const int nthreads_eele1 = omp_get_max_threads();
+        double *My_Eele1_threads = (double *)DC_MallocArray((size_t)(nthreads_eele1 * nspins_eele1),
+                                                            sizeof(double), "DC col Eele1 threads");
+        for (i = 0; i < nthreads_eele1 * nspins_eele1; i++) {
+            My_Eele1_threads[i] = 0.0;
+        }
+
         //#pragma omp parallel shared(FNAN, time_per_atom, EDM, CDM, Residues, natn, max_x, Beta, ChemP, EVal, Msize, Spe_Total_CNO, WhatSpecies, M2G, SpinP_switch, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, spin, Stime_atom, Gc_AN, wanA, tno1, i1, x, FermiF, h_AN, Gh_AN, wanB, tno2, i, j, tmp1, Etime_atom)
         {
             /* get info. on OpenMP */
@@ -1884,11 +1986,9 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                     wanA  = WhatSpecies[Gc_AN];
                     tno1  = Spe_Total_CNO[wanA];
 
-                    double *FermiW =
-                        (double *)DC_MallocArray((size_t)Msize[Mc_AN], sizeof(double), "DC Fermi weights");
-                    for (i1 = 0; i1 < Msize[Mc_AN]; i1++) {
-                        FermiW[i1] = DC_FermiWeight(EVal[spin][Mc_AN][i1], ChemP, Beta, max_x);
-                    }
+                    const int     n       = Msize[Mc_AN];
+                    const double *fweight = FermiW[spin][Mc_AN];
+                    const double *eweight = EFermiW[spin][Mc_AN];
 
                     for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                         Gh_AN = natn[Gc_AN][h_AN];
@@ -1899,19 +1999,15 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                                 double cdm_sum = 0.0;
                                 double edm_sum = 0.0;
                                 double *res    = Residues[spin][Mc_AN][h_AN][i][j];
-                                double *eval   = EVal[spin][Mc_AN];
 
-                                for (i1 = 0; i1 < Msize[Mc_AN]; i1++) {
-                                    tmp1 = FermiW[i1] * res[i1];
-                                    cdm_sum += tmp1;
-                                    edm_sum += tmp1 * eval[i1];
-                                }
+                                DC_DotDensityResidueReal(n, res, fweight, eweight, &cdm_sum, &edm_sum);
                                 CDM[spin][Mc_AN][h_AN][i][j] = cdm_sum;
                                 EDM[spin][Mc_AN][h_AN][i][j] = edm_sum;
+                                My_Eele1_threads[OMPID * nspins_eele1 + spin] +=
+                                    cdm_sum * Hks[spin][Mc_AN][h_AN][i][j];
                             }
                         }
                     }
-                    free(FermiW);
 
                     dtime(&Etime_atom);
                     time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
@@ -1919,31 +2015,29 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
             }
 
         } /* //#pragma omp parallel */
+
+        for (spin = 0; spin <= SpinP_switch; spin++) {
+            for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+                free(FermiW[spin][Mc_AN]);
+            }
+            free(EFermiW[spin]);
+            free(FermiW[spin]);
+        }
+        free(EFermiW);
+        free(FermiW);
+
         /****************************************************
                          bond energies
         ****************************************************/
 
         My_Eele1[0] = 0.0;
         My_Eele1[1] = 0.0;
-        for (MA_AN = 1; MA_AN <= Matomnum; MA_AN++) {
-            GA_AN = M2G[MA_AN];
-            wanA  = WhatSpecies[GA_AN];
-            tnoA  = Spe_Total_CNO[wanA];
-
-            for (j = 0; j <= FNAN[GA_AN]; j++) {
-                GB_AN = natn[GA_AN][j];
-                wanB  = WhatSpecies[GB_AN];
-                tnoB  = Spe_Total_CNO[wanB];
-
-                for (k = 0; k < tnoA; k++) {
-                    for (l = 0; l < tnoB; l++) {
-                        for (spin = 0; spin <= SpinP_switch; spin++) {
-                            My_Eele1[spin] += CDM[spin][MA_AN][j][k][l] * Hks[spin][MA_AN][j][k][l];
-                        }
-                    }
-                }
+        for (k = 0; k < nthreads_eele1; k++) {
+            for (spin = 0; spin <= SpinP_switch; spin++) {
+                My_Eele1[spin] += My_Eele1_threads[k * nspins_eele1 + spin];
             }
         }
+        free(My_Eele1_threads);
 
         /* MPI, My_Eele1 */
         for (spin = 0; spin <= SpinP_switch; spin++) {
@@ -2096,6 +2190,7 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
     /* MPI */
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
+    int is_scf_mode = (strcasecmp(mode, "scf") == 0);
 
     // Set the device to be used by CUDA and OpenACC
     if (scf_eigen_lib_flag == CuSOLVER) {
@@ -3467,6 +3562,12 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
             wanA = WhatSpecies[Gc_AN];
             tno1 = Spe_Total_CNO[wanA];
 
+            if (is_scf_mode) {
+                for (i1 = 0; i1 < 2 * Msize[Mc_AN]; i1++) {
+                    PDOS_DC[Mc_AN][i1] = 0.0;
+                }
+            }
+
             for (i = 0; i < tno1; i++) {
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
@@ -3474,15 +3575,22 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                     tno2  = Spe_Total_CNO[wanB];
                     Bnum  = MP[h_AN];
                     for (j = 0; j < tno2; j++) {
+                        tmp1 = OLP0[Mc_AN][h_AN][i][j];
                         for (i1 = 1; i1 <= NUM1; i1++) {
 
                             /* Re11 */
-                            Residues[0][Mc_AN][h_AN][i][j][i1 - 1].r =
+                            const double re11 =
                                 C[1 + i][i1].r * C[Bnum + j][i1].r + C[1 + i][i1].i * C[Bnum + j][i1].i;
+                            Residues[0][Mc_AN][h_AN][i][j][i1 - 1].r = re11;
 
                             /* Re22 */
-                            Residues[1][Mc_AN][h_AN][i][j][i1 - 1].r = C[1 + i + NUM][i1].r * C[Bnum + j + NUM][i1].r +
-                                                                       C[1 + i + NUM][i1].i * C[Bnum + j + NUM][i1].i;
+                            const double re22 = C[1 + i + NUM][i1].r * C[Bnum + j + NUM][i1].r +
+                                                C[1 + i + NUM][i1].i * C[Bnum + j + NUM][i1].i;
+                            Residues[1][Mc_AN][h_AN][i][j][i1 - 1].r = re22;
+
+                            if (is_scf_mode) {
+                                PDOS_DC[Mc_AN][i1 - 1] += (re11 + re22) * tmp1;
+                            }
 
                             /* Re12 */
                             Residues[2][Mc_AN][h_AN][i][j][i1 - 1].r =
@@ -3557,55 +3665,13 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
     } /* //#pragma omp parallel */
 
-    if (strcasecmp(mode, "scf") == 0) {
+    if (is_scf_mode) {
 
         /****************************************************
                   calculate projected DOS
         ****************************************************/
 
-        // #pragma omp parallel shared(time_per_atom, Residues, OLP0, natn, PDOS_DC, Msize, Spe_Total_CNO, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Etime_atom, Gc_AN, wanA, tno1, i1, i, h_AN, Gh_AN, wanB, tno2, j, tmp1)
-        {
-
-            /* get info. on OpenMP */
-
-            OMPID  = omp_get_thread_num();
-            Nthrds = omp_get_num_threads();
-            Nprocs = omp_get_num_procs();
-
-            for (Mc_AN = 1 + OMPID; Mc_AN <= Matomnum; Mc_AN += Nthrds) {
-
-                dtime(&Stime_atom);
-
-                Gc_AN = M2G[Mc_AN];
-                wanA  = WhatSpecies[Gc_AN];
-                tno1  = Spe_Total_CNO[wanA];
-
-                for (i1 = 0; i1 < 2 * Msize[Mc_AN]; i1++) {
-                    PDOS_DC[Mc_AN][i1] = 0.0;
-                }
-
-                for (i = 0; i < tno1; i++) {
-                    for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
-                        Gh_AN = natn[Gc_AN][h_AN];
-                        wanB  = WhatSpecies[Gh_AN];
-                        tno2  = Spe_Total_CNO[wanB];
-                        for (j = 0; j < tno2; j++) {
-
-                            tmp1 = OLP0[Mc_AN][h_AN][i][j];
-                            for (i1 = 0; i1 < 2 * Msize[Mc_AN]; i1++) {
-                                PDOS_DC[Mc_AN][i1] +=
-                                    (Residues[0][Mc_AN][h_AN][i][j][i1].r + Residues[1][Mc_AN][h_AN][i][j][i1].r) *
-                                    tmp1;
-                            }
-                        }
-                    }
-                }
-
-                dtime(&Etime_atom);
-                time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
-            }
-
-        } /* //#pragma omp parallel */
+        /* PDOS_DC was accumulated while storing Residues, avoiding a second pass here. */
 
         /****************************************************
         find chemical potential
@@ -3671,6 +3737,13 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
             eigenenergy by summing up eigenvalues
         ****************************************************/
 
+        double **FermiW =
+            (double **)DC_MallocArray((size_t)(Matomnum + 1), sizeof(double *), "DC noncol Fermi weights");
+        double **EFermiW = (double **)DC_MallocArray((size_t)(Matomnum + 1), sizeof(double *),
+                                                    "DC noncol energy Fermi weights");
+        FermiW[0]  = NULL;
+        EFermiW[0] = NULL;
+
         My_Eele0[0] = 0.0;
         My_Eele0[1] = 0.0;
 
@@ -3688,9 +3761,23 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
             for (Mc_AN = 1 + OMPID; Mc_AN <= Matomnum; Mc_AN += Nthrds) {
 
                 Gc_AN = M2G[Mc_AN];
-                for (i = 0; i < 2 * Msize[Mc_AN]; i++) {
-                    FermiF = DC_FermiWeight(EVal[Mc_AN][i], ChemP, Beta, max_x);
-                    omp_tmp[OMPID] += FermiF * EVal[Mc_AN][i] * PDOS_DC[Mc_AN][i];
+                {
+                    const int     n       = 2 * Msize[Mc_AN];
+                    const double *eval    = EVal[Mc_AN];
+                    double *      weights = (double *)DC_MallocArray((size_t)(2 * n), sizeof(double),
+                                                                     "DC noncol Fermi weight buffer");
+                    double *      fweight = weights;
+                    double *      eweight = weights + n;
+
+                    FermiW[Mc_AN]  = fweight;
+                    EFermiW[Mc_AN] = eweight;
+
+                    for (i = 0; i < n; i++) {
+                        FermiF     = DC_FermiWeight(eval[i], ChemP, Beta, max_x);
+                        fweight[i] = FermiF;
+                        eweight[i] = FermiF * eval[i];
+                        omp_tmp[OMPID] += eweight[i] * PDOS_DC[Mc_AN][i];
+                    }
                 }
             }
 
@@ -3721,6 +3808,10 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
             EDM[3]  Im alpha beta  energy density matrix
         ****************************************************/
 
+        for (ompi = 0; ompi < Nthrds0; ompi++) {
+            omp_tmp[ompi] = 0.0;
+        }
+
         // #pragma omp parallel shared(iDM, Zeeman_NCO_switch, Zeeman_NCS_switch, Constraint_NCS_switch, Hub_U_switch, SO_switch, time_per_atom, EDM, CDM, Residues, natn, max_x, Beta, ChemP, EVal, Msize, Spe_Total_CNO, WhatSpecies, M2G, Matomnum) private(OMPID, Nthrds, Nprocs, Mc_AN, Stime_atom, Gc_AN, wanA, tno1, i1, x, FermiF, h_AN, Gh_AN, wanB, tno2, i, j, tmp1, Etime_atom)
         {
 
@@ -3740,11 +3831,9 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                 int use_iDM = (SO_switch == 1 || Hub_U_switch == 1 || 1 <= Constraint_NCS_switch ||
                                Zeeman_NCS_switch == 1 || Zeeman_NCO_switch == 1);
 
-                double *FermiW =
-                    (double *)DC_MallocArray((size_t)(2 * Msize[Mc_AN]), sizeof(double), "DC noncol Fermi weights");
-                for (i1 = 0; i1 < 2 * Msize[Mc_AN]; i1++) {
-                    FermiW[i1] = DC_FermiWeight(EVal[Mc_AN][i1], ChemP, Beta, max_x);
-                }
+                const int     n       = 2 * Msize[Mc_AN];
+                const double *fweight = FermiW[Mc_AN];
+                const double *eweight = EFermiW[Mc_AN];
 
                 for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
                     Gh_AN = natn[Gc_AN][h_AN];
@@ -3759,30 +3848,9 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                             dcomplex *res1 = Residues[1][Mc_AN][h_AN][i][j];
                             dcomplex *res2 = Residues[2][Mc_AN][h_AN][i][j];
 
-                            for (i1 = 0; i1 < 2 * Msize[Mc_AN]; i1++) {
-                                FermiF = FermiW[i1];
-
-                                tmp1 = FermiF * res0[i1].r;
-                                cdm0 += tmp1;
-                                edm0 += tmp1 * EVal[Mc_AN][i1];
-
-                                tmp1 = FermiF * res1[i1].r;
-                                cdm1 += tmp1;
-                                edm1 += tmp1 * EVal[Mc_AN][i1];
-
-                                tmp1 = FermiF * res2[i1].r;
-                                cdm2 += tmp1;
-                                edm2 += tmp1 * EVal[Mc_AN][i1];
-
-                                tmp1 = FermiF * res2[i1].i;
-                                cdm3 += tmp1;
-                                edm3 += tmp1 * EVal[Mc_AN][i1];
-
-                                if (use_iDM) {
-                                    idm00 += FermiF * res0[i1].i;
-                                    idm01 += FermiF * res1[i1].i;
-                                }
-                            }
+                            DC_DotDensityResidueNonCol(n, res0, res1, res2, fweight, eweight, use_iDM,
+                                                       &cdm0, &edm0, &cdm1, &edm1, &cdm2, &edm2, &cdm3, &edm3,
+                                                       &idm00, &idm01);
 
                             CDM[0][Mc_AN][h_AN][i][j] = cdm0;
                             EDM[0][Mc_AN][h_AN][i][j] = edm0;
@@ -3796,62 +3864,42 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                             if (use_iDM) {
                                 iDM[0][0][Mc_AN][h_AN][i][j] = idm00;
                                 iDM[0][1][Mc_AN][h_AN][i][j] = idm01;
+                                omp_tmp[OMPID] +=
+                                    +cdm0 * Hks[0][Mc_AN][h_AN][i][j] -
+                                    idm00 * ImNL[0][Mc_AN][h_AN][i][j] +
+                                    cdm1 * Hks[1][Mc_AN][h_AN][i][j] -
+                                    idm01 * ImNL[1][Mc_AN][h_AN][i][j] +
+                                    2.0 * cdm2 * Hks[2][Mc_AN][h_AN][i][j] -
+                                    2.0 * cdm3 * (Hks[3][Mc_AN][h_AN][i][j] + ImNL[2][Mc_AN][h_AN][i][j]);
+                            } else {
+                                omp_tmp[OMPID] +=
+                                    +cdm0 * Hks[0][Mc_AN][h_AN][i][j] +
+                                    cdm1 * Hks[1][Mc_AN][h_AN][i][j] +
+                                    2.0 * cdm2 * Hks[2][Mc_AN][h_AN][i][j] -
+                                    2.0 * cdm3 * Hks[3][Mc_AN][h_AN][i][j];
                             }
                         }
                     }
                 }
-                free(FermiW);
 
                 dtime(&Etime_atom);
                 time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
             }
         }
 
+        for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+            free(FermiW[Mc_AN]);
+        }
+        free(EFermiW);
+        free(FermiW);
+
         /****************************************************
-                            bond energies
+                         bond energies
         ****************************************************/
 
         My_Eele1[0] = 0.0;
-
-        for (MA_AN = 1; MA_AN <= Matomnum; MA_AN++) {
-            GA_AN = M2G[MA_AN];
-            wanA  = WhatSpecies[GA_AN];
-            tnoA  = Spe_Total_CNO[wanA];
-            for (j = 0; j <= FNAN[GA_AN]; j++) {
-
-                GB_AN = natn[GA_AN][j];
-                wanB  = WhatSpecies[GB_AN];
-                tnoB  = Spe_Total_CNO[wanB];
-
-                /* non-spin-orbit coupling and non-LDA+U */
-                if (SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 &&
-                    Zeeman_NCO_switch == 0) {
-                    for (k = 0; k < tnoA; k++) {
-                        for (l = 0; l < tnoB; l++) {
-                            My_Eele1[0] += +CDM[0][MA_AN][j][k][l] * Hks[0][MA_AN][j][k][l] +
-                                           CDM[1][MA_AN][j][k][l] * Hks[1][MA_AN][j][k][l] +
-                                           2.0 * CDM[2][MA_AN][j][k][l] * Hks[2][MA_AN][j][k][l] -
-                                           2.0 * CDM[3][MA_AN][j][k][l] * Hks[3][MA_AN][j][k][l];
-                        }
-                    }
-                }
-
-                /* spin-orbit coupling or LDA+U */
-                else {
-                    for (k = 0; k < tnoA; k++) {
-                        for (l = 0; l < tnoB; l++) {
-
-                            My_Eele1[0] +=
-                                +CDM[0][MA_AN][j][k][l] * Hks[0][MA_AN][j][k][l] -
-                                iDM[0][0][MA_AN][j][k][l] * ImNL[0][MA_AN][j][k][l] +
-                                CDM[1][MA_AN][j][k][l] * Hks[1][MA_AN][j][k][l] -
-                                iDM[0][1][MA_AN][j][k][l] * ImNL[1][MA_AN][j][k][l] +
-                                2.0 * CDM[2][MA_AN][j][k][l] * Hks[2][MA_AN][j][k][l] -
-                                2.0 * CDM[3][MA_AN][j][k][l] * (Hks[3][MA_AN][j][k][l] + ImNL[2][MA_AN][j][k][l]);
-                        }
-                    }
-                }
-            }
+        for (ompi = 0; ompi < Nthrds0; ompi++) {
+            My_Eele1[0] += omp_tmp[ompi];
         }
 
         /* MPI, My_Eele1 */
