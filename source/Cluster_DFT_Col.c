@@ -643,6 +643,69 @@ static double *ClusterCol_CuSolver_DeviceEigenvectors(void)
     return ClusterCol_cusolver_ctx.d_tmp;
 }
 
+static void ClusterCol_DenseCpu_PrepareTransformedS(int SCF_iter, int n, double *Ss, double *ko0)
+{
+    if (SCF_iter != 1) {
+        return;
+    }
+
+    Eigen_lapack3(Ss, ko0 + 1, n, n);
+
+    for (int l = 1; l <= n; l++) {
+        double scale;
+
+        if (ko0[l] < 0.0) {
+            ko0[l] = 1.0e-10;
+        }
+
+        scale = 1.0 / sqrt(ko0[l]);
+        for (int i = 0; i < n; i++) {
+            Ss[(size_t)(l - 1) * (size_t)n + (size_t)i] *= scale;
+        }
+    }
+}
+
+static void ClusterCol_DenseCpu_SolveHamiltonian(int n, int maxn, const double *H_in, const double *Ss,
+                                                 double *ko_spin, double *H_out)
+{
+    double alpha = 1.0;
+    double beta  = 0.0;
+    double *tmp;
+    double *A;
+
+    tmp = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)n, (size_t)n,
+                                                                      "ClusterCol CPU dense temporary matrix"),
+                                           sizeof(double), "ClusterCol CPU dense temporary matrix");
+    A = (double *)ClusterCol_MallocArray(ClusterCol_CheckedMulCount((size_t)n, (size_t)n,
+                                                                    "ClusterCol CPU dense Hamiltonian matrix"),
+                                         sizeof(double), "ClusterCol CPU dense Hamiltonian matrix");
+
+    F77_NAME(dgemm, DGEMM)("N", "N", &n, &n, &n, &alpha, (double *)H_in, &n, (double *)Ss, &n, &beta, tmp, &n);
+    F77_NAME(dgemm, DGEMM)("T", "N", &n, &n, &n, &alpha, (double *)Ss, &n, tmp, &n, &beta, A, &n);
+
+    Eigen_lapack3(A, ko_spin + 1, n, maxn);
+
+    F77_NAME(dgemm, DGEMM)("T", "T", &n, &n, &n, &alpha, A, &n, (double *)Ss, &n, &beta, H_out, &n);
+
+    free(A);
+    free(tmp);
+}
+
+static void ClusterCol_DenseCpu_UploadDeviceEigenvectors(int n, const double *evec)
+{
+    ClusterColCuSolverCtx *ctx = &ClusterCol_cusolver_ctx;
+    size_t                 matrix_bytes;
+
+    ClusterCol_CuSolver_EnsureMatrixCapacity(n);
+
+    matrix_bytes = ClusterCol_CheckedArrayBytes(ClusterCol_CheckedMulCount((size_t)n, (size_t)n,
+                                                                           "ClusterCol CPU dense eigenvectors"),
+                                                sizeof(double), "ClusterCol CPU dense eigenvectors");
+
+    wait_cudafunc(cudaMemcpyAsync(ctx->d_tmp, evec, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+}
+
 double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko, double ***** nh, double **** CntOLP,
                        double ***** CDM, double ***** EDM, double Eele0[2], double Eele1[2], int myworld1,
                        int * NPROCS_ID1, int * Comm_World1, int * NPROCS_WD1, int * Comm_World_StartID1,
@@ -703,6 +766,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
     double *    EVec_Snd = NULL, *EVec_Rcv = NULL;
     MPI_Status  stat;
     MPI_Request request;
+    int          use_cpu_dense_eigensolver;
 
     /* for time */
     MPI_Barrier(mpi_comm_level1);
@@ -716,14 +780,7 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
     MPI_Comm_rank(MPI_CommWD1[myworld1], &myid1);
 
     ClusterCol_direct_device_dm_enabled = 0;
-
-    if (scf_eigen_lib_flag == CuSOLVER) {
-        // CUDA
-        set_cuda_default_device_from_local_rank();
-
-        // OpenACC
-        set_openacc_nvidia_device_from_local_rank();
-    }
+    use_cpu_dense_eigensolver           = 0;
 
     /****************************************************
              calculation of the array size
@@ -735,6 +792,16 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
         n    = n + Spe_Total_CNO[wanA];
     }
     n2 = n + 2;
+
+    use_cpu_dense_eigensolver = (scf_eigen_lib_flag == CuSOLVER && n < GPU_CPU_SWITCH_NUM);
+
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        // CUDA
+        set_cuda_default_device_from_local_rank();
+
+        // OpenACC
+        set_openacc_nvidia_device_from_local_rank();
+    }
 
     /****************************************************
    Allocation
@@ -862,7 +929,11 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
 
         if (ClusterCol_DenseMatrixOwner()) {
             if (!second_time) {
-                ClusterCol_CuSolver_PrepareTransformedS(SCF_iter, n, Ss, ko[0]);
+                if (use_cpu_dense_eigensolver) {
+                    ClusterCol_DenseCpu_PrepareTransformedS(SCF_iter, n, Ss, ko[0]);
+                } else {
+                    ClusterCol_CuSolver_PrepareTransformedS(SCF_iter, n, Ss, ko[0]);
+                }
             }
 
             /* find the maximum states in solved eigenvalues */
@@ -913,7 +984,12 @@ double Cluster_DFT_Col(char * mode, int SCF_iter, int SpinP_switch, double ** ko
             if (measure_time)
                 dtime(&stime);
 
-	            if (ClusterCol_direct_device_dm_enabled) {
+	            if (use_cpu_dense_eigensolver) {
+	                ClusterCol_DenseCpu_SolveHamiltonian(n, MaxN, hm, Ss, ko[spin], hm);
+	                if (ClusterCol_direct_device_dm_enabled) {
+	                    ClusterCol_DenseCpu_UploadDeviceEigenvectors(n, hm);
+	                }
+	            } else if (ClusterCol_direct_device_dm_enabled) {
 	                ClusterCol_CuSolver_SolveHamiltonianDeviceOnly(n, MaxN, hm, ko[spin]);
 	            } else {
 	                ClusterCol_CuSolver_SolveHamiltonian(n, MaxN, hm, ko[spin], hm);
