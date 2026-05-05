@@ -725,6 +725,9 @@ double Force(double***** H0,
     size_t* gpu_atom_terms = NULL;
     size_t gpu_total_terms;
     const int use_force_openacc = (scf_eigen_lib_flag == CuSOLVER);
+    const int use_force4_openacc = (use_force_openacc
+        && F_VNA_flag == 1
+        && (ProExpn_VNA == 0 || ProExpn_VNA == 1));
     const int use_force2_openacc = (use_force_openacc
         && F_Kin_flag == 1
         && SO_switch == 0
@@ -2089,7 +2092,7 @@ double Force(double***** H0,
     dtime(&stime);
 
     if (myid == Host_ID && 0 < level_stdout) {
-        printf("  Force calculation #4\n");
+        printf("  Force calculation #4%s\n", use_force4_openacc ? " (GPU-accelerated)" : "");
         fflush(stdout);
     }
 
@@ -2133,7 +2136,7 @@ double Force(double***** H0,
     dtime(&stime);
 
     if (myid == Host_ID && 0 < level_stdout) {
-        printf("  Force calculation #5\n");
+        printf("  Force calculation #5%s\n", use_force_openacc ? " (GPU-accelerated)" : "");
         fflush(stdout);
     }
 

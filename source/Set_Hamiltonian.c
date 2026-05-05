@@ -257,6 +257,7 @@ double Set_Hamiltonian(char * mode, int MD_iter, int SCF_iter, int SCF_iter0, in
     int    numprocs, myid;
     double time0, time1, time2, mflops;
     long   Num_C0, Num_C1;
+    int    use_base_openacc;
 
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
@@ -271,8 +272,11 @@ double Set_Hamiltonian(char * mode, int MD_iter, int SCF_iter, int SCF_iter0, in
         Set_Hamiltonian_abort("Set_Hamiltonian", "SpinP_switch must be 0, 1, or 3", myid);
     }
 
+    use_base_openacc = Set_Hamiltonian_Base_Use_OpenACC(SCF_iter, myid);
+
     if (myid == Host_ID && mode != NULL && strcasecmp(mode, "stdout") == 0 && 0 < level_stdout) {
-        printf("<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc...\n");
+        printf("<Set_Hamiltonian>  Hamiltonian matrix for VNA+dVH+Vxc%s...\n",
+               use_base_openacc ? " (GPU-accelerated)" : "");
         fflush(stdout);
     }
 
@@ -283,7 +287,7 @@ double Set_Hamiltonian(char * mode, int MD_iter, int SCF_iter, int SCF_iter0, in
     if (measure_time)
         dtime(&time1);
 
-    if (Set_Hamiltonian_Base_Use_OpenACC(SCF_iter, myid)) {
+    if (use_base_openacc) {
         Set_Hamiltonian_Base_OpenACC(SCF_iter, H0, HNL, H);
     }
 
