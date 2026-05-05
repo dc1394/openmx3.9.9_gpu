@@ -4,7 +4,7 @@
   This calculation was performed by OpenMX Ver. 3.9.9 GPU
   using 18 MPI processes and 1 OpenMP threads.
 
-  Mon May  4 08:37:00 2026
+  Tue May  5 19:24:29 2026
 
 ***********************************************************
 ***********************************************************
@@ -457,31 +457,31 @@ coordinates.forces>
 ***********************************************************
 ***********************************************************
 
-   Elapsed.Time.        25.015
+   Elapsed.Time.        26.479
 
                                Min_ID   Min_Time       Max_ID   Max_Time
-   Total Computational Time =     4       25.011          0       25.015
-   readfile                 =     6        4.001          0        4.001
-   truncation               =     5        1.389          0        1.439
-   MD_pac                   =     0        0.001          3        0.029
-   OutData                  =     3        0.000          0        0.004
-   DFT                      =     0       19.531          5       19.580
+   Total Computational Time =     1       26.351          0       26.479
+   readfile                 =    11        4.225         14        4.225
+   truncation               =     6        1.423          0        1.476
+   MD_pac                   =     0        0.001          4        0.039
+   OutData                  =     6        0.000          0        0.128
+   DFT                      =     1       20.188          6       20.241
 
 *** In DFT ***
 
-   Set_OLP_Kin              =    10        0.001          1        0.537
-   Set_Nonlocal             =     1        0.913         10        1.449
-   Set_ProExpn_VNA          =    10        1.083          0        5.182
-   Set_Hamiltonian          =    17        3.809         13        3.809
-   Poisson                  =     8        0.001         15        0.001
-   Diagonalization          =     2        2.001          6        2.001
-   Mixing_DM                =     9        0.005         16        0.005
-   Force                    =     8        2.968         12        2.968
-   Total_Energy             =     2        1.537          0        1.537
-   Set_Aden_Grid            =     0        0.005         15        4.104
-   Set_Orbitals_Grid        =     2        0.000          1        0.123
-   Set_Density_Grid         =     2        2.381          9        2.382
-   RestartFileDFT           =    11        0.006          8        0.020
-   Mulliken_Charge          =     1        0.003          4        0.003
-   FFT(2D)_Density          =     0        0.003         16        0.003
-   Others                   =     1        0.046         11        0.228
+   Set_OLP_Kin              =     4        0.001          0        0.543
+   Set_Nonlocal             =     0        0.935          4        1.477
+   Set_ProExpn_VNA          =    15        1.095          0        5.194
+   Set_Hamiltonian          =    17        3.871          6        3.871
+   Poisson                  =    12        0.001         11        0.001
+   Diagonalization          =    15        2.216          0        2.216
+   Mixing_DM                =     3        0.006         14        0.006
+   Force                    =     7        3.043          4        3.043
+   Total_Energy             =     1        1.507          0        1.507
+   Set_Aden_Grid            =     0        0.005         15        4.105
+   Set_Orbitals_Grid        =     2        0.000          1        0.122
+   Set_Density_Grid         =     5        2.394          9        2.394
+   RestartFileDFT           =    17        0.028          9        0.298
+   Mulliken_Charge          =     0        0.003         15        0.003
+   FFT(2D)_Density          =     6        0.003          0        0.003
+   Others                   =     9        0.221          3        0.491

@@ -77,6 +77,7 @@ static double Calc_optical_conductivities_dielectric_functions(
 static void   Output_Energies_Forces(FILE * fp);
 static double dUele;
 static void   Read_SCF_keywords();
+static void   Select_BandCol_SmallMatrixCpuPath(int myid0);
 
 void Allocate_Free_Cluster_Col(int todo_flag);
 void Allocate_Free_Cluster_NonCol(int todo_flag);
@@ -129,6 +130,8 @@ double DFT(int MD_iter, int Cnt_Now)
 
     MPI_Comm_size(mpi_comm_level1, &numprocs0);
     MPI_Comm_rank(mpi_comm_level1, &myid0);
+
+    Select_BandCol_SmallMatrixCpuPath(myid0);
 
     if (myid0 == Host_ID && monitoring_memory_usage == 1) {
         Get_VSZ2(MD_iter);
@@ -1871,6 +1874,30 @@ Last1:
     MPI_Barrier(mpi_comm_level1);
 
     return time0;
+}
+
+static void Select_BandCol_SmallMatrixCpuPath(int myid0)
+{
+    int basis_count = 0;
+    int atom_index;
+
+    if (!(Solver == 3 && (SpinP_switch <= 1 || SpinP_switch == 3) && scf_eigen_lib_flag == CuSOLVER)) {
+        return;
+    }
+
+    for (atom_index = 1; atom_index <= atomnum; atom_index++) {
+        const int species = WhatSpecies[atom_index];
+        basis_count += Spe_Total_CNO[species];
+    }
+
+    if (basis_count < GPU_CPU_SWITCH_NUM) {
+        scf_eigen_lib_flag = ELPA1;
+        if (myid0 == Host_ID && 0 < level_stdout) {
+            printf("<Band>  basis size %d is below GPU_CPU_SWITCH_NUM=%d; using the CPU ELPA1 band path.\n",
+                   basis_count, GPU_CPU_SWITCH_NUM);
+            fflush(stdout);
+        }
+    }
 }
 
 void Read_SCF_keywords()
