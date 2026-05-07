@@ -222,7 +222,7 @@ static void SetNonlocal_ValidateGlobalState(void)
 
 static int SetNonlocalUseOpenACC(void)
 {
-  return (scf_eigen_lib_flag == CuSOLVER);
+  return (scf_eigen_lib_flag_input == CuSOLVER);
 }
 
 static void SetNonlocal_CalcDSNL_OpenACC(double ******DS_NL,

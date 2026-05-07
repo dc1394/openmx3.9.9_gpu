@@ -724,7 +724,7 @@ double Force(double***** H0,
     double***** Force5_source = NULL;
     size_t* gpu_atom_terms = NULL;
     size_t gpu_total_terms;
-    const int use_force_openacc = (scf_eigen_lib_flag == CuSOLVER);
+    const int use_force_openacc = (scf_eigen_lib_flag_input == CuSOLVER);
     const int use_force4_openacc = (use_force_openacc
         && F_VNA_flag == 1
         && (ProExpn_VNA == 0 || ProExpn_VNA == 1));
@@ -5585,7 +5585,7 @@ void Force4B(double***** CDM0)
     tno2 = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
     ActiveHVNA2 = (Cnt_switch == 0) ? HVNA2 : CntHVNA2;
     ActiveHVNA3 = (Cnt_switch == 0) ? HVNA3 : CntHVNA3;
-    const int use_force4b_openacc = (scf_eigen_lib_flag == CuSOLVER);
+    const int use_force4b_openacc = (scf_eigen_lib_flag_input == CuSOLVER);
 
     dtime(&etime);
     if (myid == 0 && measure_time) {

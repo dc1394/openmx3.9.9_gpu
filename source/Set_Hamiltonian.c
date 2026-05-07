@@ -75,27 +75,9 @@ static void Set_Hamiltonian_add_array_bytes(size_t *total, size_t count, size_t 
     *total = Set_Hamiltonian_checked_add(*total, bytes, label, myid);
 }
 
-static int Set_Hamiltonian_OpenACC_Threshold(void)
+static int Set_Hamiltonian_OpenACC_Enabled(void)
 {
-    int AN, total_basis;
-
-    if (SpinP_switch == 3 && Solver == 3 && scf_eigen_lib_flag == CuSOLVER) {
-        return 0;
-    }
-
-    if (scf_eigen_lib_flag != CuSOLVER) {
-        return 0;
-    }
-
-    total_basis = 0;
-    for (AN = 1; AN <= atomnum; AN++) {
-        total_basis += Spe_Total_CNO[WhatSpecies[AN]];
-        if (GPU_CPU_SWITCH_NUM <= total_basis) {
-            return 1;
-        }
-    }
-
-    return 0;
+    return (scf_eigen_lib_flag_input == CuSOLVER);
 }
 
 static int Set_Hamiltonian_DeviceMemoryOK(size_t required_bytes, const char *where, int myid)
@@ -202,7 +184,7 @@ static int Set_Hamiltonian_Base_Use_OpenACC(int SCF_iter, int myid)
 {
     size_t required_bytes;
 
-    if (!Set_Hamiltonian_OpenACC_Threshold()) {
+    if (!Set_Hamiltonian_OpenACC_Enabled()) {
         return 0;
     }
 
@@ -214,7 +196,7 @@ static int Set_Hamiltonian_MatrixElements_Use_OpenACC(int Cnt_kind, int myid)
 {
     size_t required_bytes;
 
-    if (!Set_Hamiltonian_OpenACC_Threshold()) {
+    if (!Set_Hamiltonian_OpenACC_Enabled()) {
         return 0;
     }
 

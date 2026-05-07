@@ -217,7 +217,7 @@ double DFT(int MD_iter, int Cnt_Now)
 
     if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout) {
         printf("<MD=%2d>  Calculation of the nonlocal matrix%s\n", MD_iter,
-               (scf_eigen_lib_flag == CuSOLVER) ? " (GPU-accelerated)" : "");
+               (scf_eigen_lib_flag_input == CuSOLVER) ? " (GPU-accelerated)" : "");
         fflush(stdout);
     }
 

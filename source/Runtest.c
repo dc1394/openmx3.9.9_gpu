@@ -45,6 +45,22 @@ static int has_dat_suffix(const char *name)
   return 4<=len && strcmp(name+len-4,".dat")==0;
 }
 
+static void remove_generated_outputs(const char *system_name)
+{
+  static const char *suffixes[] = {
+    "out", "UCell", "TRN", "rcn", "DFTSCF", "paranegf", "EV", "OrbOpt",
+    "SD", "MC", "OM", "VC", "DM_onsite", "dpm", "DecE", "crd", "frac",
+    "wfinfo", "CompTime"
+  };
+  char fname[YOUSO10];
+  int i;
+
+  for (i=0; i<(int)(sizeof(suffixes)/sizeof(suffixes[0])); i++){
+    snprintf(fname,sizeof(fname),"%s.%s",system_name,suffixes[i]);
+    remove(fname);
+  }
+}
+
  
 
 void Runtest(char *mode, int argc, char *argv[]) 
@@ -253,8 +269,7 @@ void Runtest(char *mode, int argc, char *argv[])
         input_string("System.Name",fname_dat2,"default");
         input_close();
 
-        sprintf(fname_out1,"%s.out",fname_dat2);
-        remove(fname_out1);
+        remove_generated_outputs(fname_dat2);
       }
       MPI_Barrier(mpi_comm_level1);
 
@@ -808,7 +823,6 @@ int run_main(int argc, char *argv[], int numprocs0, int myid0)
 
   return 0;
 }
-
 
 
 

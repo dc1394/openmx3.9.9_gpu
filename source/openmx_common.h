@@ -2714,6 +2714,7 @@ int Zeeman_NCS_switch, Zeeman_NCO_switch;
 int atomnum;
 // int Catomnum,Latomnum,Ratomnum;
 int    POLES, rlmax, Solver, dste_flag, Ngrid_fixed_flag, scf_eigen_lib_flag;
+int    scf_eigen_lib_flag_input;
 int    KrylovH_order, KrylovS_order, recalc_EM, EKC_invS_flag;
 int    EC_Sub_Dim, Energy_Decomposition_flag;
 int    EKC_Exact_invS_flag, EKC_expand_core_flag, orderN_FNAN_SNAN_flag;

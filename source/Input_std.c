@@ -777,6 +777,7 @@ void Input_std(char *file)
   s_vec[i]="elpa2";    i_vec[i]=ELPA2;    i++;
   s_vec[i]="cusolver"; i_vec[i]=CuSOLVER; i++;
   input_string2int("scf.eigen.lib", &scf_eigen_lib_flag, i, s_vec, i_vec);
+  scf_eigen_lib_flag_input = scf_eigen_lib_flag;
 
   // use GPU?
   input_int("scf.Gpu.Num", &SCF_Gpu_Num, 30);
@@ -6130,7 +6131,6 @@ void Get_Rotational_Matrix(double alpha, double beta, double gamma, int L, doubl
   }
 
 } /* end of Get_Rotational_Matrix */
-
 
 
 
