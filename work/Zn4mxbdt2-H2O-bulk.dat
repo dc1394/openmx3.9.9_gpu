@@ -562,4 +562,5 @@ CDDF.maximum_energy               10.0    # default = 10.0 eV
 CDDF.minimum_energy                0.0    # default =  0.0 eV
 CDDF.frequency.grid.total_number  10000   # default = 10000 grids
 CDDF.material_type                 0
-CDDF.Kgrid                        1 1 1  scf.eigen.lib                cusolver
+CDDF.Kgrid                        1 1 1  
+scf.eigen.lib                cusolver
