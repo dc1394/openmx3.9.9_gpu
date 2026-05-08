@@ -602,7 +602,7 @@ Spherical_Bessel.o: Spherical_Bessel.c openmx_common.h
 Generating_MP_Special_Kpt.o: Generating_MP_Special_Kpt.c openmx_common.h
 	$(CC) -c Generating_MP_Special_Kpt.c
 Generate_Wannier.o: Generate_Wannier.c openmx_common.h
-	$(CC) -c Generate_Wannier.c
+	$(CC_NOACC) -c Generate_Wannier.c
 DFTDvdW_init.o: DFTDvdW_init.c openmx_common.h
 	$(CC) -c DFTDvdW_init.c
 DFTD3vdW_init.o: DFTD3vdW_init.c openmx_common.h

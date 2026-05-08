@@ -143,6 +143,7 @@ double Total_Energy(int MD_iter, double ECE[])
   int numprocs,myid;
   int Mc_AN,Gc_AN,h_AN;
   double stime,etime;
+  double saved_Ucs,saved_Uzs,saved_Uzo;
 
   /* MPI */
   MPI_Comm_size(mpi_comm_level1,&numprocs);
@@ -150,9 +151,21 @@ double Total_Energy(int MD_iter, double ECE[])
 
   dtime(&TStime);
 
+  saved_Ucs = ECE[9];
+  saved_Uzs = ECE[10];
+  saved_Uzo = ECE[11];
+
   for (Mc_AN=0; Mc_AN<TOTAL_ENERGY_COMPONENTS; Mc_AN++){
     ECE[Mc_AN] = 0.0;
   }
+
+  /*
+    Ucs/Uzs/Uzo are evaluated in Occupation_Number_LDA_U() before
+    Total_Energy() is called; Total_Energy() does not recompute them.
+  */
+  ECE[9]  = saved_Ucs;
+  ECE[10] = saved_Uzs;
+  ECE[11] = saved_Uzo;
 
   /****************************************************
    For OpenMP:
