@@ -66,10 +66,10 @@ scf.system.charge         -1.0         # default=0.0
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
+MD.Type                     nomd       # Nomd|Opt|NVE|NVT_VS|NVT_NH
                                        # Constraint_Opt|DIIS
 MD.Opt.DIIS.History          3
-MD.maxIter                   1
+MD.maxIter                  100        # default=1
 
 MD.TimeStep                0.5         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
@@ -93,4 +93,3 @@ MO.kpoint>
 Dos.fileout                  off       # on|off, default=off
 Dos.Erange              -20.0  20.0    # default = -20 20 
 Dos.Kgrid                12  12  12    # default = Kgrid1 Kgrid2 Kgrid3
-scf.eigen.lib                cusolver

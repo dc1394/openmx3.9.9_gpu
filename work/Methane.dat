@@ -61,10 +61,8 @@ scf.lapack.dste            dstevx      # dstevx|dstedc|dstegr,default=dstevx
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
+MD.Type                     nomd       # Nomd|Opt|NVE|NVT_VS|NVT_NH
                                        # Constraint_Opt|DIIS
-MD.maxIter                   1
+MD.maxIter                    1        # default=1
 MD.TimeStep                 1.0        # default=0.5 (fs)
 MD.Opt.criterion         1.0e-4        # default=1.0e-4 (Hartree/bohr)
-
-scf.eigen.lib                cusolver

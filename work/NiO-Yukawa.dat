@@ -72,14 +72,13 @@ scf.Kerker.factor          1.00        # default=1.00
 scf.Mixing.History          5          # default=5
 scf.Mixing.StartPulay       6         # default=6
 scf.criterion             1.0e-7       # default=1.0e-6 (Hartree) 
-scf.eigen.lib                cusolver
 
 #
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                     nomd       # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.maxIter                   1         # default=1
 MD.TimeStep                 0.05       # default=0.5 (fs)
 MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
 
@@ -124,4 +123,3 @@ Dos.Kgrid                 9 9 9     # default = Kgrid1 Kgrid2 Kgrid3
 #
 
 HS.fileout                   off     # on|off, default=off
-

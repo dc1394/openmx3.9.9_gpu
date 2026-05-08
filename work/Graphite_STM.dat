@@ -58,8 +58,8 @@ scf.criterion             1.0e-9       # default=1.0e-6 (Hartree)
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                     nomd       # Nomd|Opt|NVE|NVT_VS|NVT_NH
+MD.maxIter                   1         # default=1
 MD.TimeStep                0.5         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
 
@@ -77,4 +77,3 @@ partial.charge.energy.window   2.0     # in eV
 Dos.fileout                  on        # on|off, default=off
 Dos.Erange              -20.0  20.0    # default = -20 20 
 Dos.Kgrid                 10 10 1      # default = Kgrid1 Kgrid2 Kgrid3
-scf.eigen.lib                cusolver

@@ -60,8 +60,8 @@ scf.lapack.dste            dstevx      # dstevx|dstedc|dstegr,default=dstevx
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                      nomd      # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                    1        # default=1
 MD.TimeStep                   1        # default=0.5 (fs)
 MD.Opt.criterion         1.0e-5        # default=1.0e-4 (Hartree/bohr)
 
@@ -153,4 +153,3 @@ Wannier.Readin.Overlap.Matrix          off   # on|off, default=off
 
 scf.restart    off
 
-scf.eigen.lib                cusolver

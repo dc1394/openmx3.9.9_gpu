@@ -108,7 +108,6 @@ scf.restart                off
 1DFFT.NumGridR             900         # default=900
 1DFFT.EnergyCutoff        3600         # default=3DFFT.EnergyCutoff*3.0 (Ry)
 
-MD.Type                      Opt
+MD.Type                   EvsLC        #
 MD.EvsLC.Step    1.07066381156316916400     # default=0.4%
-MD.maxIter                   1
-scf.eigen.lib                cusolver
+MD.maxIter                  4          # default=1

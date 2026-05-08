@@ -85,8 +85,8 @@ Voronoi.Charge              on         # default = Off
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                     opt        # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                   1         # default=1
 MD.TimeStep                 0.01       # default=0.5 (fs)
 MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
 
@@ -140,4 +140,3 @@ Dos.Kgrid                  9 9 9        # default = Kgrid1 Kgrid2 Kgrid3
 #
 
 HS.fileout                   off        # on|off, default=off
-scf.eigen.lib                cusolver

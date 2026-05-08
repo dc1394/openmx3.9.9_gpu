@@ -58,8 +58,8 @@ scf.criterion             1.0e-8      # default=1.0e-6 (Hartree)
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type  Nomd
+MD.maxIter  1                 # Opt|EF|BFGS|RF|DIIS
 
 
 
@@ -71,4 +71,3 @@ MD.maxIter                   1
 Dos.fileout                  off       # on|off, default=off
 Dos.Erange              -10.0 5.0   # default = -20 20
 Dos.Kgrid              15 15 15    # default = Kgrid1 Kgrid2 Kgrid3
-scf.eigen.lib                cusolver

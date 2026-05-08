@@ -81,8 +81,8 @@ scf.SpinOrbit.Coupling      off     # On|Off, default=off
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                      nomd  # Nomd|Opt|NVE|NVT_VS|NVT_NH
+MD.maxIter                   200       # default=1
 #MD.Type                     nomd       # Nomd|Opt|NVE|NVT_VS|NVT_NH
 #MD.maxIter                    1        # default=1
 MD.TimeStep                   1        # default=0.5 (fs)
@@ -184,4 +184,3 @@ scf.restart    off
 
 scf.fixed.grid     0.00000000000000    0.00000000000000    0.00000000000000
 
-scf.eigen.lib                cusolver

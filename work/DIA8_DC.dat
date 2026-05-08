@@ -69,10 +69,8 @@ orderN.HoppingRanges        6.0        # default=5.0 (Ang)
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
+MD.Type                     nomd       # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
 MD.Opt.DIIS.History          3         # default=7
-MD.maxIter                   1
+MD.maxIter                  100        # default=1
 MD.TimeStep                0.5         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
-
-scf.eigen.lib                cusolver

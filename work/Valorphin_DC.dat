@@ -190,8 +190,7 @@ orderN.NumHoppings           2         # default=2
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                     nomd       # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                   1         # default=1
 MD.TimeStep                1.0         # default=0.5 (fs)
 MD.Opt.criterion          1.0e-14      # default=1.0e-4 (Hartree/bohr)
-scf.eigen.lib                cusolver

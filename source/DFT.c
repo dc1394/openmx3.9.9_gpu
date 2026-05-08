@@ -78,6 +78,7 @@ static void   Output_Energies_Forces(FILE * fp);
 static double dUele;
 static void   Read_SCF_keywords();
 static void   Select_BandCol_SmallMatrixCpuPath(int myid0);
+static void   Select_BandNonCol_CuSolverMemorySafePath(int myid0);
 
 void Allocate_Free_Cluster_Col(int todo_flag);
 void Allocate_Free_Cluster_NonCol(int todo_flag);
@@ -132,6 +133,7 @@ double DFT(int MD_iter, int Cnt_Now)
     MPI_Comm_rank(mpi_comm_level1, &myid0);
 
     Select_BandCol_SmallMatrixCpuPath(myid0);
+    Select_BandNonCol_CuSolverMemorySafePath(myid0);
 
     if (myid0 == Host_ID && monitoring_memory_usage == 1) {
         Get_VSZ2(MD_iter);
@@ -1896,6 +1898,161 @@ static void Select_BandCol_SmallMatrixCpuPath(int myid0)
         if (myid0 == Host_ID && 0 < level_stdout) {
             printf("<Band>  basis size %d is below GPU_CPU_SWITCH_NUM=%d; using the CPU ELPA1 band path.\n",
                    basis_count, GPU_CPU_SWITCH_NUM);
+            fflush(stdout);
+        }
+    }
+}
+
+static size_t DFT_checked_mul_size(size_t a, size_t b, int *overflow)
+{
+    if (a != 0 && b > ((size_t)-1) / a) {
+        *overflow = 1;
+        return 0;
+    }
+
+    return a * b;
+}
+
+static size_t DFT_checked_add_size(size_t a, size_t b, int *overflow)
+{
+    if (b > ((size_t)-1) - a) {
+        *overflow = 1;
+        return 0;
+    }
+
+    return a + b;
+}
+
+static size_t DFT_matrix_bytes(size_t count, size_t elem_size, int *overflow)
+{
+    return DFT_checked_mul_size(count, elem_size, overflow);
+}
+
+static void Select_BandNonCol_CuSolverMemorySafePath(int myid0)
+{
+    const size_t mib = 1024u * 1024u;
+    const size_t reserve_bytes = 1536u * mib;
+    int          basis_count = 0;
+    int          noncol_basis_count;
+    int          kpoint_count;
+    int          atom_index;
+    int          cuda_device_count = 0;
+    int          cuda_device = -1;
+    int          cuda_ok = 0;
+    int          local_rank = 0;
+    int          local_fallback = 0;
+    int          fallback = 0;
+    int          overflow = 0;
+    size_t       required_bytes = 0;
+    size_t       free_bytes = 0;
+    size_t       total_bytes = 0;
+    MPI_Comm     node_comm;
+    MPI_Comm     device_comm = MPI_COMM_NULL;
+    cudaError_t  cuda_err;
+
+    if (!(Solver == 3 && SpinP_switch == 3 && scf_eigen_lib_flag == CuSOLVER)) {
+        return;
+    }
+
+    for (atom_index = 1; atom_index <= atomnum; atom_index++) {
+        const int species = WhatSpecies[atom_index];
+        basis_count += Spe_Total_CNO[species];
+    }
+
+    noncol_basis_count = 2 * basis_count;
+    kpoint_count = Kspace_grid1 * Kspace_grid2 * Kspace_grid3;
+
+    if (basis_count < GPU_CPU_SWITCH_NUM) {
+        scf_eigen_lib_flag = ELPA1;
+        if (myid0 == Host_ID && 0 < level_stdout) {
+            printf("<Band>  non-collinear basis size %d is below GPU_CPU_SWITCH_NUM=%d; using the CPU ELPA1 band path.\n",
+                   basis_count, GPU_CPU_SWITCH_NUM);
+            fflush(stdout);
+        }
+        return;
+    }
+
+    if (kpoint_count <= 1) {
+        return;
+    }
+
+    {
+        size_t n = (size_t)basis_count;
+        size_t n2 = (size_t)noncol_basis_count;
+        size_t dense_elems = DFT_checked_mul_size(n, n, &overflow);
+        size_t noncol_elems = DFT_checked_mul_size(n2, n2, &overflow);
+        size_t dense_bytes;
+        size_t noncol_bytes;
+
+        dense_bytes = DFT_matrix_bytes(dense_elems, sizeof(dcomplex), &overflow);
+        noncol_bytes = DFT_matrix_bytes(noncol_elems, sizeof(dcomplex), &overflow);
+
+        /*
+         * The single-rank non-collinear cuSOLVER Band path keeps several dense n x n
+         * work matrices plus n2 x n2 matrices/workspaces on one GPU.  Keep the
+         * estimate conservative; underestimating here leads to an apparent hang on
+         * memory-starved shared devices.
+         */
+        required_bytes = DFT_checked_add_size(required_bytes, DFT_checked_mul_size(8u, dense_bytes, &overflow), &overflow);
+        required_bytes = DFT_checked_add_size(required_bytes, DFT_checked_mul_size(10u, noncol_bytes, &overflow), &overflow);
+        required_bytes = DFT_checked_add_size(required_bytes, reserve_bytes, &overflow);
+    }
+
+    if (overflow) {
+        fallback = 1;
+    }
+
+    MPI_Comm_split_type(mpi_comm_level1, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
+    MPI_Comm_rank(node_comm, &local_rank);
+
+    cuda_err = cudaGetDeviceCount(&cuda_device_count);
+    if (cuda_err == cudaSuccess && 0 < cuda_device_count) {
+        cuda_device = local_rank % cuda_device_count;
+        cuda_err = cudaSetDevice(cuda_device);
+        if (cuda_err == cudaSuccess) {
+            cuda_err = cudaMemGetInfo(&free_bytes, &total_bytes);
+            if (cuda_err == cudaSuccess) {
+                cuda_ok = 1;
+            }
+        }
+    }
+
+    local_fallback = overflow;
+
+    MPI_Comm_split(node_comm, cuda_ok ? cuda_device : MPI_UNDEFINED, 0, &device_comm);
+
+    if (!cuda_ok) {
+        local_fallback |= (myid0 == Host_ID);
+    }
+    else if (device_comm != MPI_COMM_NULL) {
+        unsigned long long local_required = (myid0 == Host_ID) ? (unsigned long long)required_bytes : 0ULL;
+        unsigned long long group_required = 0ULL;
+        unsigned long long local_free = (unsigned long long)free_bytes;
+        unsigned long long group_free = 0ULL;
+
+        MPI_Allreduce(&local_required, &group_required, 1, MPI_UNSIGNED_LONG_LONG, MPI_SUM, device_comm);
+        MPI_Allreduce(&local_free, &group_free, 1, MPI_UNSIGNED_LONG_LONG, MPI_MIN, device_comm);
+        MPI_Comm_free(&device_comm);
+
+        local_fallback |= (0ULL < group_required && group_free < group_required);
+    }
+
+    MPI_Comm_free(&node_comm);
+    MPI_Allreduce(&local_fallback, &fallback, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
+
+    if (fallback) {
+        scf_eigen_lib_flag = ELPA1;
+        if (myid0 == Host_ID && 0 < level_stdout) {
+            if (cuda_ok) {
+                printf("<Band>  non-collinear Band/cusolver needs about %.3f MiB of safe GPU memory "
+                       "for basis=%d, states=%d, k-points=%d; device %d has %.3f MiB free "
+                       "(%.3f MiB total). Using the CPU ELPA1 band path.\n",
+                       (double)required_bytes / (1024.0 * 1024.0), basis_count, noncol_basis_count, kpoint_count,
+                       cuda_device, (double)free_bytes / (1024.0 * 1024.0), (double)total_bytes / (1024.0 * 1024.0));
+            }
+            else {
+                printf("<Band>  CUDA memory query failed for non-collinear Band/cusolver; using the CPU ELPA1 band path.\n");
+            }
             fflush(stdout);
         }
     }

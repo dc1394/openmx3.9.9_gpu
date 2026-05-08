@@ -60,6 +60,5 @@ scf.lapack.dste            dstevx      # dstegr|dstedc|dstevx, default=dstevx
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
-scf.eigen.lib                cusolver
+MD.Type                      DF        # Nomd|Opt|NVE|NVT_VS|NVT_NH
+MD.maxIter                    7        # default=1

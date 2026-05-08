@@ -75,6 +75,5 @@ HS.fileout                   off        # on|off, default=off
 System.Name       GaCuS2_mp-5238_symmetrized_SOC
 scf.SpinPolarization        NC         # On|Off
 scf.SpinOrbit.Coupling      on
-MD.Type                      Opt
-MD.maxIter                   1
-scf.eigen.lib                cusolver
+MD.Type  Nomd
+MD.maxIter  1                 # Opt|EF|BFGS|RF|DIIS

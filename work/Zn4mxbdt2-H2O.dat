@@ -78,8 +78,8 @@ scf.Mixing.History            25
 scf.Mixing.StartPulay         15
 scf.criterion                 1.0e-7
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                       nomd
+MD.maxIter                    1
 MD.TimeStep                   1.0
 MD.Opt.criterion              0.0003
 
@@ -92,4 +92,3 @@ Dos.Erange              -10.0  10.0
 Dos.Kgrid                  1 1 1
 
  
-scf.eigen.lib                cusolver

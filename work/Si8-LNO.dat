@@ -81,12 +81,11 @@ LNOs.Num>
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
+MD.Type                     nomd       # Nomd|Constant_Energy_MD|Opt
                                        # Constraint_Opt|DIIS2|Constraint_DIIS2
-MD.maxIter                   1
+MD.maxIter                 5000        # default=1
 MD.TimeStep                2.0         # default=0.5 (fs)
 <MD.TempControl
   1 
  10000  10  3500.0  0.2
 MD.TempControl>
-scf.eigen.lib                cusolver

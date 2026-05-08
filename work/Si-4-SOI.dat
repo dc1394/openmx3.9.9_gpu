@@ -565,6 +565,3 @@ scf.Mixing.History          40         # default=5
 scf.Mixing.StartPulay       10         # default=6
 scf.Mixing.EveryPulay       1          # default=6
 scf.criterion             1.0e-7       # default=1.0e-6 (Hartree) 
-MD.Type                      Opt
-MD.maxIter                   1
-scf.eigen.lib                cusolver

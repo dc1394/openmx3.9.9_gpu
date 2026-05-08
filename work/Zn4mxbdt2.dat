@@ -85,13 +85,13 @@ num.LUMOs                      5
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
+MD.Type                      nomd      # Nomd|Opt|NVE|NVT_VS|NVT_NH
 MD.Opt.DIIS.History          3         # default=3
 MD.Opt.StartDIIS             7         # default=5
-MD.maxIter                   1
+MD.maxIter                  200        # default=1
 MD.Opt.criterion         1.0e-4        # default=1.0e-4 (Hartree/bohr)
 
 
 Dos.fileout                  on      
 Dos.Erange              -10.0  10.0  
-Dos.Kgrid                  1 1 1scf.eigen.lib                cusolver
+Dos.Kgrid                  1 1 1

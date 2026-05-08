@@ -122,8 +122,8 @@ scf.restart    off
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                       Nomd     # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                    1000     # default=1
 MD.Opt.DIIS.History           3        # default=3
 MD.Opt.StartDIIS              5        # default=5
 MD.TimeStep                   1        # default=0.5 (fs)
@@ -186,5 +186,3 @@ Extract.Atom               1 2 3            # default: 1 2 ... (Num.of.Extract.A
 Calc.Type.3mesh            2                # default: 1
 MulP.Vec.Scale       0.1  0.1  0.1          # default: 1.0  1.0  1.0
 Data.Reduction             1                # default: 1
-
-scf.eigen.lib                cusolver

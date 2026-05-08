@@ -60,7 +60,4 @@ scf.restart                         off
 scf.Constraint.NC.Spin              off       # on|off, default=off
 scf.Constraint.NC.Spin.v            0.5       # default=0.0(eV)
 
-MD.Type                      Opt
-
-scf.eigen.lib                cusolver
-MD.maxIter                   1
+MD.Type                             nomd      # Nomd|Opt|NVE|NVT_VS|NVT_NH

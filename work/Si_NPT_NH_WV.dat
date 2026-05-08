@@ -63,7 +63,7 @@ scf.criterion             1.0e-7       # default=1.0e-6 (Hartree)
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
+MD.Type                    NPT_NH_WV
 
 #MD.Type                    OptC5
 # Nomd|Opt|RFC5|DIIS|NVE|NVT_VS|NVT_NH|
@@ -72,7 +72,7 @@ MD.Type                      Opt
 # NPT_NH_PR : NPT Nose-Hoover with Parrinelo-Rahman
 # NPT_NH_WV : NPT Nose-Hoover with Wentzcovitch
 
-MD.maxIter                   1
+MD.maxIter                 2000        # default=1
 MD.TimeStep                 0.5        # default=0.5 (fs)
 NH.Mass.HeatBath	     5.0       # Q in atomic mass unit
 NPT.Mass.Barostat	     1.0        # W in atomic mass unit for PR
@@ -98,4 +98,3 @@ MD.TempControl>
 10000	0.001                       # step, pressure[a.u.]
 MD.CellPressureControl>
 # here 1 a.u. pressure equals to 29.42 TPa
-scf.eigen.lib                cusolver

@@ -61,9 +61,7 @@ scf.criterion             1.0e-7       # default=1.0e-6 (Hartree)
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                    NoMD        # Nomd|Opt|DIIS|NVE|NVT_VS|NVT_NH
+MD.maxIter                  200        # default=1
 MD.TimeStep                   1        # default=0.5 (fs)
 MD.Opt.criterion         1.0e-4        # default=1.0e-4 (Hartree/bohr)
-
-scf.eigen.lib                cusolver

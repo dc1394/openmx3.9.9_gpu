@@ -63,11 +63,9 @@ DFT.scale6 1.0
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
+MD.Type Opt # EF |EF|BFGS|RF|DIIS
 MD.Opt.DIIS.History 3 # default=3
 MD.Opt.StartDIIS 20 # default=5
 #MD.Opt.EveryDIIS 10000 # default=10
-MD.maxIter                   1
+MD.maxIter 200 #
 MD.Opt.criterion 1.0e-4 # default=1.0e-4 (a.u.)
-
-scf.eigen.lib                cusolver

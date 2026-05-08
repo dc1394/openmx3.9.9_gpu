@@ -73,9 +73,7 @@ scf.lapack.dste           dstevx       # dstegr|dstedc|dstevx, default=dstegr
 # MD or Geometry Optimization
 #
 
-MD.Type                      Opt
-MD.maxIter                   1
+MD.Type                     Opt        # Nomd|Constant_Energy_MD|Opt
+MD.maxIter                  20         # default=1
 MD.TimeStep                 0.01        # default=0.5 (fs)
 MD.Opt.criterion          1.0e-4       # default=1.0e-4 (Hartree/bohr)
-
-scf.eigen.lib                cusolver
