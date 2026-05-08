@@ -38,7 +38,7 @@ You can easily try OpenMX 3.9.9 GPU on computers equipped with NVIDIA GPUs.
 The steps are as follows:
 1. Install [Docker](https://docs.docker.com/get-started/get-docker/).
 2. Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
-3. Run: `docker run --gpus all --shm-size=4gb --rm -it -v /path/to/inputs:/work dc1394/openmx3.9.9-gpu-ubuntu24.04:0.1`. Ensure `/path/to/inputs` is created beforehand.
+3. Run: `docker run --gpus all --shm-size=4gb --rm -it -v /path/to/inputs:/work dc1394/openmx3.9.9-gpu-ubuntu24.04:latest`. Ensure `/path/to/inputs` is created beforehand.
 4. Run tests with `cd openmx_work` and `mpirun -np 4 ./openmx -runtest`.
 
 This should yield results like the following:
@@ -76,3 +76,6 @@ At present, GPU-accelerated OpenMX performs faster than standard OpenMX for calc
 
 ## About bug reports
 I would appreciate it if you could actively report any bugs. Please report them via GitHub issues or send them to [my X account](https://x.com/dc1394). Bug reports sent to my X account can be in English.
+
+## About GEMMul8
+OpenMX 3.9.9 GPU uses GEMMul8, developed by Dr. Yuki Uchino and colleagues. It is distributed under the MIT License.
