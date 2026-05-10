@@ -77,5 +77,69 @@ At present, GPU-accelerated OpenMX performs faster than standard OpenMX for calc
 ## About bug reports
 I would appreciate it if you could actively report any bugs. Please report them via GitHub issues or send them to [my X account](https://x.com/dc1394). Bug reports sent to my X account can be in English.
 
-## About GEMMul8
-OpenMX 3.9.9 GPU uses GEMMul8, developed by Dr. Yuki Uchino and colleagues. It is distributed under the MIT License.
+## License
+
+This project is a derivative work of **OpenMX** and is licensed under the
+**GNU General Public License v3.0 or later (GPL-3.0-or-later)**, consistent
+with the upstream OpenMX license. See the [LICENSE](LICENSE) file for the
+full license text.
+
+```
+SPDX-License-Identifier: GPL-3.0-or-later
+```
+
+### Upstream Project
+
+This project is based on:
+
+- **OpenMX** (Open source package for Material eXplorer)
+- **Version**: 3.9.9
+- **Upstream**: <https://www.openmx-square.org/>
+- **Copyright**: Copyright (c) Taisuke Ozaki and OpenMX contributors
+- **License**: GNU General Public License v3.0 or later
+
+The original OpenMX source code retains its original copyright notices and
+license headers. Modifications made in this project (GPU acceleration for
+NVIDIA CUDA and AMD HIP backends) are also licensed under GPL-3.0-or-later.
+
+### Third-Party Components
+
+This project incorporates source code from the following third-party projects.
+Each component retains its original license; their original license files are
+preserved under `third_party/<component>/`.
+
+#### FFTW3
+
+- **Source**: <https://www.fftw.org/>
+- **Copyright**:
+  - Copyright (c) 2003, 2007-14 Matteo Frigo
+  - Copyright (c) 2003, 2007-14 Massachusetts Institute of Technology
+- **License**: GNU General Public License v2.0 or later (`GPL-2.0-or-later`)
+- **Used here under**: GPL v3 (selected via the "or any later version" clause)
+- **Original license file**: [`third_party/fftw3/COPYING`](third_party/fftw3/COPYING)
+
+#### GEMMul8
+
+- **Source**: <https://github.com/RIKEN-RCCS/GEMMul8>
+- **Copyright**: Copyright (c) 2025- RIKEN R-CCS
+- **Responsible developer**: Yuki Uchino (RIKEN Center for Computational Science)
+- **License**: MIT License (`MIT`)
+- **Original license file**: [`third_party/gemmul8/LICENSE`](third_party/gemmul8/LICENSE)
+
+GEMMul8 (GEMMulate) is a library for emulating high-precision matrix
+multiplication (SGEMM, DGEMM, CGEMM, ZGEMM) using INT8/FP8 matrix engines
+based on the Ozaki Scheme II. 
+
+If you use this project in academic work, please also cite the GEMMul8
+upstream references (see the GEMMul8 repository).
+
+### License Compatibility Summary
+
+| Component | Original License | Compatible with GPL v3 |
+|-----------|------------------|------------------------|
+| OpenMX (upstream) | GPL-3.0-or-later | — (same license) |
+| GPU modifications (this project) | GPL-3.0-or-later | — (same license) |
+| FFTW3 | GPL-2.0-or-later | Yes (via "or later" clause) |
+| GEMMul8 | MIT | Yes (permissive → strong copyleft) |
+
+The combined work is distributed under the terms of GPL v3 or later.
