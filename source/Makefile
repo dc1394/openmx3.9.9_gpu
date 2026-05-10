@@ -56,20 +56,104 @@
 # FC = mpif90 -O2 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
 # -L/home/x10402/nvpl-linux-sbsa-24.7/lib -lnvpl_scalapack_lp64 -lnvpl_blacs_lp64_openmpi4 -lnvpl_lapack_lp64_gomp -lnvpl_blas_lp64_gomp -pgf90libs -lmpi_mpifh -lfftw3 -lpthread -lgfortran -lm -ldl -L/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/13.1/lib64 -L/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/13.1/targets/sbsa-linux/lib -lcudart -lcusolver -lcublas -cuda
 
-CC = mpicc -w -O3 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/include -I/usr/local/cuda-13.2/include 
-CC2 = mpicc -w -O1 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/include -I/usr/local/cuda-13.2/include 
-CC3 = mpicc -w -O2 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/include -I/usr/local/cuda-13.2/include
+NVHPC_ROOT          ?= /opt/nvidia/hpc_sdk/Linux_x86_64/26.3
+NVHPC_CUDA_VERSION  ?= 13.1
+NVHPC_MPI_BIN       ?= $(NVHPC_ROOT)/comm_libs/mpi/bin
+NVHPC_MPI_LIBDIR    ?= $(NVHPC_ROOT)/comm_libs/$(NVHPC_CUDA_VERSION)/hpcx/hpcx-2.25.1/ompi/lib
+NVHPC_COMPILER_BIN  ?= $(NVHPC_ROOT)/compilers/bin
+NVHPC_COMPILER_LIB  ?= $(NVHPC_ROOT)/compilers/lib
+NVHPC_MATH_DIR      ?= $(NVHPC_ROOT)/math_libs/$(NVHPC_CUDA_VERSION)/targets/x86_64-linux
+NVHPC_CUDA_HOME     ?= $(NVHPC_ROOT)/cuda/$(NVHPC_CUDA_VERSION)
+NVHPC_CUDA_TARGET   ?= $(NVHPC_CUDA_HOME)/targets/x86_64-linux
+
+export PATH := $(NVHPC_COMPILER_BIN):$(NVHPC_MPI_BIN):$(NVHPC_CUDA_HOME)/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+unexport CPATH
+unexport C_INCLUDE_PATH
+unexport CPLUS_INCLUDE_PATH
+unexport LIBRARY_PATH
+unexport LD_LIBRARY_PATH
+unexport CFLAGS
+unexport CXXFLAGS
+unexport CPPFLAGS
+unexport FCFLAGS
+unexport FFLAGS
+unexport LDFLAGS
+unexport LIBS
+unexport CC
+unexport CXX
+unexport CPP
+unexport GCC
+unexport GXX
+unexport AR
+unexport AS
+unexport LD
+unexport NM
+unexport RANLIB
+unexport OBJDUMP
+unexport STRIP
+unexport READELF
+unexport ADDR2LINE
+unexport DLLTOOL
+unexport BUILD
+unexport HOST
+unexport build_alias
+unexport host_alias
+unexport CUDA_HOME
+unexport NVCC_PREPEND_FLAGS
+unexport NVCC_APPEND_FLAGS
+
+MPICC  ?= $(NVHPC_MPI_BIN)/mpicc
+MPIF90 ?= $(NVHPC_MPI_BIN)/mpif90
+
+FFTW3_REPO_URL ?= https://github.com/FFTW/fftw3.git
+FFTW3_TAG      ?= fftw-3.3.11
+FFTW3_VERSION  := $(patsubst fftw-%,%,$(FFTW3_TAG))
+FFTW3_RELEASE_URL ?= https://fftw.org/fftw-$(FFTW3_VERSION).tar.gz
+FFTW3_RELEASE_TARBALL ?= $(CURDIR)/third_party/fftw-$(FFTW3_VERSION).tar.gz
+FFTW3_SRC_DIR  ?= third_party/fftw3
+FFTW3_BUILD_DIR ?= build/fftw3
+FFTW3_PREFIX   ?= $(CURDIR)/third_party/fftw3-install
+FFTW3_CC       ?= $(NVHPC_COMPILER_BIN)/nvc
+FFTW3_CXX      ?= $(NVHPC_COMPILER_BIN)/nvc++
+FFTW3_FC       ?= $(NVHPC_COMPILER_BIN)/nvfortran
+FFTW3_F77      ?= $(FFTW3_FC)
+FFTW3_CONFIGURE_OPTIONS ?= --enable-static --disable-shared
+FFTW3_CONFIGURE_TRIPLET ?= x86_64-pc-linux-gnu
+FFTW3_BUILD_ENV = PATH="$(PATH)" CONFIG_SITE= build_alias= host_alias= BUILD= HOST= CPATH= C_INCLUDE_PATH= CPLUS_INCLUDE_PATH= LIBRARY_PATH= LD_LIBRARY_PATH= CFLAGS= CXXFLAGS= CPPFLAGS= FCFLAGS= FFLAGS= LDFLAGS= LIBS= CPP="$(FFTW3_CC) -E" AR=/usr/bin/ar AS=/usr/bin/as RANLIB=/usr/bin/ranlib NM=/usr/bin/nm LD=/usr/bin/ld OBJDUMP=/usr/bin/objdump STRIP=/usr/bin/strip READELF=/usr/bin/readelf ADDR2LINE=/usr/bin/addr2line DLLTOOL=
+FFTW3_SRC_ABS  := $(abspath $(FFTW3_SRC_DIR))
+FFTW3_BUILD_ABS := $(abspath $(FFTW3_BUILD_DIR))
+FFTW3_CODELET_SENTINEL := $(FFTW3_SRC_ABS)/dft/scalar/codelets/n1_2.c
+FFTW3_LIB      ?= $(FFTW3_PREFIX)/lib/libfftw3.a
+FFTW3_INCLUDE  ?= -I$(FFTW3_PREFIX)/include
+FFTW3_LIBS     ?= $(FFTW3_LIB)
+
+COMMON_INCLUDES = $(FFTW3_INCLUDE) -I$(NVHPC_MATH_DIR)/include -I$(NVHPC_CUDA_TARGET)/include -I$(NVHPC_CUDA_HOME)/include
+COMMON_CFLAGS   = -w -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp $(COMMON_INCLUDES)
+
+CC  = $(MPICC) $(COMMON_CFLAGS) -O3
+CC2 = $(MPICC) $(COMMON_CFLAGS) -O1
+CC3 = $(MPICC) $(COMMON_CFLAGS) -O2
 CC_NOACC = $(filter-out -Minfo=accel -acc,$(CC2))
-CC_DFTD3 = gcc -w -O1 -std=c11 -mtune=native -march=native -fopenmp -I${MKLROOT}/include -I${MKLROOT}/include/fftw -I/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/include -I/usr/local/cuda-13.2/include $(shell mpicc --showme:compile)
-FC = mpif90 -O2 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
-LIB= /opt/nvidia/hpc_sdk/Linux_x86_64/26.3/comm_libs/13.1/hpcx/hpcx-2.25.1/ompi/lib/libscalapack_lp64.a -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_pgi_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -pgf90libs -mp -lpthread -lmpi_mpifh -lmpi -lm -ldl -L/usr/local/cuda-13.2/lib64 -L/opt/nvidia/hpc_sdk/Linux_x86_64/26.3/math_libs/13.1/targets/x86_64-linux/lib -lcudart -lcusolver -lcublas -cuda
+CC_DFTD3 = $(MPICC) -w -O0 -std=c11 -fopenmp $(COMMON_INCLUDES)
+FC = $(MPIF90) -O2 -mtune=native -march=native -fopenmp $(FFTW3_INCLUDE) -I$(NVHPC_MATH_DIR)/include
+
+NVPL_SCALAPACK_LIB ?= $(NVHPC_MPI_LIBDIR)/libscalapack_lp64.a
+NVPL_LAPACK_LIB    ?= $(NVHPC_COMPILER_LIB)/liblapack_lp64.a
+NVPL_BLAS_LIB      ?= $(NVHPC_COMPILER_LIB)/libblas_lp64.a
+NVPL_LIBS          ?= -Wl,--start-group $(NVPL_SCALAPACK_LIB) $(NVPL_LAPACK_LIB) $(NVPL_BLAS_LIB) -Wl,--end-group
+SDK_RPATH_TAGS     ?= -Wl,--disable-new-dtags
+MPI_FORTRAN_LIBS   ?= -L$(NVHPC_MPI_LIBDIR) $(SDK_RPATH_TAGS) -Wl,-rpath,$(NVHPC_MPI_LIBDIR) -lmpi_usempif08 -lmpi_usempi_ignore_tkr -lmpi_mpifh -lmpi
+CUDA_LIBS          ?= $(SDK_RPATH_TAGS) -L$(NVHPC_CUDA_TARGET)/lib -Wl,-rpath,$(NVHPC_CUDA_TARGET)/lib -L$(NVHPC_MATH_DIR)/lib -Wl,-rpath,$(NVHPC_MATH_DIR)/lib -L$(NVHPC_CUDA_TARGET)/lib/stubs -Wl,--no-as-needed -lnvJitLink -Wl,--as-needed -lcudart -lcusolver -lcublas -cuda
+
+LIB= $(FFTW3_LIBS) $(NVPL_LIBS) $(MPI_FORTRAN_LIBS) -pgf90libs -mp -lpthread -lm -ldl $(CUDA_LIBS)
 
 GEMMUL8_REPO_URL ?= https://github.com/RIKEN-RCCS/GEMMul8.git
-GEMMUL8_REPO_DIR ?= GEMMul8
+GEMMUL8_REPO_DIR ?= third_party/GEMMul8
 GEMMUL8_DIR      ?= $(GEMMUL8_REPO_DIR)/GEMMul8
 GEMMUL8_LIB      ?= $(GEMMUL8_DIR)/lib/libgemmul8.a
 GEMMUL8_OPENMX_OBJ ?= $(GEMMUL8_DIR)/src/gemmul8_openmx.o
-GEMMUL8_CUDA_PATH ?= /usr/local/cuda-13.2
+GEMMUL8_CUDA_PATH ?= $(NVHPC_CUDA_HOME)
 GEMMUL8_GPU_ARCH ?= auto
 GEMMUL8_DETECTED_GPU_ARCH := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '.')
 ifeq ($(GEMMUL8_GPU_ARCH),auto)
@@ -78,7 +162,9 @@ else
 GEMMUL8_BUILD_GPU_ARCH := $(GEMMUL8_GPU_ARCH)
 endif
 NVCC ?= $(GEMMUL8_CUDA_PATH)/bin/nvcc
-NVCC_GEMMUL8_FLAGS = -std=c++20 -O3 -I$(GEMMUL8_DIR)/include -I$(GEMMUL8_DIR)/src -I$(GEMMUL8_CUDA_PATH)/include -gencode arch=compute_$(GEMMUL8_BUILD_GPU_ARCH),code=sm_$(GEMMUL8_BUILD_GPU_ARCH)
+NVCC_HOST ?= $(NVHPC_COMPILER_BIN)/nvc++
+NVCC_GEMMUL8_ENV = PATH="$(PATH)" CUDA_HOME="$(NVHPC_CUDA_HOME)" CPATH= C_INCLUDE_PATH= CPLUS_INCLUDE_PATH= LIBRARY_PATH= LD_LIBRARY_PATH= NVCC_PREPEND_FLAGS= NVCC_APPEND_FLAGS=
+NVCC_GEMMUL8_FLAGS = -ccbin $(NVCC_HOST) -std=c++20 -O3 -I$(GEMMUL8_DIR)/include -I$(GEMMUL8_DIR)/src -I$(GEMMUL8_CUDA_PATH)/include -I$(NVHPC_CUDA_TARGET)/include -I$(NVHPC_MATH_DIR)/include -gencode arch=compute_$(GEMMUL8_BUILD_GPU_ARCH),code=sm_$(GEMMUL8_BUILD_GPU_ARCH)
 LIB += -lcublasLt -lcuda -lnvidia-ml -lstdc++
 
 CFLAGS  = -g 
@@ -183,10 +269,64 @@ DESTDIR = ../work
 UTIL 	= DosMain jx analysis_example esp polB calB Z2FH bandgnu13 bin2txt cube2xsf intensity_map md2axsf tp kSpin BandDispersion ADenBand FermiLoop GridCalc MulPOnly MulPCalc example_mpi_spawn gcube2oned
 
 #
+# FFTW3
+#
+
+.PHONY: fftw3 fftw3-clean gemmul8-clean clean
+
+fftw3: $(FFTW3_LIB)
+
+$(FFTW3_SRC_ABS):
+	@echo "FFTW3 source directory was not found: $(FFTW3_SRC_ABS)"
+	@echo "Clone $(FFTW3_REPO_URL), check out $(FFTW3_TAG), or override FFTW3_SRC_DIR."
+	@false
+
+$(FFTW3_CODELET_SENTINEL): | $(FFTW3_SRC_ABS)
+	@echo "FFTW3 git source lacks generated codelets; overlaying $(FFTW3_RELEASE_URL)."
+	mkdir -p "$(dir $(FFTW3_RELEASE_TARBALL))"
+	curl -L --fail "$(FFTW3_RELEASE_URL)" -o "$(FFTW3_RELEASE_TARBALL)"
+	tmpdir=$$(mktemp -d); \
+	  tar -xzf "$(FFTW3_RELEASE_TARBALL)" -C "$$tmpdir"; \
+	  rsync -a --ignore-existing "$$tmpdir/fftw-$(FFTW3_VERSION)/" "$(FFTW3_SRC_ABS)/"; \
+	  rm -rf "$$tmpdir"
+
+$(FFTW3_BUILD_DIR)/config.status: $(FFTW3_CODELET_SENTINEL) | $(FFTW3_SRC_ABS)
+	@if [ -d "$(FFTW3_SRC_ABS)/.git" ]; then \
+	  tag=$$(git -C "$(FFTW3_SRC_ABS)" describe --tags --exact-match 2>/dev/null || true); \
+	  if [ "$$tag" != "$(FFTW3_TAG)" ]; then \
+	    echo "FFTW3_SRC_DIR must be checked out at $(FFTW3_TAG); current tag is '$${tag:-not an exact tag}'."; \
+	    exit 1; \
+	  fi; \
+	fi
+	@if [ ! -x "$(FFTW3_SRC_ABS)/configure" ]; then \
+	  cd "$(FFTW3_SRC_ABS)" && touch ChangeLog && rm -rf autom4te.cache && autoreconf --verbose --install --symlink --force && rm -f config.cache; \
+	fi
+	@if [ -f "$(FFTW3_SRC_ABS)/config.status" ]; then \
+	  $(MAKE) -C "$(FFTW3_SRC_ABS)" distclean; \
+	fi
+	mkdir -p "$(FFTW3_BUILD_ABS)" "$(FFTW3_PREFIX)"
+	cd "$(FFTW3_BUILD_ABS)" && $(FFTW3_BUILD_ENV) CC="$(FFTW3_CC)" CXX="$(FFTW3_CXX)" FC="$(FFTW3_FC)" F77="$(FFTW3_F77)" "$(FFTW3_SRC_ABS)/configure" --build="$(FFTW3_CONFIGURE_TRIPLET)" --host="$(FFTW3_CONFIGURE_TRIPLET)" --prefix="$(FFTW3_PREFIX)" $(FFTW3_CONFIGURE_OPTIONS)
+
+$(FFTW3_LIB): $(FFTW3_BUILD_DIR)/config.status
+	$(FFTW3_BUILD_ENV) $(MAKE) -C "$(FFTW3_BUILD_ABS)"
+	$(FFTW3_BUILD_ENV) $(MAKE) -C "$(FFTW3_BUILD_ABS)" install
+
+fftw3-clean:
+	rm -rf "$(FFTW3_BUILD_ABS)" "$(FFTW3_PREFIX)"
+
+gemmul8-clean:
+	rm -f "$(GEMMUL8_OPENMX_OBJ)" "$(GEMMUL8_LIB)"
+
+FFTW3_USERS = Poisson.o Stress.o Poisson_ESM.o TRAN_Poisson.o TRAN_CDen_Main.o TRAN_Set_Electrode_Grid.o
+$(FFTW3_USERS): | $(FFTW3_LIB)
+
+#
 # OpenMX
 #
 
-openmx:	$(GEMMUL8_LIB) $(OBJS)
+.DEFAULT_GOAL := openmx
+
+openmx:	$(FFTW3_LIB) $(GEMMUL8_LIB) $(OBJS)
 	$(CC) $(OBJS) $(STACK) $(GEMMUL8_LIB) $(LIB) -lm -o openmx
 	
 #
@@ -531,11 +671,12 @@ my_cublasDgemm.o: my_cublasDgemm.c openmx_common.h
 my_cublasZgemm.o: my_cublasZgemm.c openmx_common.h
 	$(CC) -c my_cublasZgemm.c
 gemmul8_bridge.o: gemmul8_bridge.cu openmx_common.h $(GEMMUL8_DIR)/include/gemmul8.hpp $(GEMMUL8_LIB)
-	$(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_bridge.cu -o gemmul8_bridge.o
+	$(NVCC_GEMMUL8_ENV) $(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_bridge.cu -o gemmul8_bridge.o
 $(GEMMUL8_DIR)/Makefile:
+	mkdir -p $(dir $(GEMMUL8_REPO_DIR))
 	git clone --depth 1 $(GEMMUL8_REPO_URL) $(GEMMUL8_REPO_DIR)
 $(GEMMUL8_OPENMX_OBJ): gemmul8_openmx.cu $(GEMMUL8_DIR)/Makefile
-	$(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_openmx.cu -o $(GEMMUL8_OPENMX_OBJ)
+	$(NVCC_GEMMUL8_ENV) $(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_openmx.cu -o $(GEMMUL8_OPENMX_OBJ)
 $(GEMMUL8_LIB): $(GEMMUL8_OPENMX_OBJ)
 	mkdir -p $(GEMMUL8_DIR)/lib
 	ar rcs $(GEMMUL8_LIB) $(GEMMUL8_OPENMX_OBJ)
@@ -685,8 +826,8 @@ install: $(PROG)
 #
 #
 
-clean:
-	rm -f $(PROG) $(OBJS) $(OBJS_jx) $(UTIL) *.o *.mod *.dbg $(GEMMUL8_OPENMX_OBJ) $(GEMMUL8_LIB)
+clean: fftw3-clean gemmul8-clean
+	rm -f $(PROG) $(OBJS) $(OBJS_jx) $(UTIL) *.o *.mod *.dbg
 
 #
 #
