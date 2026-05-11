@@ -7,8 +7,8 @@ endif ()
 set (FFTW3_CONFIG_FILE "${CMAKE_CURRENT_LIST_FILE}")
 
 set (FFTW3_LIBRARIES fftw3)
-set (FFTW3_LIBRARY_DIRS /home/dc1394/openmx3.9.9_gpu/source/third_party/fftw3-install/lib)
-set (FFTW3_INCLUDE_DIRS /home/dc1394/openmx3.9.9_gpu/source/third_party/fftw3-install/include)
+set (FFTW3_LIBRARY_DIRS /home/dc1394/openmx4.0_gpu/source/third_party/fftw3-install/lib)
+set (FFTW3_INCLUDE_DIRS /home/dc1394/openmx4.0_gpu/source/third_party/fftw3-install/include)
 
 include ("${CMAKE_CURRENT_LIST_DIR}/FFTW3LibraryDepends.cmake" OPTIONAL)
 

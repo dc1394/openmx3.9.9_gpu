@@ -1,4 +1,4 @@
-prefix=/home/dc1394/openmx3.9.9_gpu/source/third_party/fftw3-install
+prefix=/home/dc1394/openmx4.0_gpu/source/third_party/fftw3-install
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include
