@@ -77,6 +77,10 @@ static void Set_Hamiltonian_add_array_bytes(size_t *total, size_t count, size_t 
 
 static int Set_Hamiltonian_OpenACC_Enabled(void)
 {
+    if (Solver == 3 && SpinP_switch == 3 && scf_eigen_lib_flag == CuSOLVER) {
+        return 0;
+    }
+
     return (scf_eigen_lib_flag_input == CuSOLVER);
 }
 
@@ -130,6 +134,7 @@ static int Set_Hamiltonian_DeviceMemoryOK(size_t required_bytes, const char *whe
             }
             else {
                 acc_set_device_num(cuda_device, acc_device_nvidia);
+                acc_init(acc_device_nvidia);
                 cuda_err = cudaMemGetInfo(&free_bytes, &total_bytes);
                 if (cuda_err != cudaSuccess) {
                     fprintf(stderr,

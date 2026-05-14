@@ -662,6 +662,61 @@ static void BandNonCol_DMGpuWorkspace_Reset(void)
     ctx->device_id = -1;
 }
 
+static void BandNonCol_ReleaseIdleGpuForSingleDenseRank(int myid0, int all_knum)
+{
+    if (!(scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && myid0 != Host_ID)) {
+        return;
+    }
+
+    BandNonCol_DMGpuWorkspace_Reset();
+    acc_shutdown(acc_device_nvidia);
+}
+
+static void BandNonCol_ReleaseGpuScratchForCuSolver(void)
+{
+    if (scf_eigen_lib_flag != CuSOLVER) {
+        return;
+    }
+
+    openmx_gemmul8ReleaseWorkspaces();
+    BandNonCol_DMGpuWorkspace_Reset();
+    acc_shutdown(acc_device_nvidia);
+}
+
+static void BandNonCol_EnsureGpuForCurrentRank(void)
+{
+    const char *rank_env;
+    char       *endptr;
+    long        local_rank = 0;
+    int         device_count = 0;
+    int         acc_device_count = 0;
+
+    rank_env = getenv("OMPI_COMM_WORLD_LOCAL_RANK");
+    if (rank_env == NULL) {
+        rank_env = getenv("MV2_COMM_WORLD_LOCAL_RANK");
+    }
+    if (rank_env == NULL) {
+        rank_env = getenv("SLURM_LOCALID");
+    }
+
+    if (rank_env != NULL) {
+        long parsed = strtol(rank_env, &endptr, 10);
+        if (endptr != rank_env && parsed >= 0) {
+            local_rank = parsed;
+        }
+    }
+
+    if (cudaGetDeviceCount(&device_count) == cudaSuccess && 0 < device_count) {
+        wait_cudafunc(cudaSetDevice((int)(local_rank % device_count)));
+    }
+
+    acc_device_count = acc_get_num_devices(acc_device_nvidia);
+    if (0 < acc_device_count) {
+        acc_set_device_num((int)(local_rank % acc_device_count), acc_device_nvidia);
+        acc_init(acc_device_nvidia);
+    }
+}
+
 static void BandNonCol_DMGpuWorkspace_Init(void)
 {
     BandNonColDMGpuWorkspace *ctx = &BandNonCol_dm_gpu_workspace;
@@ -1280,6 +1335,8 @@ static void BandNonCol_AccumulateDMKPoint_OpenACC(int myid2, int *is2, int *ie2,
         return;
     }
 
+    BandNonCol_EnsureGpuForCurrentRank();
+
     BandNonCol_DMOccWorkspace_Ensure(basis_stride);
     nk = BandNonCol_BuildOccupationWeightsDense(is2[myid2], ie2[myid2], ko, ws->occ, ws->eig_occ);
 
@@ -1744,6 +1801,8 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
     MPI_Comm_size(mpi_comm_level1, &numprocs0);
     MPI_Comm_rank(mpi_comm_level1, &myid0);
 
+    BandNonCol_ReleaseGpuScratchForCuSolver();
+
     MPI_Barrier(mpi_comm_level1);
 
     Num_Comm_World1 = 1;
@@ -2011,11 +2070,12 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
         (scf_eigen_lib_flag == CuSOLVER && all_knum == 1 && T_knum == 1 && GB_switch == 0 && CDDF_on != 1);
 
     if (scf_eigen_lib_flag == CuSOLVER) {
-        // CUDA
-        set_cuda_default_device_from_local_rank();
-
-        // OpenACC
-        set_openacc_nvidia_device_from_local_rank();
+        if (all_knum == 1 && myid0 != Host_ID) {
+            BandNonCol_ReleaseIdleGpuForSingleDenseRank(myid0, all_knum);
+        }
+        else {
+            BandNonCol_EnsureGpuForCurrentRank();
+        }
     }
 
     if (all_knum != 1 && scf_eigen_lib_flag == CuSOLVER) {
@@ -3678,6 +3738,10 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
     if (measure_time)
         dtime(&Stime);
 
+    if (scf_eigen_lib_flag == CuSOLVER) {
+        openmx_gemmul8ReleaseWorkspaces();
+    }
+
     if (all_knum == 1) {
 
         BandNonCol_ZeroDensityMatrices(CDM, iDM[0], EDM);
@@ -4983,6 +5047,8 @@ double      Band_DFT_NonCol(int SCF_iter, int knum_i, int knum_j, int knum_k, in
     //     printf("myid0=%2d partmul =%9.4f\n", myid0, partmulsumscftotalm1 / (double)(SCF_iter - 1));
     //     fflush(stdout);
     // }
+
+    BandNonCol_ReleaseGpuScratchForCuSolver();
 
     MPI_Barrier(mpi_comm_level1);
     dtime(&TEtime);

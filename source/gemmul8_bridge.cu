@@ -15,7 +15,7 @@ namespace {
 constexpr unsigned kDefaultNumModuli = 15u;
 constexpr unsigned kMaxNumModuli     = 20u;
 constexpr unsigned kDefaultMinFreeAfterMiB = 1536u;
-constexpr unsigned kDefaultMaxWorkspacePercent = 30u;
+constexpr unsigned kDefaultMaxWorkspacePercent = 50u;
 constexpr size_t   kMiB = 1024u * 1024u;
 
 struct WorkspaceKey {
@@ -266,6 +266,21 @@ void log_workspace_fallback_once(const WorkspaceReport &report)
 }
 
 } // namespace
+
+extern "C" void openmx_gemmul8ReleaseWorkspaces(void)
+{
+    std::lock_guard<std::mutex> lock(g_workspace_mutex);
+
+    for (auto it = g_workspaces.begin(); it != g_workspaces.end();) {
+        cudaError_t status = release_workspace(it->second);
+        if (status == cudaSuccess || it->second.ptr == nullptr) {
+            it = g_workspaces.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
+}
 
 extern "C" cublasStatus_t openmx_gemmul8Dgemm(cublasHandle_t handle,
                                                cublasOperation_t transa,

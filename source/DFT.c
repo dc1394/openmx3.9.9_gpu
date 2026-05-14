@@ -1988,13 +1988,15 @@ static void Select_BandNonCol_CuSolverMemorySafePath(int myid0)
         noncol_bytes = DFT_matrix_bytes(noncol_elems, sizeof(dcomplex), &overflow);
 
         /*
-         * The single-rank non-collinear cuSOLVER Band path keeps several dense n x n
-         * work matrices plus n2 x n2 matrices/workspaces on one GPU.  Keep the
-         * estimate conservative; underestimating here leads to an apparent hang on
-         * memory-starved shared devices.
+         * Band_DFT_NonCol's single-rank cuSOLVER path processes one k-point
+         * at a time.  It keeps up to eight n x n work matrices during the
+         * spin-block transforms, then up to three n2 x n2 matrices plus a
+         * cuSOLVER-sized cushion during the final transform/eigensolve.  A
+         * larger estimate incorrectly forces large non-collinear band jobs
+         * onto the much slower ELPA1 path.
          */
         required_bytes = DFT_checked_add_size(required_bytes, DFT_checked_mul_size(8u, dense_bytes, &overflow), &overflow);
-        required_bytes = DFT_checked_add_size(required_bytes, DFT_checked_mul_size(10u, noncol_bytes, &overflow), &overflow);
+        required_bytes = DFT_checked_add_size(required_bytes, DFT_checked_mul_size(5u, noncol_bytes, &overflow), &overflow);
         required_bytes = DFT_checked_add_size(required_bytes, reserve_bytes, &overflow);
     }
 
