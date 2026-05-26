@@ -113,8 +113,8 @@ static void ClusterNonCol_GEMMul8Dgemm_OpenACC(cublasOperation_t transa, cublasO
     }
 }
 
-static void ClusterNonCol_GEMMul8Zgemm_OpenACC(cublasOperation_t transa, cublasOperation_t transb, int m, int n,
-                                               int k, dcomplex const * A, dcomplex const * B, dcomplex * C)
+static void ClusterNonCol_CublasZgemm_OpenACC(cublasOperation_t transa, cublasOperation_t transb, int m, int n,
+                                              int k, dcomplex const * A, dcomplex const * B, dcomplex * C)
 {
     cublasHandle_t handle;
     wait_cudafunc(cublasCreate(&handle));
@@ -125,8 +125,8 @@ static void ClusterNonCol_GEMMul8Zgemm_OpenACC(cublasOperation_t transa, cublasO
         cuDoubleComplex const alpha = make_cuDoubleComplex(1.0, 0.0);
         cuDoubleComplex const beta  = make_cuDoubleComplex(0.0, 0.0);
 
-        wait_cudafunc(openmx_gemmul8Zgemm(handle, transa, transb, m, n, k, &alpha, (cuDoubleComplex const *)A, m,
-                                          (cuDoubleComplex const *)B, k, &beta, (cuDoubleComplex *)C, m));
+        wait_cudafunc(cublasZgemm(handle, transa, transb, m, n, k, &alpha, (cuDoubleComplex const *)A, m,
+                                  (cuDoubleComplex const *)B, k, &beta, (cuDoubleComplex *)C, m));
         wait_cudafunc(cublasDestroy(handle));
     }
 }
@@ -1630,7 +1630,7 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
                 }
             }
 
-            ClusterNonCol_GEMMul8Zgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_T, n2, n2, n2, Hs2, Ss2, Cs2);
+            ClusterNonCol_CublasZgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_T, n2, n2, n2, Hs2, Ss2, Cs2);
 
             if (use_cusolver_direct_cluster_dm) {
 #pragma acc update self(ko[0 : n2 + 1])
