@@ -40,7 +40,7 @@ void Eigen_PHH(MPI_Comm MPI_Current_Comm_WD,
 
   MPI_Comm_size(MPI_Current_Comm_WD,&numprocs);
 
-  if (n<20 || n<numprocs || scf_eigen_lib_flag == CuSOLVER) 
+  if (n<20 || n<numprocs || scf_eigen_lib_flag == GPUSOLVER)
     EigenBand_lapack(ac, ko, n, n, 1);
 
   else if (scf_eigen_lib_flag==0 || n<100)
@@ -1605,4 +1605,3 @@ void Eigen_Original_PHH(MPI_Comm MPI_Current_Comm_WD,
   free(alphar);
   free(alphai);
 }
-

@@ -12,9 +12,11 @@
 
 #include "mpi.h"
 #include "openmx_common.h"
+#include "lapack_prototypes.h"
 #include "set_cuda_default_device_from_local_rank.h"
 #include "set_openacc_device_from_local_rank.h"
 #include <assert.h>
+#include <limits.h>
 #include <math.h>
 #include <omp.h>
 #include <openacc.h>
@@ -36,154 +38,139 @@ static void Calc_Oscillator_Strength(int n, int n2, int UMOmax, int Nocc[2], int
 
 static void Calc_XANES_NonCol(int n, int n2, int MaxN, int * MP, int * is2, int * ie2, dcomplex * EVec1, double * ko);
 
-static void ClusterNonCol_AbortWithMessage(const char * message)
+static void ClusterNonCol_AbortWithMessage(const char *message)
 {
     fprintf(stderr, "%s\n", message);
     fflush(stderr);
     MPI_Abort(mpi_comm_level1, 1);
 }
 
-static size_t ClusterNonCol_CheckedMulCount(size_t a, size_t b, const char * label)
+static size_t ClusterNonCol_CheckedMulCount(size_t a, size_t b, const char *label)
 {
     if (a != 0 && b > SIZE_MAX / a) {
         char msg[512];
         snprintf(msg, sizeof(msg), "Dimension overflow in Cluster_DFT_NonCol.c: %s", label);
         ClusterNonCol_AbortWithMessage(msg);
     }
-
     return a * b;
 }
 
-static size_t ClusterNonCol_CheckedArrayBytes(size_t count, size_t elem_size, const char * label)
+static size_t ClusterNonCol_CheckedAddCount(size_t a, size_t b, const char *label)
 {
-    if (count != 0 && elem_size > SIZE_MAX / count) {
+    if (b > SIZE_MAX - a) {
         char msg[512];
-        snprintf(msg, sizeof(msg), "Allocation size overflow in Cluster_DFT_NonCol.c: %s", label);
+        snprintf(msg, sizeof(msg), "Count overflow in Cluster_DFT_NonCol.c: %s", label);
         ClusterNonCol_AbortWithMessage(msg);
     }
-
-    return count * elem_size;
+    return a + b;
 }
 
-static void *ClusterNonCol_MallocArray(size_t count, size_t elem_size, const char * label)
+static void *ClusterNonCol_MallocArray(size_t count, size_t elem_size, const char *label)
 {
-    size_t bytes = ClusterNonCol_CheckedArrayBytes(count, elem_size, label);
-    void * ptr   = malloc((bytes == 0) ? 1 : bytes);
+    size_t bytes = ClusterNonCol_CheckedMulCount(count, elem_size, label);
+    void *ptr = malloc((bytes == 0) ? 1 : bytes);
 
     if (ptr == NULL) {
         char msg[512];
         snprintf(msg, sizeof(msg), "Out of memory in Cluster_DFT_NonCol.c: %s (%zu bytes)", label, bytes);
         ClusterNonCol_AbortWithMessage(msg);
     }
-
     return ptr;
 }
 
-static void ClusterNonCol_ValidateMode(const char * mode)
+/* Bounded device allocation for the root dense path (mirrors
+   Cluster_DFT_Col.c): wait_cudafunc() retries forever, which suits transient
+   pressure but deadlocks on a device that stays full.  Absorb short races
+   with a few retries and report a persistent failure instead. */
+static cudaError_t ClusterNonCol_TryDeviceMalloc(void **ptr, size_t bytes)
 {
-    char msg[512];
+    cudaError_t err = cudaErrorMemoryAllocation;
 
-    if (mode == NULL) {
-        ClusterNonCol_AbortWithMessage("Cluster_DFT_NonCol received a NULL mode string.");
-    }
+    for (int attempt = 0; attempt < 8; attempt++) {
+        err = cudaMalloc(ptr, bytes);
+        if (err == cudaSuccess) return cudaSuccess;
+        (void)cudaGetLastError();
 
-    if (strcasecmp(mode, "scf") == 0 || strcasecmp(mode, "dos") == 0 || strcasecmp(mode, "lcaoout") == 0 ||
-        strcasecmp(mode, "xanes") == 0) {
-        return;
-    }
-
-    snprintf(msg, sizeof(msg), "Unsupported mode in Cluster_DFT_NonCol.c: %s", mode);
-    ClusterNonCol_AbortWithMessage(msg);
-}
-
-static void ClusterNonCol_GEMMul8Dgemm_OpenACC(cublasOperation_t transa, cublasOperation_t transb, int m, int n,
-                                               int k, double const * A, double const * B, double * C)
-{
-    cublasHandle_t handle;
-    wait_cudafunc(cublasCreate(&handle));
-
-#pragma acc data      present(A[0 : m * k], B[0 : k * n], C[0 : m * n])
-#pragma acc host_data use_device(A, B, C)
-    {
-        double const alpha = 1.0;
-        double const beta  = 0.0;
-
-        wait_cudafunc(openmx_gemmul8Dgemm(handle, transa, transb, m, n, k, &alpha, A, m, B, k, &beta, C, m));
-        wait_cudafunc(cublasDestroy(handle));
-    }
-}
-
-static void ClusterNonCol_CublasZgemm_OpenACC(cublasOperation_t transa, cublasOperation_t transb, int m, int n,
-                                              int k, dcomplex const * A, dcomplex const * B, dcomplex * C)
-{
-    cublasHandle_t handle;
-    wait_cudafunc(cublasCreate(&handle));
-
-#pragma acc data      present(A[0 : m * k], B[0 : k * n], C[0 : m * n])
-#pragma acc host_data use_device(A, B, C)
-    {
-        cuDoubleComplex const alpha = make_cuDoubleComplex(1.0, 0.0);
-        cuDoubleComplex const beta  = make_cuDoubleComplex(0.0, 0.0);
-
-        wait_cudafunc(cublasZgemm(handle, transa, transb, m, n, k, &alpha, (cuDoubleComplex const *)A, m,
-                                  (cuDoubleComplex const *)B, k, &beta, (cuDoubleComplex *)C, m));
-        wait_cudafunc(cublasDestroy(handle));
-    }
-}
-
-static int ClusterNonCol_FindOwner(int value, int numprocs, const int * is, const int * ie, const char * label)
-{
-    int  ID;
-    char msg[512];
-
-    for (ID = 0; ID < numprocs; ID++) {
-        if (is[ID] <= value && value <= ie[ID]) {
-            return ID;
+        double wait_time = drand48() * WAITTIME;
+        double start_time = MPI_Wtime();
+        double current_time = start_time;
+        while ((current_time - start_time) < wait_time) {
+            current_time = MPI_Wtime();
         }
     }
 
-    snprintf(msg, sizeof(msg), "Failed to map %s=%d onto an MPI owner in Cluster_DFT_NonCol.c.", label, value);
-    ClusterNonCol_AbortWithMessage(msg);
-    return 0;
+    *ptr = NULL;
+    return err;
 }
 
-static void ClusterNonCol_SetChemPBounds(double * chem_min, double * chem_max, const double * ko, int MaxN)
-{
-    double lower = -15.0;
-    double upper = 15.0;
-
-    if (ko != NULL && 1 <= MaxN) {
-        lower = fmin(lower, ko[1] - 1.0);
-        upper = fmax(upper, ko[MaxN] + 1.0);
-    }
-
-    if (upper <= lower) {
-        upper = lower + 30.0;
-    }
-
-    *chem_min = lower;
-    *chem_max = upper;
-}
-
+/* Device arena of the root dense solve.  The dense owner reserves the whole
+   device footprint of a diagonalization cycle in ONE allocation during the
+   GPU-diag preflight and maps every device buffer of the dense path into it
+   with acc_map_data.  A positive preflight verdict therefore cannot be
+   invalidated later in the SCF cycle: no allocation the dense path depends
+   on can fail once the arena exists (the OpenACC enter-data creates this
+   replaces abort fatally on a full device). */
 typedef struct
 {
-    int        max_tno;
-    int        max_cols;
-    int        max_nk;
-    size_t     dm_buffer_elems;
-    dcomplex * rows_up_w;
-    dcomplex * rows_dn_w;
-    dcomplex * cols_up;
-    dcomplex * cols_dn;
-    dcomplex * mat11;
-    dcomplex * mat22;
-    dcomplex * mat12;
-    double *   occ;
-    double *   occ_e;
-    double *   dm_buffer;
-} ClusterNonColDMWorkspace;
+    int            valid;
+    int            n;
+    int            n2;
+    size_t         tnum_capacity;   /* elements covered by o_dindex/o_stage */
+    size_t         total_bytes;
+    unsigned char *base;
+    size_t         o_S;
+    size_t         o_Ss2;
+    size_t         o_ko;
+    size_t         o_r[7];          /* rHs11,rHs12,rHs22,iHs11,iHs12,iHs22,Cs */
+    size_t         o_Hs2;
+    size_t         o_evec;
+    size_t         o_dindex;
+    size_t         o_stage;
+} ClusterNonColDenseArena;
 
-static ClusterNonColDMWorkspace ClusterNonCol_dm_workspace = {0};
+static ClusterNonColDenseArena ClusterNonCol_dense_arena = {0};
+
+static size_t ClusterNonCol_ArenaOff(size_t *pos, size_t bytes)
+{
+    size_t off = *pos;
+    size_t padded = ClusterNonCol_CheckedAddCount(bytes, 511u, "dense arena segment");
+
+    padded &= ~(size_t)511u;
+    *pos = ClusterNonCol_CheckedAddCount(off, padded, "dense arena layout");
+    return off;
+}
+
+static void *ClusterNonCol_ArenaPtr(size_t off)
+{
+    return (void *)(ClusterNonCol_dense_arena.base + off);
+}
+
+static void ClusterNonCol_ArenaMap(const void *host, size_t off, size_t bytes)
+{
+    acc_map_data((void *)host, ClusterNonCol_ArenaPtr(off), bytes);
+}
+
+static void ClusterNonCol_ArenaUnmap(const void *host)
+{
+    acc_unmap_data((void *)host);
+}
+
+/* Transformed-overlap cache of the root dense path, hoisted to file scope so
+   the arena release can invalidate it.  The host buffers persist across
+   cycles; the device copies live in the arena. */
+typedef struct
+{
+    int       n;
+    int       n2;
+    int       transformed_s_valid;
+    int       s_on_device;
+    double   *S;
+    dcomplex *Ss2;
+} ClusterNonColDenseSCache;
+
+static ClusterNonColDenseSCache ClusterNonCol_dense_scache = {0};
+
+static void ClusterNonCol_DenseArena_Release(void);
 
 typedef struct
 {
@@ -191,39 +178,21 @@ typedef struct
     int                n;
     int                entry_count;
     unsigned long long fingerprint;
-    int *              basis0;
-    int *              basis1;
+    int               *basis0;
+    int               *basis1;
 } ClusterNonColDMEntryCache;
 
 typedef struct
 {
     int      max_state_capacity;
     size_t   dm_buffer_elems;
-    double * occ;
-    double * occ_e;
-    double * dm_buffer;
+    double  *occ;
+    double  *occ_e;
+    double  *dm_buffer;
 } ClusterNonColRootDMWorkspace;
 
-static ClusterNonColDMEntryCache   ClusterNonCol_dm_entry_cache = {0};
+static ClusterNonColDMEntryCache    ClusterNonCol_dm_entry_cache = {0};
 static ClusterNonColRootDMWorkspace ClusterNonCol_root_dm_workspace = {0};
-
-static void ClusterNonCol_DMWorkspace_Reset(void)
-{
-    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
-
-    free(ws->rows_up_w);
-    free(ws->rows_dn_w);
-    free(ws->cols_up);
-    free(ws->cols_dn);
-    free(ws->mat11);
-    free(ws->mat22);
-    free(ws->mat12);
-    free(ws->occ);
-    free(ws->occ_e);
-    free(ws->dm_buffer);
-
-    memset(ws, 0, sizeof(*ws));
-}
 
 static void ClusterNonCol_DMEntryCache_Reset(void)
 {
@@ -236,14 +205,15 @@ static unsigned long long ClusterNonCol_DMEntryFingerprint(int *MP, int n)
 {
     unsigned long long h = 1469598103934665603ULL;
 
-#define CLUSTERNONCOL_HASH_INT(v)                                                                                        \
-    do {                                                                                                                  \
-        h ^= (unsigned long long)(unsigned int)(v);                                                                        \
-        h *= 1099511628211ULL;                                                                                            \
+#define CLUSTERNONCOL_HASH_INT(v) \
+    do { \
+        h ^= (unsigned long long)(unsigned int)(v); \
+        h *= 1099511628211ULL; \
     } while (0)
 
     CLUSTERNONCOL_HASH_INT(n);
     CLUSTERNONCOL_HASH_INT(atomnum);
+
     for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
         int wanA = WhatSpecies[GA_AN];
 
@@ -271,9 +241,9 @@ static unsigned long long ClusterNonCol_DMEntryFingerprint(int *MP, int n)
 
 static void ClusterNonCol_DMEntryCache_Ensure(int *MP, int n)
 {
-    ClusterNonColDMEntryCache *cache       = &ClusterNonCol_dm_entry_cache;
-    unsigned long long         fingerprint = ClusterNonCol_DMEntryFingerprint(MP, n);
-    int                        entry_count = 0;
+    ClusterNonColDMEntryCache *cache = &ClusterNonCol_dm_entry_cache;
+    unsigned long long fingerprint = ClusterNonCol_DMEntryFingerprint(MP, n);
+    int entry_count = 0;
 
     if (cache->valid && cache->n == n && cache->fingerprint == fingerprint) {
         return;
@@ -282,14 +252,11 @@ static void ClusterNonCol_DMEntryCache_Ensure(int *MP, int n)
     ClusterNonCol_DMEntryCache_Reset();
 
     for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-        int wanA = WhatSpecies[GA_AN];
-        int tnoA = Spe_Total_CNO[wanA];
+        int tnoA = Spe_Total_CNO[WhatSpecies[GA_AN]];
 
         for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
             int GB_AN = natn[GA_AN][LB_AN];
-            int wanB  = WhatSpecies[GB_AN];
-            int tnoB  = Spe_Total_CNO[wanB];
-
+            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
             entry_count += tnoA * tnoB;
         }
     }
@@ -299,14 +266,12 @@ static void ClusterNonCol_DMEntryCache_Ensure(int *MP, int n)
 
     entry_count = 0;
     for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-        int wanA = WhatSpecies[GA_AN];
-        int tnoA = Spe_Total_CNO[wanA];
+        int tnoA = Spe_Total_CNO[WhatSpecies[GA_AN]];
         int Anum = MP[GA_AN];
 
         for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
             int GB_AN = natn[GA_AN][LB_AN];
-            int wanB  = WhatSpecies[GB_AN];
-            int tnoB  = Spe_Total_CNO[wanB];
+            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
             int Bnum  = MP[GB_AN];
 
             for (int i = 0; i < tnoA; i++) {
@@ -353,92 +318,19 @@ static void ClusterNonCol_RootDMWorkspace_Ensure(int max_state, size_t dm_buffer
     ws->dm_buffer_elems    = dm_buffer_elems;
 }
 
-static void ClusterNonCol_GetDMMaxDims(int * max_tno, int * max_cols)
+static int ClusterNonCol_PrecomputeOccupations(int kmin, int kmax, const double *ko, double *occ, double *occ_e)
 {
-    int max_tno_local  = 0;
-    int max_cols_local = 0;
+    int nk = 0;
+    double max_x = 60.0;
 
-    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
-        int cols = 0;
-        int wanA = WhatSpecies[GA_AN];
-        int tnoA = Spe_Total_CNO[wanA];
+    for (int local_k = 0, global_k = kmin; global_k <= kmax; local_k++, global_k++) {
+        double x = (ko[global_k] - ChemP) * Beta;
+        double weight;
 
-        if (max_tno_local < tnoA) {
-            max_tno_local = tnoA;
-        }
+        if (x <= -max_x) x = -max_x;
+        if (max_x <= x)  x =  max_x;
 
-        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
-            int GB_AN = natn[GA_AN][LB_AN];
-            int wanB  = WhatSpecies[GB_AN];
-
-            cols += Spe_Total_CNO[wanB];
-        }
-
-        if (max_cols_local < cols) {
-            max_cols_local = cols;
-        }
-    }
-
-    *max_tno  = max_tno_local;
-    *max_cols = max_cols_local;
-}
-
-static void ClusterNonCol_DMWorkspace_Ensure(int max_tno, int max_cols, int nk, size_t dm_buffer_elems)
-{
-    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
-    size_t                     vec_elems;
-    size_t                     col_elems;
-    size_t                     mat_elems;
-
-    if (max_tno <= 0 || max_cols <= 0 || nk <= 0 || dm_buffer_elems == 0) {
-        ClusterNonCol_AbortWithMessage("Invalid DM workspace size in Cluster_DFT_NonCol.c.");
-    }
-
-    if (ws->max_tno >= max_tno && ws->max_cols >= max_cols && ws->max_nk >= nk &&
-        ws->dm_buffer_elems >= dm_buffer_elems) {
-        return;
-    }
-
-    ClusterNonCol_DMWorkspace_Reset();
-
-    vec_elems = ClusterNonCol_CheckedMulCount((size_t)max_tno, (size_t)nk, "DM workspace vectors");
-    col_elems = ClusterNonCol_CheckedMulCount((size_t)max_cols, (size_t)nk, "DM workspace columns");
-    mat_elems = ClusterNonCol_CheckedMulCount((size_t)max_tno, (size_t)max_cols, "DM workspace matrices");
-
-    ws->rows_up_w = (dcomplex *)ClusterNonCol_MallocArray(vec_elems, sizeof(dcomplex), "DM rows_up_w");
-    ws->rows_dn_w = (dcomplex *)ClusterNonCol_MallocArray(vec_elems, sizeof(dcomplex), "DM rows_dn_w");
-    ws->cols_up   = (dcomplex *)ClusterNonCol_MallocArray(col_elems, sizeof(dcomplex), "DM cols_up");
-    ws->cols_dn   = (dcomplex *)ClusterNonCol_MallocArray(col_elems, sizeof(dcomplex), "DM cols_dn");
-    ws->mat11     = (dcomplex *)ClusterNonCol_MallocArray(mat_elems, sizeof(dcomplex), "DM mat11");
-    ws->mat22     = (dcomplex *)ClusterNonCol_MallocArray(mat_elems, sizeof(dcomplex), "DM mat22");
-    ws->mat12     = (dcomplex *)ClusterNonCol_MallocArray(mat_elems, sizeof(dcomplex), "DM mat12");
-    ws->occ       = (double *)ClusterNonCol_MallocArray((size_t)nk, sizeof(double), "DM occupations");
-    ws->occ_e     = (double *)ClusterNonCol_MallocArray((size_t)nk, sizeof(double), "DM energy occupations");
-    ws->dm_buffer = (double *)ClusterNonCol_MallocArray(dm_buffer_elems, sizeof(double), "DM buffer");
-
-    ws->max_tno         = max_tno;
-    ws->max_cols        = max_cols;
-    ws->max_nk          = nk;
-    ws->dm_buffer_elems = dm_buffer_elems;
-}
-
-static int ClusterNonCol_PrecomputeOccupations(int kmin, int kmax, const double * ko, double * occ, double * occ_e)
-{
-    int    nk     = 0;
-    int    local_k;
-    int    global_k;
-    double max_x  = 60.0;
-    double weight = 0.0;
-    double x;
-
-    for (local_k = 0, global_k = kmin; global_k <= kmax; ++global_k, ++local_k) {
-        x = (ko[global_k] - ChemP) * Beta;
-        if (x <= -max_x)
-            x = -max_x;
-        if (max_x <= x)
-            x = max_x;
-
-        weight      = FermiFunc_NC(x, global_k);
+        weight = FermiFunc_NC(x, global_k);
         occ[local_k]   = weight;
         occ_e[local_k] = weight * ko[global_k];
 
@@ -450,185 +342,29 @@ static int ClusterNonCol_PrecomputeOccupations(int kmin, int kmax, const double 
     return nk;
 }
 
-static int ClusterNonCol_PrecomputePartialOccupations(int kmin, int kmax, const double * ko, double * occ)
+static void ClusterNonCol_StoreDMBuffer(int myid, int size_H1, int *MP, double *****CDM, double *****iDM0,
+                                        const double *dm_buffer)
 {
-    int    nk      = 0;
-    int    local_k;
-    int    global_k;
-    double max_x   = 60.0;
-    double x;
-    double x2;
-    double occ0;
-    double occ1;
-    double weight;
+    const double *rDM11 = dm_buffer;
+    const double *rDM22 = dm_buffer + (size_t)size_H1;
+    const double *rDM12 = dm_buffer + (size_t)size_H1 * 2;
+    const double *iDM12 = dm_buffer + (size_t)size_H1 * 3;
+    const double *iDM11 = dm_buffer + (size_t)size_H1 * 4;
+    const double *iDM22 = dm_buffer + (size_t)size_H1 * 5;
+    size_t p = 0;
 
-    for (local_k = 0, global_k = kmin; global_k <= kmax; ++global_k, ++local_k) {
-        x = (ko[global_k] - ChemP) * Beta;
-        if (x <= -max_x)
-            x = -max_x;
-        if (max_x <= x)
-            x = max_x;
-
-        x2 = (ko[global_k] - (ChemP + ene_win_partial_charge)) * Beta;
-        if (x2 <= -max_x)
-            x2 = -max_x;
-        if (max_x <= x2)
-            x2 = max_x;
-
-        occ0   = FermiFunc_NC(x, global_k);
-        occ1   = FermiFunc_NC(x2, global_k);
-        weight = fabs(occ0 - occ1);
-        occ[local_k] = weight;
-
-        if (1.0e-13 < weight) {
-            nk = local_k + 1;
-        }
-    }
-
-    return nk;
-}
-
-static void ClusterNonCol_AccumulateWeightedDensity(int n, int n2, int nk, int * MP, dcomplex * EVec1,
-                                                    const double * weights, double * out11r, double * out22r,
-                                                    double * out12r, double * out12i, double * out11i, double * out22i)
-{
-    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
-    dcomplex                   alpha = {1.0, 0.0};
-    dcomplex                   beta  = {0.0, 0.0};
-    char                       trans_c = 'C';
-    char                       trans_n = 'N';
-    size_t                     p = 0;
-
-    if (nk <= 0) {
-        return;
-    }
-
-    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
-        int tnoA       = Spe_Total_CNO[WhatSpecies[GA_AN]];
-        int Anum       = MP[GA_AN];
-        int total_cols = 0;
-        int lda        = nk;
-        int ldb        = nk;
-        int ldc        = tnoA;
-
-        for (int i = 0; i < tnoA; ++i) {
-            dcomplex * dst_up = ws->rows_up_w + (size_t)i * (size_t)nk;
-            dcomplex * dst_dn = ws->rows_dn_w + (size_t)i * (size_t)nk;
-            int        basis_up = Anum + i - 1;
-            int        basis_dn = basis_up + n;
-
-            for (int local_k = 0; local_k < nk; ++local_k) {
-                dcomplex c_up = EVec1[(size_t)local_k * (size_t)n2 + (size_t)basis_up];
-                dcomplex c_dn = EVec1[(size_t)local_k * (size_t)n2 + (size_t)basis_dn];
-                double   w    = weights[local_k];
-
-                dst_up[local_k].r = w * c_up.r;
-                dst_up[local_k].i = w * c_up.i;
-                dst_dn[local_k].r = w * c_dn.r;
-                dst_dn[local_k].i = w * c_dn.i;
-            }
-        }
-
-        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
-            int GB_AN = natn[GA_AN][LB_AN];
-            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
-            int Bnum  = MP[GB_AN];
-
-            for (int j = 0; j < tnoB; ++j) {
-                dcomplex * dst_up = ws->cols_up + (size_t)(total_cols + j) * (size_t)nk;
-                dcomplex * dst_dn = ws->cols_dn + (size_t)(total_cols + j) * (size_t)nk;
-                int        basis_up = Bnum + j - 1;
-                int        basis_dn = basis_up + n;
-
-                for (int local_k = 0; local_k < nk; ++local_k) {
-                    dst_up[local_k] = EVec1[(size_t)local_k * (size_t)n2 + (size_t)basis_up];
-                    dst_dn[local_k] = EVec1[(size_t)local_k * (size_t)n2 + (size_t)basis_dn];
-                }
-            }
-
-            total_cols += tnoB;
-        }
-
-        F77_NAME(zgemm, ZGEMM)
-        (&trans_c, &trans_n, &tnoA, &total_cols, &nk, &alpha, ws->rows_up_w, &lda, ws->cols_up, &ldb, &beta,
-         ws->mat11, &ldc);
-
-        F77_NAME(zgemm, ZGEMM)
-        (&trans_c, &trans_n, &tnoA, &total_cols, &nk, &alpha, ws->rows_dn_w, &lda, ws->cols_dn, &ldb, &beta,
-         ws->mat22, &ldc);
-
-        if (out12r != NULL || out12i != NULL) {
-            F77_NAME(zgemm, ZGEMM)
-            (&trans_c, &trans_n, &tnoA, &total_cols, &nk, &alpha, ws->rows_up_w, &lda, ws->cols_dn, &ldb, &beta,
-             ws->mat12, &ldc);
-        }
-
-        total_cols = 0;
-        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
-            int GB_AN = natn[GA_AN][LB_AN];
-            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
-
-            for (int i = 0; i < tnoA; ++i) {
-                for (int j = 0; j < tnoB; ++j, ++p) {
-                    size_t         idx = (size_t)i + (size_t)(total_cols + j) * (size_t)ldc;
-                    const dcomplex dm11 = ws->mat11[idx];
-                    const dcomplex dm22 = ws->mat22[idx];
-                    const dcomplex dm12 = ws->mat12[idx];
-
-                    if (out11r != NULL) {
-                        out11r[p] += dm11.r;
-                    }
-
-                    if (out22r != NULL) {
-                        out22r[p] += dm22.r;
-                    }
-
-                    if (out12r != NULL) {
-                        out12r[p] += dm12.r;
-                    }
-
-                    if (out12i != NULL) {
-                        out12i[p] += dm12.i;
-                    }
-
-                    if (out11i != NULL) {
-                        out11i[p] += dm11.i;
-                    }
-
-                    if (out22i != NULL) {
-                        out22i[p] += dm22.i;
-                    }
-                }
-            }
-
-            total_cols += tnoB;
-        }
-    }
-}
-
-static void ClusterNonCol_StoreDMBuffer(int myid, int size_H1, int * MP, double ***** CDM, double ***** iDM0,
-                                        const double * dm_buffer)
-{
-    const double * rDM11 = dm_buffer;
-    const double * rDM22 = dm_buffer + (size_t)size_H1;
-    const double * rDM12 = dm_buffer + (size_t)size_H1 * 2;
-    const double * iDM12 = dm_buffer + (size_t)size_H1 * 3;
-    const double * iDM11 = dm_buffer + (size_t)size_H1 * 4;
-    const double * iDM22 = dm_buffer + (size_t)size_H1 * 5;
-    size_t         p     = 0;
-
-    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+    for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
         int MA_AN = F_G2M[GA_AN];
         int tnoA  = Spe_Total_CNO[WhatSpecies[GA_AN]];
         int ID    = G2ID[GA_AN];
 
-        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
             int GB_AN = natn[GA_AN][LB_AN];
             int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
 
             if (myid == ID) {
-                for (int i = 0; i < tnoA; ++i) {
-                    for (int j = 0; j < tnoB; ++j, ++p) {
+                for (int i = 0; i < tnoA; i++) {
+                    for (int j = 0; j < tnoB; j++, p++) {
                         CDM[0][MA_AN][LB_AN][i][j]  = rDM11[p];
                         CDM[1][MA_AN][LB_AN][i][j]  = rDM22[p];
                         CDM[2][MA_AN][LB_AN][i][j]  = rDM12[p];
@@ -637,197 +373,162 @@ static void ClusterNonCol_StoreDMBuffer(int myid, int size_H1, int * MP, double 
                         iDM0[1][MA_AN][LB_AN][i][j] = iDM22[p];
                     }
                 }
-            } else {
+            }
+            else {
                 p += (size_t)tnoA * (size_t)tnoB;
             }
         }
     }
 }
 
-static void ClusterNonCol_StoreEDMBuffer(int myid, int size_H1, int * MP, double ***** EDM, const double * edm_buffer)
+static void ClusterNonCol_StoreEDMBuffer(int myid, int size_H1, int *MP, double *****EDM, const double *edm_buffer)
 {
-    const double * rEDM11 = edm_buffer;
-    const double * rEDM22 = edm_buffer + (size_t)size_H1;
-    const double * rEDM12 = edm_buffer + (size_t)size_H1 * 2;
-    const double * iEDM12 = edm_buffer + (size_t)size_H1 * 3;
-    size_t         p      = 0;
+    const double *rEDM11 = edm_buffer;
+    const double *rEDM22 = edm_buffer + (size_t)size_H1;
+    const double *rEDM12 = edm_buffer + (size_t)size_H1 * 2;
+    const double *iEDM12 = edm_buffer + (size_t)size_H1 * 3;
+    size_t p = 0;
 
-    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
+    for (int GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
         int MA_AN = F_G2M[GA_AN];
         int tnoA  = Spe_Total_CNO[WhatSpecies[GA_AN]];
         int ID    = G2ID[GA_AN];
 
-        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
             int GB_AN = natn[GA_AN][LB_AN];
             int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
 
             if (myid == ID) {
-                for (int i = 0; i < tnoA; ++i) {
-                    for (int j = 0; j < tnoB; ++j, ++p) {
+                for (int i = 0; i < tnoA; i++) {
+                    for (int j = 0; j < tnoB; j++, p++) {
                         EDM[0][MA_AN][LB_AN][i][j] = rEDM11[p];
                         EDM[1][MA_AN][LB_AN][i][j] = rEDM22[p];
                         EDM[2][MA_AN][LB_AN][i][j] = rEDM12[p];
                         EDM[3][MA_AN][LB_AN][i][j] = iEDM12[p];
                     }
                 }
-            } else {
+            }
+            else {
                 p += (size_t)tnoA * (size_t)tnoB;
             }
         }
     }
 }
 
-static void ClusterNonCol_StorePartialDMBuffer(int myid, int size_H1, int * MP, const double * partial_buffer)
-{
-    const double * pDM11 = partial_buffer;
-    const double * pDM22 = partial_buffer + (size_t)size_H1;
-    size_t         p     = 0;
-
-    for (int GA_AN = 1; GA_AN <= atomnum; ++GA_AN) {
-        int MA_AN = F_G2M[GA_AN];
-        int tnoA  = Spe_Total_CNO[WhatSpecies[GA_AN]];
-        int ID    = G2ID[GA_AN];
-
-        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; ++LB_AN) {
-            int GB_AN = natn[GA_AN][LB_AN];
-            int tnoB  = Spe_Total_CNO[WhatSpecies[GB_AN]];
-
-            if (myid == ID) {
-                for (int i = 0; i < tnoA; ++i) {
-                    for (int j = 0; j < tnoB; ++j, ++p) {
-                        Partial_DM[0][MA_AN][LB_AN][i][j] = pDM11[p];
-                        Partial_DM[1][MA_AN][LB_AN][i][j] = pDM22[p];
-                    }
-                }
-            } else {
-                p += (size_t)tnoA * (size_t)tnoB;
-            }
-        }
-    }
-}
-
-static double ClusterNonCol_CalcDMRootDense_OpenACC(int myid, int size_H1, int * MP, int n, int n2, int max_state,
-                                                    double ***** CDM, double ***** iDM0, double ***** EDM, double * ko,
-                                                    const dcomplex * dense_evec, int calc_edm)
+static double ClusterNonCol_CalcDMRootDense_OpenACC(int myid, int size_H1, int *MP, int n, int n2, int max_state,
+                                                    double *****CDM, double *****iDM0, double *****EDM, double *ko,
+                                                    const dcomplex *dense_evec, int calc_edm)
 {
     ClusterNonColRootDMWorkspace *ws = &ClusterNonCol_root_dm_workspace;
-    ClusterNonColDMEntryCache *   cache;
-    const int *                   basis0;
-    const int *                   basis1;
-    const double *                occ;
-    const double *                occ_e;
-    const dcomplex *              evec_ptr = dense_evec;
-    const int                     dm_components = calc_edm ? 10 : 6;
-    const int                     dm_chunk_size = 131072;
-    size_t                        dm_elems;
-    size_t                        evec_count;
-    int                           nk_occ = 0;
-    double                        stime;
-    double                        etime;
+    const int dm_components = calc_edm ? 10 : 6;
+    const int dm_chunk_size = 131072;
+    size_t dm_elems = (size_t)size_H1 * (size_t)dm_components;
+    size_t evec_count = (size_t)n2 * (size_t)n2;
+    int nk_occ = 0;
+    double stime, etime;
 
-    if (max_state <= 0) {
-        return 0.0;
+    if ((size_t)INT_MAX < dm_elems) {
+        ClusterNonCol_AbortWithMessage("Root DM buffer exceeds MPI count limit in Cluster_DFT_NonCol.c.");
     }
 
-    dm_elems = (size_t)size_H1 * (size_t)dm_components;
     ClusterNonCol_RootDMWorkspace_Ensure(max_state, dm_elems);
 
     dtime(&stime);
-
     memset(ws->dm_buffer, 0, sizeof(double) * dm_elems);
 
     if (myid == Host_ID) {
+        ClusterNonColDMEntryCache *cache;
+        const double *occ;
+        const double *occ_e;
+        double *rDM11;
+        double *rDM22;
+        double *rDM12;
+        double *iDM12;
+        double *iDM11;
+        double *iDM22;
+        double *rEDM11;
+        double *rEDM22;
+        double *rEDM12;
+        double *iEDM12;
+
         ClusterNonCol_DMEntryCache_Ensure(MP, n);
         cache = &ClusterNonCol_dm_entry_cache;
-
         if (cache->entry_count != size_H1) {
             ClusterNonCol_AbortWithMessage("DM entry cache size mismatch in Cluster_DFT_NonCol.c.");
         }
 
         nk_occ = ClusterNonCol_PrecomputeOccupations(1, max_state, ko, ws->occ, ws->occ_e);
+        occ = ws->occ;
+        occ_e = ws->occ_e;
+
+        rDM11  = ws->dm_buffer;
+        rDM22  = ws->dm_buffer + (size_t)size_H1;
+        rDM12  = ws->dm_buffer + (size_t)size_H1 * 2;
+        iDM12  = ws->dm_buffer + (size_t)size_H1 * 3;
+        iDM11  = ws->dm_buffer + (size_t)size_H1 * 4;
+        iDM22  = ws->dm_buffer + (size_t)size_H1 * 5;
+        rEDM11 = ws->dm_buffer + (size_t)size_H1 * 6;
+        rEDM22 = ws->dm_buffer + (size_t)size_H1 * 7;
+        rEDM12 = ws->dm_buffer + (size_t)size_H1 * 8;
+        iEDM12 = ws->dm_buffer + (size_t)size_H1 * 9;
 
         if (0 < nk_occ) {
-            double *rDM11  = ws->dm_buffer;
-            double *rDM22  = ws->dm_buffer + (size_t)size_H1;
-            double *rDM12  = ws->dm_buffer + (size_t)size_H1 * 2;
-            double *iDM12  = ws->dm_buffer + (size_t)size_H1 * 3;
-            double *iDM11  = ws->dm_buffer + (size_t)size_H1 * 4;
-            double *iDM22  = ws->dm_buffer + (size_t)size_H1 * 5;
-            double *rEDM11 = ws->dm_buffer + (size_t)size_H1 * 6;
-            double *rEDM22 = ws->dm_buffer + (size_t)size_H1 * 7;
-            double *rEDM12 = ws->dm_buffer + (size_t)size_H1 * 8;
-            double *iEDM12 = ws->dm_buffer + (size_t)size_H1 * 9;
-            int     entry_count;
-
-            basis0      = cache->basis0;
-            basis1      = cache->basis1;
-            occ         = ws->occ;
-            occ_e       = ws->occ_e;
-            entry_count = cache->entry_count;
-            evec_count  = (size_t)n2 * (size_t)n2;
-
-#pragma acc data present(evec_ptr[0 : evec_count]) copyin(occ[0 : nk_occ])
+#pragma acc data present(dense_evec[0 : evec_count]) copyin(occ[0 : nk_occ])
             {
                 if (calc_edm) {
 #pragma acc data copyin(occ_e[0 : nk_occ])
                     {
-                        for (int offset = 0; offset < entry_count; offset += dm_chunk_size) {
-                            const int    chunk_count = (entry_count - offset < dm_chunk_size) ? (entry_count - offset) : dm_chunk_size;
-                            const int *  basis0_chunk = basis0 + offset;
-                            const int *  basis1_chunk = basis1 + offset;
-                            double *     rDM11_chunk = rDM11 + offset;
-                            double *     rDM22_chunk = rDM22 + offset;
-                            double *     rDM12_chunk = rDM12 + offset;
-                            double *     iDM12_chunk = iDM12 + offset;
-                            double *     iDM11_chunk = iDM11 + offset;
-                            double *     iDM22_chunk = iDM22 + offset;
-                            double *     rEDM11_chunk = rEDM11 + offset;
-                            double *     rEDM22_chunk = rEDM22 + offset;
-                            double *     rEDM12_chunk = rEDM12 + offset;
-                            double *     iEDM12_chunk = iEDM12 + offset;
+                        for (int offset = 0; offset < cache->entry_count; offset += dm_chunk_size) {
+                            const int chunk_count =
+                                (cache->entry_count - offset < dm_chunk_size) ? (cache->entry_count - offset) : dm_chunk_size;
+                            const int *basis0_chunk = cache->basis0 + offset;
+                            const int *basis1_chunk = cache->basis1 + offset;
+                            double *rDM11_chunk = rDM11 + offset;
+                            double *rDM22_chunk = rDM22 + offset;
+                            double *rDM12_chunk = rDM12 + offset;
+                            double *iDM12_chunk = iDM12 + offset;
+                            double *iDM11_chunk = iDM11 + offset;
+                            double *iDM22_chunk = iDM22 + offset;
+                            double *rEDM11_chunk = rEDM11 + offset;
+                            double *rEDM22_chunk = rEDM22 + offset;
+                            double *rEDM12_chunk = rEDM12 + offset;
+                            double *iEDM12_chunk = iEDM12 + offset;
 
-#pragma acc data copyin(basis0_chunk[0 : chunk_count], basis1_chunk[0 : chunk_count])                              \
-    copyout(rDM11_chunk[0 : chunk_count], rDM22_chunk[0 : chunk_count], rDM12_chunk[0 : chunk_count],               \
-            iDM12_chunk[0 : chunk_count], iDM11_chunk[0 : chunk_count], iDM22_chunk[0 : chunk_count],               \
-            rEDM11_chunk[0 : chunk_count], rEDM22_chunk[0 : chunk_count], rEDM12_chunk[0 : chunk_count],             \
+#pragma acc data copyin(basis0_chunk[0 : chunk_count], basis1_chunk[0 : chunk_count]) \
+    copyout(rDM11_chunk[0 : chunk_count], rDM22_chunk[0 : chunk_count], rDM12_chunk[0 : chunk_count], \
+            iDM12_chunk[0 : chunk_count], iDM11_chunk[0 : chunk_count], iDM22_chunk[0 : chunk_count], \
+            rEDM11_chunk[0 : chunk_count], rEDM22_chunk[0 : chunk_count], rEDM12_chunk[0 : chunk_count], \
             iEDM12_chunk[0 : chunk_count])
                             {
-#pragma acc parallel loop gang present(evec_ptr[0 : evec_count], occ[0 : nk_occ], occ_e[0 : nk_occ])
+#pragma acc parallel loop gang present(dense_evec[0 : evec_count], occ[0 : nk_occ], occ_e[0 : nk_occ])
                                 for (int p = 0; p < chunk_count; p++) {
                                     const int ia = basis0_chunk[p];
                                     const int ib = basis1_chunk[p];
-                                    double    dm11_r = 0.0;
-                                    double    dm22_r = 0.0;
-                                    double    dm12_r = 0.0;
-                                    double    dm12_i = 0.0;
-                                    double    dm11_i = 0.0;
-                                    double    dm22_i = 0.0;
-                                    double    edm11_r = 0.0;
-                                    double    edm22_r = 0.0;
-                                    double    edm12_r = 0.0;
-                                    double    edm12_i = 0.0;
+                                    double dm11_r = 0.0, dm22_r = 0.0, dm12_r = 0.0, dm12_i = 0.0;
+                                    double dm11_i = 0.0, dm22_i = 0.0;
+                                    double edm11_r = 0.0, edm22_r = 0.0, edm12_r = 0.0, edm12_i = 0.0;
 
 #pragma acc loop seq
                                     for (int k = 0; k < nk_occ; k++) {
-                                        const double   w  = occ[k];
-                                        const double   ew = occ_e[k];
-                                        const dcomplex va_up = evec_ptr[(size_t)ia * (size_t)n2 + (size_t)k];
-                                        const dcomplex vb_up = evec_ptr[(size_t)ib * (size_t)n2 + (size_t)k];
-                                        const dcomplex va_dn = evec_ptr[(size_t)(ia + n) * (size_t)n2 + (size_t)k];
-                                        const dcomplex vb_dn = evec_ptr[(size_t)(ib + n) * (size_t)n2 + (size_t)k];
-                                        const double   re11 = va_up.r * vb_up.r + va_up.i * vb_up.i;
-                                        const double   im11 = va_up.r * vb_up.i - va_up.i * vb_up.r;
-                                        const double   re22 = va_dn.r * vb_dn.r + va_dn.i * vb_dn.i;
-                                        const double   im22 = va_dn.r * vb_dn.i - va_dn.i * vb_dn.r;
-                                        const double   re12 = va_up.r * vb_dn.r + va_up.i * vb_dn.i;
-                                        const double   im12 = va_up.r * vb_dn.i - va_up.i * vb_dn.r;
+                                        const double w  = occ[k];
+                                        const double ew = occ_e[k];
+                                        const dcomplex va_up = dense_evec[(size_t)ia * (size_t)n2 + (size_t)k];
+                                        const dcomplex vb_up = dense_evec[(size_t)ib * (size_t)n2 + (size_t)k];
+                                        const dcomplex va_dn = dense_evec[(size_t)(ia + n) * (size_t)n2 + (size_t)k];
+                                        const dcomplex vb_dn = dense_evec[(size_t)(ib + n) * (size_t)n2 + (size_t)k];
+                                        const double re11 = va_up.r * vb_up.r + va_up.i * vb_up.i;
+                                        const double im11 = va_up.r * vb_up.i - va_up.i * vb_up.r;
+                                        const double re22 = va_dn.r * vb_dn.r + va_dn.i * vb_dn.i;
+                                        const double im22 = va_dn.r * vb_dn.i - va_dn.i * vb_dn.r;
+                                        const double re12 = va_up.r * vb_dn.r + va_up.i * vb_dn.i;
+                                        const double im12 = va_up.r * vb_dn.i - va_up.i * vb_dn.r;
 
-                                        dm11_r += w * re11;
-                                        dm22_r += w * re22;
-                                        dm12_r += w * re12;
-                                        dm12_i += w * im12;
-                                        dm11_i += w * im11;
-                                        dm22_i += w * im22;
+                                        dm11_r  += w  * re11;
+                                        dm22_r  += w  * re22;
+                                        dm12_r  += w  * re12;
+                                        dm12_i  += w  * im12;
+                                        dm11_i  += w  * im11;
+                                        dm22_i  += w  * im22;
                                         edm11_r += ew * re11;
                                         edm22_r += ew * re22;
                                         edm12_r += ew * re12;
@@ -848,40 +549,38 @@ static double ClusterNonCol_CalcDMRootDense_OpenACC(int myid, int size_H1, int *
                             }
                         }
                     }
-                } else {
-                    for (int offset = 0; offset < entry_count; offset += dm_chunk_size) {
-                        const int    chunk_count = (entry_count - offset < dm_chunk_size) ? (entry_count - offset) : dm_chunk_size;
-                        const int *  basis0_chunk = basis0 + offset;
-                        const int *  basis1_chunk = basis1 + offset;
-                        double *     rDM11_chunk = rDM11 + offset;
-                        double *     rDM22_chunk = rDM22 + offset;
-                        double *     rDM12_chunk = rDM12 + offset;
-                        double *     iDM12_chunk = iDM12 + offset;
-                        double *     iDM11_chunk = iDM11 + offset;
-                        double *     iDM22_chunk = iDM22 + offset;
+                }
+                else {
+                    for (int offset = 0; offset < cache->entry_count; offset += dm_chunk_size) {
+                        const int chunk_count =
+                            (cache->entry_count - offset < dm_chunk_size) ? (cache->entry_count - offset) : dm_chunk_size;
+                        const int *basis0_chunk = cache->basis0 + offset;
+                        const int *basis1_chunk = cache->basis1 + offset;
+                        double *rDM11_chunk = rDM11 + offset;
+                        double *rDM22_chunk = rDM22 + offset;
+                        double *rDM12_chunk = rDM12 + offset;
+                        double *iDM12_chunk = iDM12 + offset;
+                        double *iDM11_chunk = iDM11 + offset;
+                        double *iDM22_chunk = iDM22 + offset;
 
-#pragma acc data copyin(basis0_chunk[0 : chunk_count], basis1_chunk[0 : chunk_count])                              \
-    copyout(rDM11_chunk[0 : chunk_count], rDM22_chunk[0 : chunk_count], rDM12_chunk[0 : chunk_count],               \
+#pragma acc data copyin(basis0_chunk[0 : chunk_count], basis1_chunk[0 : chunk_count]) \
+    copyout(rDM11_chunk[0 : chunk_count], rDM22_chunk[0 : chunk_count], rDM12_chunk[0 : chunk_count], \
             iDM12_chunk[0 : chunk_count], iDM11_chunk[0 : chunk_count], iDM22_chunk[0 : chunk_count])
                         {
-#pragma acc parallel loop gang present(evec_ptr[0 : evec_count], occ[0 : nk_occ])
+#pragma acc parallel loop gang present(dense_evec[0 : evec_count], occ[0 : nk_occ])
                             for (int p = 0; p < chunk_count; p++) {
                                 const int ia = basis0_chunk[p];
                                 const int ib = basis1_chunk[p];
-                                double    dm11_r = 0.0;
-                                double    dm22_r = 0.0;
-                                double    dm12_r = 0.0;
-                                double    dm12_i = 0.0;
-                                double    dm11_i = 0.0;
-                                double    dm22_i = 0.0;
+                                double dm11_r = 0.0, dm22_r = 0.0, dm12_r = 0.0, dm12_i = 0.0;
+                                double dm11_i = 0.0, dm22_i = 0.0;
 
 #pragma acc loop seq
                                 for (int k = 0; k < nk_occ; k++) {
-                                    const double   w  = occ[k];
-                                    const dcomplex va_up = evec_ptr[(size_t)ia * (size_t)n2 + (size_t)k];
-                                    const dcomplex vb_up = evec_ptr[(size_t)ib * (size_t)n2 + (size_t)k];
-                                    const dcomplex va_dn = evec_ptr[(size_t)(ia + n) * (size_t)n2 + (size_t)k];
-                                    const dcomplex vb_dn = evec_ptr[(size_t)(ib + n) * (size_t)n2 + (size_t)k];
+                                    const double w = occ[k];
+                                    const dcomplex va_up = dense_evec[(size_t)ia * (size_t)n2 + (size_t)k];
+                                    const dcomplex vb_up = dense_evec[(size_t)ib * (size_t)n2 + (size_t)k];
+                                    const dcomplex va_dn = dense_evec[(size_t)(ia + n) * (size_t)n2 + (size_t)k];
+                                    const dcomplex vb_dn = dense_evec[(size_t)(ib + n) * (size_t)n2 + (size_t)k];
 
                                     dm11_r += w * (va_up.r * vb_up.r + va_up.i * vb_up.i);
                                     dm22_r += w * (va_dn.r * vb_dn.r + va_dn.i * vb_dn.i);
@@ -916,814 +615,2024 @@ static double ClusterNonCol_CalcDMRootDense_OpenACC(int myid, int size_H1, int *
     return etime - stime;
 }
 
-static double ClusterNonCol_CalcEDMAll(int myid, int size_H1, int * is2, int * ie2, int * MP, int n, int n2,
-                                       double ***** EDM, double * ko, dcomplex * EVec1)
+static double ClusterNonCol_ScatterDenseEVecToLocal(int myid, int numprocs, int n2, const int *is2, const int *ie2,
+                                                    dcomplex *dense_evec, int dense_evec_on_device,
+                                                    dcomplex *EVec1)
 {
-    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
-    int                        local_nk;
-    int                        nk_occ;
-    int                        max_tno;
-    int                        max_cols;
-    double                     stime;
-    double                     etime;
-
-    local_nk = ie2[myid] - is2[myid] + 1;
-    if (local_nk <= 0) {
-        return 0.0;
-    }
-
-    ClusterNonCol_GetDMMaxDims(&max_tno, &max_cols);
-    ClusterNonCol_DMWorkspace_Ensure(max_tno, max_cols, local_nk, (size_t)size_H1 * 6);
+    const int tag = 1901;
+    double stime, etime;
+    int max_local_states = 0;
+    dcomplex *sendbuf = NULL;
 
     dtime(&stime);
 
-    nk_occ = ClusterNonCol_PrecomputeOccupations(is2[myid], ie2[myid], ko, ws->occ, ws->occ_e);
+    for (int ID = 0; ID < numprocs; ID++) {
+        int states = ie2[ID] - is2[ID] + 1;
+        if (states < 0) states = 0;
+        if (max_local_states < states) max_local_states = states;
+    }
 
-    memset(ws->dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 4);
-    ClusterNonCol_AccumulateWeightedDensity(n, n2, nk_occ, MP, EVec1, ws->occ_e, ws->dm_buffer,
-                                            ws->dm_buffer + (size_t)size_H1,
-                                            ws->dm_buffer + (size_t)size_H1 * 2,
-                                            ws->dm_buffer + (size_t)size_H1 * 3, NULL, NULL);
-    MPI_Allreduce(MPI_IN_PLACE, ws->dm_buffer, size_H1 * 4, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-    ClusterNonCol_StoreEDMBuffer(myid, size_H1, MP, EDM, ws->dm_buffer);
+    if (myid == Host_ID) {
+        size_t evec_count = (size_t)n2 * (size_t)n2;
+        size_t max_send_count = (size_t)max_local_states * (size_t)n2;
 
+        if (dense_evec_on_device) {
+#pragma acc update self(dense_evec[0 : evec_count])
+        }
+
+        if (0 < max_send_count) {
+            if (max_send_count > (size_t)INT_MAX / 2u) {
+                ClusterNonCol_AbortWithMessage("GPUSOLVER dense eigenvector send buffer exceeds MPI count limit.");
+            }
+            sendbuf = (dcomplex *)ClusterNonCol_MallocArray(max_send_count, sizeof(dcomplex),
+                                                            "GPUSOLVER dense eigenvector send buffer");
+        }
+
+        for (int ID = 0; ID < numprocs; ID++) {
+            int states = ie2[ID] - is2[ID] + 1;
+            dcomplex *target = (ID == Host_ID) ? EVec1 : sendbuf;
+
+            if (states <= 0) continue;
+
+            for (int k = 0; k < states; k++) {
+                int state = is2[ID] + k - 1;
+
+                for (int basis = 0; basis < n2; basis++) {
+                    /* Repack the dense column-major gpuSOLVER vectors into the
+                       state-major EVec1 blocks used by the ELPA/ScaLAPACK DM path. */
+                    target[(size_t)k * (size_t)n2 + (size_t)basis] =
+                        dense_evec[(size_t)state + (size_t)basis * (size_t)n2];
+                }
+            }
+
+            if (ID != Host_ID) {
+                size_t send_count = (size_t)states * (size_t)n2;
+                MPI_Send(sendbuf, (int)(send_count * 2u), MPI_DOUBLE, ID, tag, mpi_comm_level1);
+            }
+        }
+    }
+    else {
+        int states = ie2[myid] - is2[myid] + 1;
+
+        if (0 < states) {
+            size_t recv_count = (size_t)states * (size_t)n2;
+            MPI_Status stat;
+
+            if (recv_count > (size_t)INT_MAX / 2u) {
+                ClusterNonCol_AbortWithMessage("GPUSOLVER dense eigenvector receive buffer exceeds MPI count limit.");
+            }
+            MPI_Recv(EVec1, (int)(recv_count * 2u), MPI_DOUBLE, Host_ID, tag, mpi_comm_level1, &stat);
+        }
+    }
+
+    free(sendbuf);
     dtime(&etime);
     return etime - stime;
 }
 
-static double ClusterNonCol_CalcPartialDMAll(int myid, int size_H1, int * is2, int * ie2, int * MP, int n, int n2,
-                                             double * ko, dcomplex * EVec1)
-{
-    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
-    int                        local_nk;
-    int                        nk_occ;
-    int                        max_tno;
-    int                        max_cols;
-    double                     stime;
-    double                     etime;
+static dcomplex *ClusterNonCol_CachedGpuSolverDenseEVec = NULL;
+static int ClusterNonCol_CachedGpuSolverDenseN2 = 0;
+static int ClusterNonCol_CachedGpuSolverDenseOnDevice = 0;
 
-    local_nk = ie2[myid] - is2[myid] + 1;
-    if (local_nk <= 0) {
-        return 0.0;
+static void ClusterNonCol_ReleaseGpuSolverCachedEVec(int myid)
+{
+    dcomplex *dense_evec = ClusterNonCol_CachedGpuSolverDenseEVec;
+
+    if (myid == Host_ID && dense_evec != NULL) {
+        if (ClusterNonCol_CachedGpuSolverDenseOnDevice) {
+            /* the device copy is a mapped arena segment, not an allocation */
+            ClusterNonCol_ArenaUnmap(dense_evec);
+        }
+        free(dense_evec);
     }
 
-    ClusterNonCol_GetDMMaxDims(&max_tno, &max_cols);
-    ClusterNonCol_DMWorkspace_Ensure(max_tno, max_cols, local_nk, (size_t)size_H1 * 6);
-
-    dtime(&stime);
-
-    nk_occ = ClusterNonCol_PrecomputePartialOccupations(is2[myid], ie2[myid], ko, ws->occ);
-
-    memset(ws->dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 2);
-    ClusterNonCol_AccumulateWeightedDensity(n, n2, nk_occ, MP, EVec1, ws->occ, ws->dm_buffer,
-                                            ws->dm_buffer + (size_t)size_H1, NULL, NULL, NULL, NULL);
-    MPI_Allreduce(MPI_IN_PLACE, ws->dm_buffer, size_H1 * 2, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-    ClusterNonCol_StorePartialDMBuffer(myid, size_H1, MP, ws->dm_buffer);
-
-    dtime(&etime);
-    return etime - stime;
+    ClusterNonCol_CachedGpuSolverDenseEVec = NULL;
+    ClusterNonCol_CachedGpuSolverDenseN2 = 0;
+    ClusterNonCol_CachedGpuSolverDenseOnDevice = 0;
 }
 
-static double ClusterNonCol_CalcDMAll(int myid, int size_H1, int * is2, int * ie2, int * MP, int n, int n2,
-                                      double ***** CDM, double ***** iDM0, double ***** EDM, double * ko,
-                                      dcomplex * EVec1, int calc_edm)
+static void ClusterNonCol_StashGpuSolverDenseEVec(int myid, int n2, dcomplex **dense_evec, int *on_device)
 {
-    ClusterNonColDMWorkspace * ws = &ClusterNonCol_dm_workspace;
-    int                        local_nk;
-    int                        nk_occ;
-    int                        max_tno;
-    int                        max_cols;
-    double                     stime;
-    double                     etime;
+    ClusterNonCol_ReleaseGpuSolverCachedEVec(myid);
 
-    local_nk = ie2[myid] - is2[myid] + 1;
-    if (local_nk <= 0) {
-        return 0.0;
+    if (myid == Host_ID) {
+        ClusterNonCol_CachedGpuSolverDenseEVec = *dense_evec;
+        ClusterNonCol_CachedGpuSolverDenseN2 = n2;
+        ClusterNonCol_CachedGpuSolverDenseOnDevice = *on_device;
     }
 
-    ClusterNonCol_GetDMMaxDims(&max_tno, &max_cols);
-    ClusterNonCol_DMWorkspace_Ensure(max_tno, max_cols, local_nk, (size_t)size_H1 * 6);
-
-    dtime(&stime);
-
-    nk_occ = ClusterNonCol_PrecomputeOccupations(is2[myid], ie2[myid], ko, ws->occ, ws->occ_e);
-
-    memset(ws->dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 6);
-    ClusterNonCol_AccumulateWeightedDensity(n, n2, nk_occ, MP, EVec1, ws->occ, ws->dm_buffer,
-                                            ws->dm_buffer + (size_t)size_H1,
-                                            ws->dm_buffer + (size_t)size_H1 * 2,
-                                            ws->dm_buffer + (size_t)size_H1 * 3,
-                                            ws->dm_buffer + (size_t)size_H1 * 4,
-                                            ws->dm_buffer + (size_t)size_H1 * 5);
-    MPI_Allreduce(MPI_IN_PLACE, ws->dm_buffer, size_H1 * 6, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-    ClusterNonCol_StoreDMBuffer(myid, size_H1, MP, CDM, iDM0, ws->dm_buffer);
-
-    if (calc_edm) {
-        memset(ws->dm_buffer, 0, sizeof(double) * (size_t)size_H1 * 4);
-        ClusterNonCol_AccumulateWeightedDensity(n, n2, nk_occ, MP, EVec1, ws->occ_e, ws->dm_buffer,
-                                                ws->dm_buffer + (size_t)size_H1,
-                                                ws->dm_buffer + (size_t)size_H1 * 2,
-                                                ws->dm_buffer + (size_t)size_H1 * 3, NULL, NULL);
-        MPI_Allreduce(MPI_IN_PLACE, ws->dm_buffer, size_H1 * 4, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        ClusterNonCol_StoreEDMBuffer(myid, size_H1, MP, EDM, ws->dm_buffer);
-    }
-
-    dtime(&etime);
-    return etime - stime;
+    *dense_evec = NULL;
+    *on_device = 0;
 }
 
-double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * ko, double ***** nh, double ***** ImNL,
-                          double **** CntOLP, double ***** CDM, double ***** EDM, double Eele0[2], double Eele1[2],
-                          int * MP, int * is2, int * ie2, double * Ss, double * Cs, double * rHs11, double * rHs12,
-                          double * rHs22, double * iHs11, double * iHs12, double * iHs22, dcomplex * Ss2,
-                          dcomplex * Hs2, dcomplex * Cs2, double * DM1, int size_H1, dcomplex * EVec1, double * Work1)
+void Cluster_DFT_NonCol_DemoteGpuSolverCachedEVec(void)
 {
-    static int firsttime = 1;
-    static size_t persistent_fallback_real_elems = 0;
-    static size_t persistent_fallback_cpx_elems  = 0;
-    static double *persistent_fallback_Ss        = NULL;
-    static double *persistent_fallback_Cs        = NULL;
-    static double *persistent_fallback_rHs11     = NULL;
-    static double *persistent_fallback_rHs12     = NULL;
-    static double *persistent_fallback_rHs22     = NULL;
-    static double *persistent_fallback_iHs11     = NULL;
-    static double *persistent_fallback_iHs12     = NULL;
-    static double *persistent_fallback_iHs22     = NULL;
-    static dcomplex *persistent_fallback_Ss2     = NULL;
-    static dcomplex *persistent_fallback_Hs2     = NULL;
-    static dcomplex *persistent_fallback_Cs2     = NULL;
-    int        i, j, l, n, n2, n1, i1, i1s, j1, k1, l1;
-    int        ii1, jj1, jj2, ki, kj;
-    int        wan, HOMO0, HOMO1;
-    int        po, num0, num1;
-    int        mul, m, wan1, Gc_AN, bcast_flag;
-    double     time0, lumos;
-    int        ct_AN, k, wanA, tnoA, wanB, tnoB;
-    int        GA_AN, Anum, loopN;
-    int        MA_AN, LB_AN, GB_AN, Bnum, MaxN;
-    int *      is1, *ie1;
-    double     TZ, my_sum, sum, sumE, max_x = 60.0;
-    double     My_Eele1[2];
-    double     Num_State, x, FermiF, Dnum, Dnum2;
-    double     FermiF2, x2, diffF;
-    double     dum, ChemP_MAX, ChemP_MIN;
-    double     TStime, TEtime;
-    double     FermiEps = 1.0e-13;
-    char *     Name_Angular[Supported_MaxL + 1][2 * (Supported_MaxL + 1) + 1];
-    char       Name_Multiple[20][8] = {{0}};
-    char       file_EV[YOUSO10] = ".EV";
-    FILE *     fp_EV = NULL;
-    char       buf[fp_bsize]; /* setvbuf */
-    double     time1, time2, time3, time4, time5, time6, time7;
-    double     stime, etime;
-    double     av_num, tmp;
-    int        ig, jg;
-    int        numprocs, myid, ID;
-    int        original_scf_eigen_lib_flag, effective_scf_eigen_lib_flag;
-    int        use_cusolver_direct_cluster_dm = 0;
-    int        cusolver_direct_evec_on_device = 0;
-    int        ke, ks, nblk_m, nblk_m2;
-    int        ID0, IDS, IDR, Max_Num_Snd_EV, Max_Num_Rcv_EV;
-    int *      Num_Snd_EV, *Num_Rcv_EV;
-    int *      index_Snd_i, *index_Snd_j, *index_Rcv_i, *index_Rcv_j;
-    double *   EVec_Snd, *EVec_Rcv;
-    int        ZERO = 0, ONE = 1, info;
-    dcomplex   alpha = {1.0, 0.0};
-    dcomplex   beta  = {0.0, 0.0};
-    double *   fallback_Ss    = NULL;
-    double *   fallback_Cs    = NULL;
-    double *   fallback_rHs11 = NULL;
-    double *   fallback_rHs12 = NULL;
-    double *   fallback_rHs22 = NULL;
-    double *   fallback_iHs11 = NULL;
-    double *   fallback_iHs12 = NULL;
-    double *   fallback_iHs22 = NULL;
-    dcomplex * fallback_Ss2   = NULL;
-    dcomplex * fallback_Hs2   = NULL;
-    dcomplex * fallback_Cs2   = NULL;
+    dcomplex *dense_evec = ClusterNonCol_CachedGpuSolverDenseEVec;
+    int n2 = ClusterNonCol_CachedGpuSolverDenseN2;
 
-    MPI_Comm    mpi_comm_rows, mpi_comm_cols;
-    int         mpi_comm_rows_int, mpi_comm_cols_int;
-    MPI_Status  stat;
-    MPI_Request request;
+    if (dense_evec != NULL && ClusterNonCol_CachedGpuSolverDenseOnDevice) {
+        size_t evec_count = ClusterNonCol_CheckedMulCount((size_t)n2, (size_t)n2,
+                                                          "cached GPUSOLVER dense eigenvectors");
 
-    /* MPI */
+        /* Preserve the vectors for the final post-SCF scatter, then drop the
+           mapping onto the arena segment (the arena itself keeps the device
+           memory reserved until the pre-Force release). */
+#pragma acc update self(dense_evec[0 : evec_count])
+        ClusterNonCol_ArenaUnmap(dense_evec);
+        ClusterNonCol_CachedGpuSolverDenseOnDevice = 0;
+    }
+}
+
+double Cluster_DFT_NonCol_ScatterGpuSolverCachedEVec(int n2, int *is2, int *ie2, dcomplex *EVec1)
+{
+    int myid, numprocs;
+    int valid = 0;
+    double elapsed = 0.0;
+
     MPI_Comm_size(mpi_comm_level1, &numprocs);
     MPI_Comm_rank(mpi_comm_level1, &myid);
 
-    ClusterNonCol_ValidateMode(mode);
+    if (myid == Host_ID) {
+        valid = (ClusterNonCol_CachedGpuSolverDenseEVec != NULL &&
+                 ClusterNonCol_CachedGpuSolverDenseN2 == n2);
+    }
+    MPI_Bcast(&valid, 1, MPI_INT, Host_ID, mpi_comm_level1);
 
-    /* Cluster non-collinear calculations without a GPU use the ELPA1 path. */
-    original_scf_eigen_lib_flag  = scf_eigen_lib_flag;
-    effective_scf_eigen_lib_flag = scf_eigen_lib_flag;
-
-    if (effective_scf_eigen_lib_flag == 0) {
-        effective_scf_eigen_lib_flag = ELPA1;
-
-        if (myid == Host_ID && 0 < level_stdout) {
-            printf("Cluster_DFT_NonCol: fallback scf.eigen.lib from lapack to elpa1 for cluster non-collinear calculations.\n");
-        }
+    if (valid) {
+        elapsed = ClusterNonCol_ScatterDenseEVecToLocal(myid, numprocs, n2, is2, ie2,
+                                                        ClusterNonCol_CachedGpuSolverDenseEVec,
+                                                        ClusterNonCol_CachedGpuSolverDenseOnDevice, EVec1);
     }
 
-    if (original_scf_eigen_lib_flag == CuSOLVER && effective_scf_eigen_lib_flag != CuSOLVER) {
-        size_t local_real_elems = ClusterNonCol_CheckedMulCount((size_t)na_rows, (size_t)na_cols,
-                                                                "Cluster_DFT_NonCol ELPA fallback real matrix");
-        size_t local_cpx_elems  = ClusterNonCol_CheckedMulCount((size_t)na_rows2, (size_t)na_cols2,
-                                                               "Cluster_DFT_NonCol ELPA fallback complex matrix");
+    ClusterNonCol_ReleaseGpuSolverCachedEVec(myid);
 
-        if (persistent_fallback_real_elems < local_real_elems) {
-            free(persistent_fallback_Ss);
-            free(persistent_fallback_Cs);
-            free(persistent_fallback_rHs11);
-            free(persistent_fallback_rHs12);
-            free(persistent_fallback_rHs22);
-            free(persistent_fallback_iHs11);
-            free(persistent_fallback_iHs12);
-            free(persistent_fallback_iHs22);
+    return elapsed;
+}
 
-            persistent_fallback_Ss =
-                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback Ss");
-            persistent_fallback_Cs =
-                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback Cs");
-            persistent_fallback_rHs11 =
-                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback rHs11");
-            persistent_fallback_rHs12 =
-                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback rHs12");
-            persistent_fallback_rHs22 =
-                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback rHs22");
-            persistent_fallback_iHs11 =
-                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback iHs11");
-            persistent_fallback_iHs12 =
-                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback iHs12");
-            persistent_fallback_iHs22 =
-                (double *)ClusterNonCol_MallocArray(local_real_elems, sizeof(double), "persistent fallback iHs22");
+/* GPU GEMM wrappers (added by H.Kawai, ported from 3.9.9 GPU) */
+static cublasHandle_t ClusterNonCol_CublasHandle(void)
+{
+    /* One cached handle per selected device instead of a create/destroy pair
+       around every GEMM (13 calls per SCF iteration in the root dense path). */
+    static cublasHandle_t handle = NULL;
+    static int handle_device = -1;
+    int current_device = -1;
 
-            persistent_fallback_real_elems = local_real_elems;
+    wait_cudafunc(cudaGetDevice(&current_device));
+    if (handle != NULL && handle_device == current_device) {
+        return handle;
+    }
+    if (handle != NULL) {
+        wait_cudafunc(cublasDestroy(handle));
+        handle = NULL;
+    }
+    wait_cudafunc(cublasCreate(&handle));
+    handle_device = current_device;
+    return handle;
+}
+
+static int ClusterNonCol_GemmWorkspaceTurnRelease(void)
+{
+    /* Releasing the GEMMul8 workspace once the diagonalization is done keeps
+       it from occupying the shared device through the grid/force phases of
+       the SCF step; opt out with OPENMX_CLUSTER_GEMMUL8_TURN_RELEASE=0
+       (falls back to the band-path knob for a single switch). */
+    const char *value = getenv("OPENMX_CLUSTER_GEMMUL8_TURN_RELEASE");
+
+    if (value == NULL) {
+        value = getenv("OPENMX_BAND_GEMMUL8_TURN_RELEASE");
+    }
+    if (value == NULL) {
+        return 1;
+    }
+    return (atoi(value) != 0);
+}
+
+/* Persistent cuSOLVER state for the root dense zheevx.  The shared
+   gpusolver_Syevdx_Complex_openacc helper creates a fresh handle, stream and
+   multi-GiB device workspace on every call; at one call per SCF iteration
+   that churn is pure overhead, so cache them across iterations instead. */
+typedef struct
+{
+    int                inited;
+    int                device;
+    int                last_n;
+    int                last_maxn;
+    cusolverDnHandle_t handle;
+    cudaStream_t       stream;
+    size_t             d_work_bytes;
+    void              *d_work;
+    size_t             h_work_bytes;
+    void              *h_work;
+    int32_t           *d_info;
+} ClusterNonColGpuEigenCtx;
+
+static ClusterNonColGpuEigenCtx ClusterNonCol_gpu_eigen_ctx = {0};
+
+static void ClusterNonCol_GpuEigenCtx_Release(void)
+{
+    ClusterNonColGpuEigenCtx *ctx = &ClusterNonCol_gpu_eigen_ctx;
+
+    if (!ctx->inited) return;
+
+    if (ctx->d_work != NULL) wait_cudafunc(cudaFree(ctx->d_work));
+    if (ctx->d_info != NULL) wait_cudafunc(cudaFree(ctx->d_info));
+    free(ctx->h_work);
+    wait_cudafunc(cusolverDnDestroy(ctx->handle));
+    wait_cudafunc(cudaStreamDestroy(ctx->stream));
+    memset(ctx, 0, sizeof(*ctx));
+}
+
+/* Pre-Force release: the dense arena and the cached zheevdx workspace can
+   hold many GiB of the shared device between SCF cycles; return them before
+   Force() runs. */
+void Cluster_DFT_NonCol_Release_GPU_Solver(void)
+{
+    ClusterNonCol_DenseArena_Release();
+    ClusterNonCol_GpuEigenCtx_Release();
+}
+
+static ClusterNonColGpuEigenCtx *ClusterNonCol_GpuEigenCtx_Get(void)
+{
+    ClusterNonColGpuEigenCtx *ctx = &ClusterNonCol_gpu_eigen_ctx;
+    int current_device = -1;
+
+    wait_cudafunc(cudaGetDevice(&current_device));
+    if (ctx->inited && ctx->device != current_device) {
+        ClusterNonCol_GpuEigenCtx_Release();
+    }
+    if (!ctx->inited) {
+        wait_cudafunc(cusolverDnCreate(&ctx->handle));
+        wait_cudafunc(cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking));
+        wait_cudafunc(cusolverDnSetStream(ctx->handle, ctx->stream));
+        wait_cudafunc(cudaMalloc((void **)&ctx->d_info, sizeof(int32_t)));
+        ctx->device = current_device;
+        ctx->inited = 1;
+    }
+    return ctx;
+}
+
+/* Ensure the cached zheevdx workspaces cover an (n, maxn) solve.  A_dev and
+   W_dev are DEVICE pointers.  Returns 0 (with *need_bytes_out set) when the
+   device workspace cannot be allocated, leaving the context consistent; the
+   GPU-diag preflight uses this to reserve the full-range workspace up front
+   at the size cusolver actually reports. */
+static int ClusterNonCol_EigenWorkspace_TryEnsure(void *A_dev, double *W_dev, int n, int maxn,
+                                                  size_t *need_bytes_out)
+{
+    ClusterNonColGpuEigenCtx *ctx = ClusterNonCol_GpuEigenCtx_Get();
+    cusolverEigMode_t const   jobz = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t const    uplo = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t const  range = (n == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+    double vl = 0.0, vu = 0.0;
+    int64_t h_meig = 0;
+    size_t d_bytes = 0;
+    size_t h_bytes = 0;
+
+    if (need_bytes_out != NULL) *need_bytes_out = 0;
+    if (ctx->last_n == n && ctx->last_maxn == maxn) return 1;
+
+    wait_cudafunc(cusolverDnXsyevdx_bufferSize(ctx->handle, NULL, jobz, range, uplo, n, CUDA_C_64F, A_dev, n,
+                                               &vl, &vu, 1L, (int64_t)maxn, &h_meig, CUDA_R_64F, W_dev,
+                                               CUDA_C_64F, &d_bytes, &h_bytes));
+
+    if (ctx->d_work_bytes < d_bytes) {
+        if (ctx->d_work != NULL) wait_cudafunc(cudaFree(ctx->d_work));
+        ctx->d_work = NULL;
+        ctx->d_work_bytes = 0;
+        if (0 < d_bytes && ClusterNonCol_TryDeviceMalloc(&ctx->d_work, d_bytes) != cudaSuccess) {
+            if (need_bytes_out != NULL) *need_bytes_out = d_bytes;
+            return 0;
+        }
+        ctx->d_work_bytes = d_bytes;
+    }
+    if (ctx->h_work_bytes < h_bytes) {
+        free(ctx->h_work);
+        ctx->h_work = ClusterNonCol_MallocArray(h_bytes, 1u, "cuSOLVER host workspace");
+        ctx->h_work_bytes = h_bytes;
+    }
+    ctx->last_n = n;
+    ctx->last_maxn = maxn;
+    return 1;
+}
+
+/* In-place zheevx on OpenACC-present data: the eigenvectors land in the first
+   maxn columns of A and ko[1..maxn] receives the eigenvalues shifted by one,
+   exactly like EigenBand_lapack_openacc.  Workspace sizes are re-queried only
+   when the problem size changes. */
+static void ClusterNonCol_ZheevdxPresent(dcomplex *A, double *W, int n, int maxn)
+{
+    ClusterNonColGpuEigenCtx *ctx = ClusterNonCol_GpuEigenCtx_Get();
+    cusolverEigMode_t const   jobz = CUSOLVER_EIG_MODE_VECTOR;
+    cublasFillMode_t const    uplo = CUBLAS_FILL_MODE_LOWER;
+    cusolverEigRange_t const  range = (n == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
+    double vl = 0.0, vu = 0.0;
+    int64_t h_meig = 0;
+    int32_t info = 0;
+
+#pragma acc data      present(A[0 : (size_t)n * (size_t)n], W[0 : n + 1])
+#pragma acc host_data use_device(A, W)
+    {
+        size_t need_bytes = 0;
+
+        if (!ClusterNonCol_EigenWorkspace_TryEnsure(A, W, n, maxn, &need_bytes)) {
+            char msg[256];
+            snprintf(msg, sizeof(msg),
+                     "Cluster_DFT_NonCol.c: out of GPU memory for the %.1f MiB eigensolver workspace; "
+                     "reduce the MPI ranks sharing the device.",
+                     (double)need_bytes / (1024.0 * 1024.0));
+            ClusterNonCol_AbortWithMessage(msg);
         }
 
-        if (persistent_fallback_cpx_elems < local_cpx_elems) {
-            free(persistent_fallback_Ss2);
-            free(persistent_fallback_Hs2);
-            free(persistent_fallback_Cs2);
+        wait_cudafunc(cusolverDnXsyevdx(ctx->handle, NULL, jobz, range, uplo, n, CUDA_C_64F, A, n, &vl, &vu, 1L,
+                                        (int64_t)maxn, &h_meig, CUDA_R_64F, W, CUDA_C_64F, ctx->d_work,
+                                        ctx->d_work_bytes, ctx->h_work, ctx->h_work_bytes, ctx->d_info));
 
-            persistent_fallback_Ss2 =
-                (dcomplex *)ClusterNonCol_MallocArray(local_cpx_elems, sizeof(dcomplex), "persistent fallback Ss2");
-            persistent_fallback_Hs2 =
-                (dcomplex *)ClusterNonCol_MallocArray(local_cpx_elems, sizeof(dcomplex), "persistent fallback Hs2");
-            persistent_fallback_Cs2 =
-                (dcomplex *)ClusterNonCol_MallocArray(local_cpx_elems, sizeof(dcomplex), "persistent fallback Cs2");
+        wait_cudafunc(cudaMemcpyAsync(&info, ctx->d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, ctx->stream));
+        wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+    }
 
-            persistent_fallback_cpx_elems = local_cpx_elems;
+    if (info != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "cusolverDnXsyevdx failed in Cluster_DFT_NonCol.c: info=%d", (int)info);
+        ClusterNonCol_AbortWithMessage(msg);
+    }
+
+#pragma acc data present(W[0 : n + 1])
+    {
+#pragma acc kernels
+#pragma acc loop seq
+        for (int i = n; i >= 1; i--) {
+            W[i] = W[i - 1];
+        }
+    }
+}
+
+static void ClusterNonCol_GEMMul8Dgemm_OpenACC(cublasOperation_t transa, cublasOperation_t transb, int m, int n,
+                                               int k, double const * A, double const * B, double * C)
+{
+    cublasHandle_t handle = ClusterNonCol_CublasHandle();
+
+#pragma acc data      present(A[0 : m * k], B[0 : k * n], C[0 : m * n])
+#pragma acc host_data use_device(A, B, C)
+    {
+        double const alpha = 1.0;
+        double const beta  = 0.0;
+
+        wait_cudafunc(openmx_gemmul8Dgemm(handle, transa, transb, m, n, k, &alpha, A, m, B, k, &beta, C, m));
+    }
+}
+
+static void ClusterNonCol_GEMMul8Zgemm_OpenACC(cublasOperation_t transa, cublasOperation_t transb, int m, int n,
+                                               int k, dcomplex const * A, dcomplex const * B, dcomplex * C)
+{
+    cublasHandle_t handle = ClusterNonCol_CublasHandle();
+
+#pragma acc data      present(A[0 : m * k], B[0 : k * n], C[0 : m * n])
+#pragma acc host_data use_device(A, B, C)
+    {
+        cuDoubleComplex const alpha = make_cuDoubleComplex(1.0, 0.0);
+        cuDoubleComplex const beta  = make_cuDoubleComplex(0.0, 0.0);
+
+        wait_cudafunc(openmx_gemmul8Zgemm(handle, transa, transb, m, n, k, &alpha, (cuDoubleComplex const *)A, m,
+                                          (cuDoubleComplex const *)B, k, &beta, (cuDoubleComplex *)C, m));
+    }
+}
+
+/* Same as above but with explicit leading dimensions and present extents, so
+   a GEMM can target a sub-panel (m < ldc) of a larger present array. */
+static void ClusterNonCol_GEMMul8ZgemmLd_OpenACC(cublasOperation_t transa, cublasOperation_t transb, int m, int n,
+                                                 int k, dcomplex const * A, int lda, size_t a_count,
+                                                 dcomplex const * B, int ldb, size_t b_count,
+                                                 dcomplex * C, int ldc, size_t c_count)
+{
+    cublasHandle_t handle = ClusterNonCol_CublasHandle();
+
+#pragma acc data      present(A[0 : a_count], B[0 : b_count], C[0 : c_count])
+#pragma acc host_data use_device(A, B, C)
+    {
+        cuDoubleComplex const alpha = make_cuDoubleComplex(1.0, 0.0);
+        cuDoubleComplex const beta  = make_cuDoubleComplex(0.0, 0.0);
+
+        wait_cudafunc(openmx_gemmul8Zgemm(handle, transa, transb, m, n, k, &alpha, (cuDoubleComplex const *)A, lda,
+                                          (cuDoubleComplex const *)B, ldb, &beta, (cuDoubleComplex *)C, ldc));
+    }
+}
+
+static void ClusterNonCol_GpuSolver_DenseDsyevx(double *A, double *Z, double *ko, int n, int maxn,
+                                               const char *where)
+{
+    int info,l,copy_cols;
+
+    info = gpusolver_Syevdx(A, ko, n, maxn);
+    if (info!=0){
+        fprintf(stderr,"%s: gpusolver_Syevdx failed, info=%d\n",where,info);
+        fflush(stderr);
+        MPI_Abort(mpi_comm_level1,1);
+    }
+
+    for (l=maxn; 1<=l; l--) ko[l] = ko[l-1];
+
+    if (Z!=NULL){
+        copy_cols = maxn;
+        if (n<copy_cols) copy_cols = n;
+        memcpy(Z,A,sizeof(double)*(size_t)n*(size_t)copy_cols);
+    }
+}
+
+static void ClusterNonCol_GpuSolver_DenseZheevx(dcomplex *A, dcomplex *Z, double *ko, int n, int maxn,
+                                               const char *where)
+{
+    int info,l,copy_cols;
+
+    info = gpusolver_Syevdx_Complex(A, ko, n, maxn);
+    if (info!=0){
+        fprintf(stderr,"%s: gpusolver_Syevdx_Complex failed, info=%d\n",where,info);
+        fflush(stderr);
+        MPI_Abort(mpi_comm_level1,1);
+    }
+
+    for (l=maxn; 1<=l; l--) ko[l] = ko[l-1];
+
+    if (Z!=NULL){
+        copy_cols = maxn;
+        if (n<copy_cols) copy_cols = n;
+        memcpy(Z,A,sizeof(dcomplex)*(size_t)n*(size_t)copy_cols);
+    }
+}
+
+static int ClusterNonCol_ComputeLocalNZeroCount(void)
+{
+    int MA_AN, GA_AN, LB_AN, GB_AN;
+    int wanA, wanB, tnoA, tnoB;
+    size_t my_nzeros = 0;
+
+    for (MA_AN = 1; MA_AN <= Matomnum; MA_AN++) {
+        size_t orbitals_in_neighbors = 0;
+
+        GA_AN = M2G[MA_AN];
+        wanA = WhatSpecies[GA_AN];
+        tnoA = Spe_Total_CNO[wanA];
+
+        for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+            GB_AN = natn[GA_AN][LB_AN];
+            wanB = WhatSpecies[GB_AN];
+            tnoB = Spe_Total_CNO[wanB];
+            orbitals_in_neighbors =
+                ClusterNonCol_CheckedAddCount(orbitals_in_neighbors, (size_t)tnoB, "neighbor orbital count");
         }
 
-        fallback_Ss    = persistent_fallback_Ss;
-        fallback_Cs    = persistent_fallback_Cs;
-        fallback_rHs11 = persistent_fallback_rHs11;
-        fallback_rHs12 = persistent_fallback_rHs12;
-        fallback_rHs22 = persistent_fallback_rHs22;
-        fallback_iHs11 = persistent_fallback_iHs11;
-        fallback_iHs12 = persistent_fallback_iHs12;
-        fallback_iHs22 = persistent_fallback_iHs22;
-        fallback_Ss2   = persistent_fallback_Ss2;
-        fallback_Hs2   = persistent_fallback_Hs2;
-        fallback_Cs2   = persistent_fallback_Cs2;
-
-        Ss    = fallback_Ss;
-        Cs    = fallback_Cs;
-        rHs11 = fallback_rHs11;
-        rHs12 = fallback_rHs12;
-        rHs22 = fallback_rHs22;
-        iHs11 = fallback_iHs11;
-        iHs12 = fallback_iHs12;
-        iHs22 = fallback_iHs22;
-        Ss2   = fallback_Ss2;
-        Hs2   = fallback_Hs2;
-        Cs2   = fallback_Cs2;
+        my_nzeros = ClusterNonCol_CheckedAddCount(
+            my_nzeros, ClusterNonCol_CheckedMulCount((size_t)tnoA, orbitals_in_neighbors, "local H1 segment"),
+            "local H1 segment");
     }
 
-    scf_eigen_lib_flag = effective_scf_eigen_lib_flag;
-    use_cusolver_direct_cluster_dm =
-        (scf_eigen_lib_flag == CuSOLVER && strcasecmp(mode, "scf") == 0 && MO_fileout != 1 && xanes_calc != 1 &&
-         xanes_gs_fileout != 1 && !cal_partial_charge && !Dos_fileout && !DosGauss_fileout);
-
-    MPI_Barrier(mpi_comm_level1);
-    dtime(&TStime);
-
-    if (scf_eigen_lib_flag == CuSOLVER) {
-        // CUDA
-        set_cuda_default_device_from_local_rank();
-
-        // OpenACC
-        set_openacc_nvidia_device_from_local_rank();
+    if (my_nzeros > (size_t)INT_MAX) {
+        ClusterNonCol_AbortWithMessage("Local H1 segment exceeds INT_MAX in Cluster_DFT_NonCol.c.");
     }
 
-    /* ***************************************************
-             calculation of the array size
-  *************************************************** */
+    return (int)my_nzeros;
+}
 
-    n = 0;
+static int ClusterNonCol_SetMPAndReturnNum(int *MP)
+{
+    int i, wanA;
+    size_t orbital_offset = 1;
+
     for (i = 1; i <= atomnum; i++) {
+        if (orbital_offset > (size_t)INT_MAX) {
+            ClusterNonCol_AbortWithMessage("Orbital offsets exceed INT_MAX in Cluster_DFT_NonCol.c.");
+        }
+
+        MP[i] = (int)orbital_offset;
         wanA = WhatSpecies[i];
-        n    = n + Spe_Total_CNO[wanA];
-    }
-    n2 = 2 * n;
-
-    /* ***************************************************
-                  allocation of arrays
-  *************************************************** */
-
-    is1 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "is1");
-    ie1 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "ie1");
-
-    Num_Snd_EV = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "Num_Snd_EV");
-    Num_Rcv_EV = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "Num_Rcv_EV");
-
-    /* initialize variables of measuring elapsed time */
-
-    if (measure_time) {
-        time1 = 0.0;
-        time2 = 0.0;
-        time3 = 0.0;
-        time4 = 0.0;
-        time5 = 0.0;
-        time6 = 0.0;
-        time7 = 0.0;
+        orbital_offset =
+            ClusterNonCol_CheckedAddCount(orbital_offset, (size_t)Spe_Total_CNO[wanA], "orbital offsets");
     }
 
-    /* ***************************************************
-                  total core charge
-  *************************************************** */
-
-    TZ = 0.0;
-    for (i = 1; i <= atomnum; i++) {
-        wan = WhatSpecies[i];
-        TZ += Spe_Core_Charge[wan];
+    if (orbital_offset == 0 || orbital_offset - 1u > (size_t)INT_MAX) {
+        ClusterNonCol_AbortWithMessage("Orbital count exceeds INT_MAX in Cluster_DFT_NonCol.c.");
     }
 
-    /* ***************************************************
-         find the numbers of partions for MPI
-  *************************************************** */
+    return (int)(orbital_offset - 1u);
+}
 
-    if (numprocs <= n) {
+static void ClusterNonCol_PackLocalSegment(double ****RH, double *local_H1, int local_nzeros)
+{
+    int MA_AN, GA_AN, LB_AN, GB_AN;
+    int wanA, wanB, tnoA, tnoB;
+    int i, j, k;
 
-        av_num = (double)n / (double)numprocs;
+    k = 0;
+    for (MA_AN = 1; MA_AN <= Matomnum; MA_AN++) {
+        GA_AN = M2G[MA_AN];
+        wanA = WhatSpecies[GA_AN];
+        tnoA = Spe_Total_CNO[wanA];
 
-        for (ID = 0; ID < numprocs; ID++) {
-            is1[ID] = (int)(av_num * (double)ID) + 1;
-            ie1[ID] = (int)(av_num * (double)(ID + 1));
-        }
+        for (i = 0; i < tnoA; i++) {
+            for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+                GB_AN = natn[GA_AN][LB_AN];
+                wanB = WhatSpecies[GB_AN];
+                tnoB = Spe_Total_CNO[wanB];
 
-        is1[0]            = 1;
-        ie1[numprocs - 1] = n;
-    }
-
-    else {
-
-        for (ID = 0; ID < n; ID++) {
-            is1[ID] = ID + 1;
-            ie1[ID] = ID + 1;
-        }
-
-        for (ID = n; ID < numprocs; ID++) {
-            is1[ID] = 1;
-            ie1[ID] = 0;
-        }
-    }
-
-    /* find the maximum states in solved eigenvalues */
-
-    if (SCF_iter == 1) {
-        MaxN = n2;
-    } else {
-
-        if (strcasecmp(mode, "scf") == 0)
-            lumos = (double)n2 * 0.20;
-        else if (strcasecmp(mode, "dos") == 0)
-            lumos = (double)n2 * 0.40;
-        else if (strcasecmp(mode, "lcaoout") == 0)
-            lumos = (double)n2 * 0.40;
-        else if (strcasecmp(mode, "xanes") == 0)
-            lumos = (double)n2 * 0.40;
-
-        if (lumos < 400.0)
-            lumos = 400.0;
-        MaxN = Cluster_HOMO[0] + (int)lumos;
-        if (n2 < MaxN)
-            MaxN = n2;
-
-        if (cal_partial_charge)
-            MaxN = n2;
-    }
-
-    if (numprocs <= MaxN) {
-
-        av_num = (double)MaxN / (double)numprocs;
-
-        for (ID = 0; ID < numprocs; ID++) {
-            is2[ID] = (int)(av_num * (double)ID) + 1;
-            ie2[ID] = (int)(av_num * (double)(ID + 1));
-        }
-
-        is2[0]            = 1;
-        ie2[numprocs - 1] = MaxN;
-    }
-
-    else {
-        for (ID = 0; ID < MaxN; ID++) {
-            is2[ID] = ID + 1;
-            ie2[ID] = ID + 1;
-        }
-        for (ID = MaxN; ID < numprocs; ID++) {
-            is2[ID] = 1;
-            ie2[ID] = 0;
-        }
-    }
-
-    /* making data structure of MPI communicaition for eigenvectors */
-
-    for (ID = 0; ID < numprocs; ID++) {
-        Num_Snd_EV[ID] = 0;
-        Num_Rcv_EV[ID] = 0;
-    }
-
-    if (!use_cusolver_direct_cluster_dm) {
-        for (i = 0; i < na_rows2; i++) {
-
-            ig = np_rows2 * nblk2 * ((i) / nblk2) + (i) % nblk2 + ((np_rows2 + my_prow2) % np_rows2) * nblk2 + 1;
-
-            ID0 = ClusterNonCol_FindOwner(ig, numprocs, is2, ie2, "eigenvector row");
-            Num_Snd_EV[ID0] += na_cols2;
-        }
-
-        for (ID = 0; ID < numprocs; ID++) {
-            IDS = (myid + ID) % numprocs;
-            IDR = (myid - ID + numprocs) % numprocs;
-            if (ID != 0) {
-                MPI_Isend(&Num_Snd_EV[IDS], 1, MPI_INT, IDS, 999, mpi_comm_level1, &request);
-                MPI_Recv(&Num_Rcv_EV[IDR], 1, MPI_INT, IDR, 999, mpi_comm_level1, &stat);
-                MPI_Wait(&request, &stat);
-            } else {
-                Num_Rcv_EV[IDR] = Num_Snd_EV[IDS];
-            }
-        }
-    }
-
-    Max_Num_Snd_EV = 0;
-    Max_Num_Rcv_EV = 0;
-    for (ID = 0; ID < numprocs; ID++) {
-        if (Max_Num_Snd_EV < Num_Snd_EV[ID])
-            Max_Num_Snd_EV = Num_Snd_EV[ID];
-        if (Max_Num_Rcv_EV < Num_Rcv_EV[ID])
-            Max_Num_Rcv_EV = Num_Rcv_EV[ID];
-    }
-
-    Max_Num_Snd_EV++;
-    Max_Num_Rcv_EV++;
-
-    index_Snd_i = (int *)ClusterNonCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(int), "index_Snd_i");
-    index_Snd_j = (int *)ClusterNonCol_MallocArray((size_t)Max_Num_Snd_EV, sizeof(int), "index_Snd_j");
-    EVec_Snd    = (double *)ClusterNonCol_MallocArray(
-        ClusterNonCol_CheckedMulCount((size_t)Max_Num_Snd_EV, 2u, "EVec_Snd elements"), sizeof(double), "EVec_Snd");
-    index_Rcv_i = (int *)ClusterNonCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(int), "index_Rcv_i");
-    index_Rcv_j = (int *)ClusterNonCol_MallocArray((size_t)Max_Num_Rcv_EV, sizeof(int), "index_Rcv_j");
-    EVec_Rcv    = (double *)ClusterNonCol_MallocArray(
-        ClusterNonCol_CheckedMulCount((size_t)Max_Num_Rcv_EV, 2u, "EVec_Rcv elements"), sizeof(double), "EVec_Rcv");
-
-    /* print memory size */
-
-    if (firsttime && memoryusage_fileout) {
-        PrintMemory("Cluster_DFT_NonCol: is1", sizeof(int) * numprocs, NULL);
-        PrintMemory("Cluster_DFT_NonCol: ie1", sizeof(int) * numprocs, NULL);
-        PrintMemory("Cluster_DFT_NonCol: Num_Snd_EV", sizeof(int) * numprocs, NULL);
-        PrintMemory("Cluster_DFT_NonCol: Num_Ecv_EV", sizeof(int) * numprocs, NULL);
-        PrintMemory("Cluster_DFT_NonCol: index_Snd_i", sizeof(int) * Max_Num_Snd_EV, NULL);
-        PrintMemory("Cluster_DFT_NonCol: index_Snd_j", sizeof(int) * Max_Num_Snd_EV, NULL);
-        PrintMemory("Cluster_DFT_NonCol: index_Rcv_i", sizeof(int) * Max_Num_Rcv_EV, NULL);
-        PrintMemory("Cluster_DFT_NonCol: index_Rcv_j", sizeof(int) * Max_Num_Rcv_EV, NULL);
-        PrintMemory("Cluster_DFT_NonCol: EVec_Snd", sizeof(double) * Max_Num_Snd_EV * 2, NULL);
-        PrintMemory("Cluster_DFT_NonCol: EVec_Rcv", sizeof(double) * Max_Num_Rcv_EV * 2, NULL);
-    }
-    firsttime = 0;
-
-    /* ***************************************************
-            diagonalize the overlap matrix     
-  *************************************************** */
-
-    if (scf_eigen_lib_flag == CuSOLVER) {
-        if (SCF_iter == 1) {
-            Overlap_Cluster_Ss(CntOLP, Ss, MP, &mpi_comm_level1, 0, n);
-        }
-
-        Hamiltonian_Cluster_Hs(nh[0], rHs11, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(nh[1], rHs22, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(nh[2], rHs12, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(nh[3], iHs12, MP, 0, &mpi_comm_level1, 0, n);
-
-        Hamiltonian_Cluster_Hs(ImNL[0], iHs11, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(ImNL[1], iHs22, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(ImNL[2], Cs, MP, 0, &mpi_comm_level1, 0, n);
-
-        if (myid == 0) {
-
-#pragma acc enter data copyin(Ss[0 : n * n])
-#pragma acc enter data create(ko[0 : n2 + 1])
-
-            if (SCF_iter == 1) {
-                Eigen_cusolver_x_openacc2(Ss, ko, n, n);
-
-                /* minus eigenvalues to 1.0e-10 */
-#pragma acc kernels
-#pragma acc loop independent
-                for (l = 1; l <= n; l++) {
-                    if (ko[l] < 1.0e-10)
-                        ko[l] = 1.0e-10;
-                    ko[l] = 1.0 / sqrt(ko[l]);
-                }
-
-                /* calculate S*1/sqrt(ko) */
-#pragma acc kernels
-#pragma acc loop independent
-                for (i = 0; i < n; i++) {
-#pragma acc loop independent
-                    for (j = 0; j < n; j++) {
-                        //jg = np_cols * nblk * ((j) / nblk) + (j) % nblk + ((np_cols + my_pcol) % np_cols) * nblk + 1;
-                        Ss[j * n + i] *= ko[j + 1];
-                    }
-                }
-
-#pragma acc update self(Ss[0 : n * n])
-
-                for (i = 0; i < n2; i++) {
-                    for (j = 0; j < n2; j++) {
-                        if (i < n && j < n) {
-                            Ss2[n2 * i + j].r = Ss[n * i + j];
-                            Ss2[n2 * i + j].i = 0.0;
-                        } else if (i >= n && i < n2 && j >= n && j < n2) {
-                            Ss2[n2 * i + j].r = Ss[n * (i - n) + j - n];
-                            Ss2[n2 * i + j].i = 0.0;
-                        } else {
-                            Ss2[n2 * i + j].r = 0.0;
-                            Ss2[n2 * i + j].i = 0.0;
-                        }
-                    }
+                for (j = 0; j < tnoB; j++) {
+                    local_H1[k] = RH[MA_AN][LB_AN][i][j];
+                    k++;
                 }
             }
+        }
+    }
 
-            for (i = 0; i < n * n; i++)
-                iHs12[i] += Cs[i];
+    if (k != local_nzeros) {
+        ClusterNonCol_AbortWithMessage("Packed H1 length mismatch in Cluster_DFT_NonCol.c.");
+    }
+}
 
-#pragma acc enter data create(Cs[0 : n * n])
+static void ClusterNonCol_BuildDenseFromGathered(const double *H1, const int *order_GA, int *MP, double *H,
+                                                 int n, int tnum)
+{
+    int AN, GA_AN, LB_AN, GB_AN;
+    int wanA, wanB, tnoA, tnoB;
+    size_t *atom_offsets;
+    size_t dense_count;
+    size_t offset;
 
-            /* S^t x rHs11 x S */
+    atom_offsets = (size_t *)ClusterNonCol_MallocArray((size_t)atomnum + 2u, sizeof(size_t), "atom offsets");
 
-#pragma acc enter data copyin(rHs11[0 : n * n])
+    offset = 0;
+    for (AN = 1; AN <= atomnum; AN++) {
+        size_t atom_block_count = 0;
 
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                Cs[i] = 0.0;
-            }
+        atom_offsets[AN] = offset;
+        GA_AN = order_GA[AN];
+        wanA = WhatSpecies[GA_AN];
+        tnoA = Spe_Total_CNO[wanA];
 
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, rHs11, Ss, Cs);
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                rHs11[i] = 0.0;
-            }
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, rHs11);
-
-#pragma acc enter data copyin(rHs12[0 : n * n])
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                Cs[i] = 0.0;
-            }
-
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, rHs12, Ss, Cs);
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                rHs12[i] = 0.0;
-            }
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, rHs12);
-
-#pragma acc enter data copyin(rHs22[0 : n * n])
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                Cs[i] = 0.0;
-            }
-
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, rHs22, Ss, Cs);
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                rHs22[i] = 0.0;
-            }
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, rHs22);
-
-#pragma acc update self(rHs22[0 : n * n])
-
-            /* S^t x iHs11 x S */
-
-#pragma acc enter data copyin(iHs11[0 : n * n])
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                Cs[i] = 0.0;
-            }
-
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, iHs11, Ss, Cs);
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                iHs11[i] = 0.0;
-            }
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, iHs11);
-
-#pragma acc enter data copyin(iHs12[0 : n * n])
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                Cs[i] = 0.0;
-            }
-
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, iHs12, Ss, Cs);
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                iHs12[i] = 0.0;
-            }
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, iHs12);
-
-            /* S^t x iHs22 x S */
-
-#pragma acc enter data copyin(iHs22[0 : n * n])
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                Cs[i] = 0.0;
-            }
-
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, iHs22, Ss, Cs);
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n * n; i++) {
-                iHs22[i] = 0.0;
-            }
-            ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, Ss, Cs, iHs22);
-
-#pragma acc exit data  delete(Ss[0 : n * n], Cs[0 : n * n])
-#pragma acc enter data create(Hs2[0 : n2 * n2])
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (j = 0; j < n2; j++) {
-#pragma acc loop independent
-                for (i = 0; i < n2; i++) {
-                    if (i < n && j < n) {
-                        Hs2[i + j * n2].r = rHs11[i + j * n];
-                        Hs2[i + j * n2].i = iHs11[i + j * n];
-                    } else if (i < n && j >= n) {
-                        int jj            = j - n;
-                        Hs2[i + j * n2].r = rHs12[i + jj * n];
-                        Hs2[i + j * n2].i = iHs12[i + jj * n];
-                    } else if (i >= n && j < n) {
-                        int ii            = i - n;
-                        Hs2[i + j * n2].r = rHs12[j + ii * n];
-                        Hs2[i + j * n2].i = -iHs12[j + ii * n];
-                    } else {
-                        int ii            = i - n;
-                        int jj            = j - n;
-                        Hs2[i + j * n2].r = rHs22[ii + jj * n];
-                        Hs2[i + j * n2].i = iHs22[ii + jj * n];
-                    }
-                }
-            }
-
-#pragma acc exit data delete(rHs11[0 : n * n], rHs12[0 : n * n], rHs22[0 : n * n], iHs11[0 : n * n], iHs12[0 : n * n], \
-                             iHs22[0 : n * n])
-
-            EigenBand_lapack_openacc(Hs2, ko, n2, MaxN);
-
-#pragma acc enter data copyin(Ss2[0 : n2 * n2])
-#pragma acc enter data create(Cs2[0 : n2 * n2])
-
-#pragma acc kernels
-#pragma acc loop independent
-            for (i = 0; i < n2; i++) {
-#pragma acc loop independent
-                for (j = 0; j < n2; j++) {
-                    Cs2[n2 * i + j].r = 0.0;
-                    Cs2[n2 * i + j].i = 0.0;
-                }
-            }
-
-            ClusterNonCol_CublasZgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_T, n2, n2, n2, Hs2, Ss2, Cs2);
-
-            if (use_cusolver_direct_cluster_dm) {
-#pragma acc update self(ko[0 : n2 + 1])
-#pragma acc exit data delete(Hs2[0 : n2 * n2], Ss2[0 : n2 * n2], ko[0 : n2 + 1])
-                cusolver_direct_evec_on_device = 1;
-            } else {
-#pragma acc update self(ko[0 : n2 + 1], Cs2[0 : n2 * n2])
-#pragma acc exit data delete(Hs2[0 : n2 * n2], Ss2[0 : n2 * n2], Cs2[0 : n2 * n2], ko[0 : n2 + 1])
-            }
+        for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+            GB_AN = natn[GA_AN][LB_AN];
+            wanB = WhatSpecies[GB_AN];
+            tnoB = Spe_Total_CNO[wanB];
+            atom_block_count = ClusterNonCol_CheckedAddCount(
+                atom_block_count, ClusterNonCol_CheckedMulCount((size_t)tnoA, (size_t)tnoB, "atom block span"),
+                "atom block span");
         }
 
-        if (!use_cusolver_direct_cluster_dm) {
-            int desc_global2[9];
-            int i_zero = 0;
-            int i_one  = 1;
+        offset = ClusterNonCol_CheckedAddCount(offset, atom_block_count, "dense assembly offsets");
+    }
+    atom_offsets[atomnum + 1] = offset;
 
-            descinit_(desc_global2, &n2, &n2, &n2, &n2, &i_zero, &i_zero, &ictxt1_2, &n2, &info);
-            pzgemr2d_(&n2, &n2, Cs2, &i_one, &i_one, desc_global2, Hs2, &i_one, &i_one, descH2, &ictxt1_2);
-        }
+    if (offset != (size_t)tnum) {
+        ClusterNonCol_AbortWithMessage("Gathered H1 size mismatch in Cluster_DFT_NonCol.c.");
+    }
 
-        MPI_Bcast(ko, n2 + 1, MPI_DOUBLE, 0, mpi_comm_level1);
-    } else {
-        if (SCF_iter == 1) {
+    dense_count = ClusterNonCol_CheckedMulCount((size_t)n, (size_t)n, "dense H size");
+    memset(H, 0, ClusterNonCol_CheckedMulCount(dense_count, sizeof(double), "dense H bytes"));
 
-            if (measure_time)
-                dtime(&stime);
-
-            Overlap_Cluster_Ss(CntOLP, Cs, MP, &mpi_comm_level1, 0, n);
-
-            MPI_Comm_split(mpi_comm_level1, my_pcol, my_prow, &mpi_comm_rows);
-            MPI_Comm_split(mpi_comm_level1, my_prow, my_pcol, &mpi_comm_cols);
-
-            mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
-            mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
-
-            if (scf_eigen_lib_flag == 1) {
-                F77_NAME(solve_evp_real, SOLVE_EVP_REAL)(&n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk,
-                                                         &mpi_comm_rows_int, &mpi_comm_cols_int);
-            } else if (scf_eigen_lib_flag == 2) {
-
-#ifndef kcomp
-
-                int mpiworld;
-                mpiworld = MPI_Comm_c2f(mpi_comm_level1);
-
-                F77_NAME(elpa_solve_evp_real_2stage_double_impl, ELPA_SOLVE_EVP_REAL_2STAGE_DOUBLE_IMPL)
-                (&n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk, &na_cols, &mpi_comm_rows_int, &mpi_comm_cols_int,
-                 &mpiworld);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic, 1)
 #endif
-            }
+    for (AN = 1; AN <= atomnum; AN++) {
+        int GA_AN_local;
+        int wanA_local;
+        int tnoA_local;
+        int Anum_local;
+        size_t k_local;
 
-            MPI_Comm_free(&mpi_comm_rows);
-            MPI_Comm_free(&mpi_comm_cols);
+        GA_AN_local = order_GA[AN];
+        wanA_local = WhatSpecies[GA_AN_local];
+        tnoA_local = Spe_Total_CNO[wanA_local];
+        Anum_local = MP[GA_AN_local];
+        k_local = atom_offsets[AN];
 
-            /* print to the standard output */
+        for (int i = 0; i < tnoA_local; i++) {
+            int ig = Anum_local + i;
 
-            if (2 <= level_stdout) {
-                for (l = 1; l <= n; l++) {
-                    printf("  Eigenvalues of OLP  %2d  %18.15f\n", l, ko[l]);
+            for (int LB_AN_local = 0; LB_AN_local <= FNAN[GA_AN_local]; LB_AN_local++) {
+                int GB_AN_local;
+                int wanB_local;
+                int tnoB_local;
+                int Bnum_local;
+
+                GB_AN_local = natn[GA_AN_local][LB_AN_local];
+                wanB_local = WhatSpecies[GB_AN_local];
+                tnoB_local = Spe_Total_CNO[wanB_local];
+                Bnum_local = MP[GB_AN_local];
+
+                for (int j = 0; j < tnoB_local; j++) {
+                    int jg = Bnum_local + j;
+
+                    if (ig < 1 || n < ig || jg < 1 || n < jg) {
+                        ClusterNonCol_AbortWithMessage("Dense matrix index is out of range in Cluster_DFT_NonCol.c.");
+                    }
+
+                    H[(size_t)(jg - 1) * (size_t)n + (size_t)(ig - 1)] += H1[k_local];
+                    k_local++;
                 }
             }
+        }
 
-            /* minus eigenvalues to 1.0e-10 */
+        if (k_local != atom_offsets[AN + 1]) {
+            ClusterNonCol_AbortWithMessage("Atom-local H1 offsets are inconsistent in Cluster_DFT_NonCol.c.");
+        }
+    }
 
-            for (l = 1; l <= n; l++) {
-                if (ko[l] < 1.0e-10)
-                    ko[l] = 1.0e-10;
+    free(atom_offsets);
+}
+
+static void Patch2Full_Cluster_NonCol_Owner(double ****RH, double *H, int *MP, int owns_dense, int n)
+{
+    int myid, numprocs;
+    int dense_root = Host_ID;
+    int NUM;
+    int local_nzeros;
+    int local_matomnum;
+    int dummy_int = 0;
+    int *recv_nzeros = NULL;
+    int *recv_matomnum = NULL;
+    int *h1_displs = NULL;
+    int *atom_displs = NULL;
+    int *order_GA = NULL;
+    double *local_H1;
+    double *gathered_H1 = NULL;
+
+    MPI_Comm_size(mpi_comm_level1, &numprocs);
+    MPI_Comm_rank(mpi_comm_level1, &myid);
+
+    NUM = ClusterNonCol_SetMPAndReturnNum(MP);
+    if (NUM != n) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Orbital count mismatch in Cluster_DFT_NonCol.c: n=%d, NUM=%d", n, NUM);
+        ClusterNonCol_AbortWithMessage(msg);
+    }
+
+    local_nzeros = ClusterNonCol_ComputeLocalNZeroCount();
+    local_matomnum = Matomnum;
+    local_H1 = (double *)ClusterNonCol_MallocArray((size_t)local_nzeros, sizeof(double), "local H1 segment");
+    ClusterNonCol_PackLocalSegment(RH, local_H1, local_nzeros);
+
+    if (myid == dense_root) {
+        recv_nzeros = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "recv_nzeros");
+        recv_matomnum = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "recv_matomnum");
+    }
+
+    MPI_Gather(&local_nzeros, 1, MPI_INT, recv_nzeros, 1, MPI_INT, dense_root, mpi_comm_level1);
+    MPI_Gather(&local_matomnum, 1, MPI_INT, recv_matomnum, 1, MPI_INT, dense_root, mpi_comm_level1);
+
+    if (myid == dense_root) {
+        size_t total_nzeros = 0;
+        size_t total_atoms = 0;
+
+        h1_displs = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "h1_displs");
+        atom_displs = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "atom_displs");
+
+        for (int ID = 0; ID < numprocs; ID++) {
+            if (recv_nzeros[ID] < 0 || recv_matomnum[ID] < 0) {
+                ClusterNonCol_AbortWithMessage("Negative gather counts detected in Cluster_DFT_NonCol.c.");
+            }
+
+            if (total_nzeros > (size_t)INT_MAX || total_atoms > (size_t)INT_MAX) {
+                ClusterNonCol_AbortWithMessage("Gather displacements exceed INT_MAX in Cluster_DFT_NonCol.c.");
+            }
+
+            h1_displs[ID] = (int)total_nzeros;
+            atom_displs[ID] = (int)total_atoms;
+            total_nzeros =
+                ClusterNonCol_CheckedAddCount(total_nzeros, (size_t)recv_nzeros[ID], "gathered H1 size");
+            total_atoms =
+                ClusterNonCol_CheckedAddCount(total_atoms, (size_t)recv_matomnum[ID], "gathered atom order");
+        }
+
+        if (total_nzeros > (size_t)INT_MAX) {
+            ClusterNonCol_AbortWithMessage("Gathered H1 size exceeds INT_MAX in Cluster_DFT_NonCol.c.");
+        }
+
+        if (total_atoms != (size_t)atomnum) {
+            ClusterNonCol_AbortWithMessage("Gathered atom order length mismatch in Cluster_DFT_NonCol.c.");
+        }
+
+        gathered_H1 = (double *)ClusterNonCol_MallocArray(total_nzeros, sizeof(double), "gathered H1");
+        order_GA = (int *)ClusterNonCol_MallocArray((size_t)atomnum + 1u, sizeof(int), "order_GA");
+    }
+
+    MPI_Gatherv(local_H1, local_nzeros, MPI_DOUBLE, gathered_H1, recv_nzeros, h1_displs, MPI_DOUBLE, dense_root,
+                mpi_comm_level1);
+    MPI_Gatherv((0 < Matomnum) ? &M2G[1] : &dummy_int, Matomnum, MPI_INT, (myid == dense_root) ? &order_GA[1] : NULL,
+                recv_matomnum, atom_displs, MPI_INT, dense_root, mpi_comm_level1);
+
+    if (myid == dense_root && owns_dense) {
+        int gathered_nzeros = 0;
+
+        if (0 < numprocs) {
+            gathered_nzeros = h1_displs[numprocs - 1] + recv_nzeros[numprocs - 1];
+        }
+
+        ClusterNonCol_BuildDenseFromGathered(gathered_H1, order_GA, MP, H, n, gathered_nzeros);
+    }
+
+    free(gathered_H1);
+    free(order_GA);
+    free(atom_displs);
+    free(h1_displs);
+    free(recv_matomnum);
+    free(recv_nzeros);
+    free(local_H1);
+}
+
+static void ClusterNonCol_BuildDenseIndexFromGathered(const int *order_GA, int *MP, int n, int tnum,
+                                                      int *dense_index)
+{
+    int k = 0;
+
+    for (int AN = 1; AN <= atomnum; AN++) {
+        int GA_AN = order_GA[AN];
+        int wanA = WhatSpecies[GA_AN];
+        int tnoA = Spe_Total_CNO[wanA];
+        int Anum = MP[GA_AN];
+
+        for (int i = 0; i < tnoA; i++) {
+            int col = Anum + i - 1;
+
+            for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+                int GB_AN = natn[GA_AN][LB_AN];
+                int wanB = WhatSpecies[GB_AN];
+                int tnoB = Spe_Total_CNO[wanB];
+                int Bnum = MP[GB_AN];
+
+                for (int j = 0; j < tnoB; j++) {
+                    int row = Bnum + j - 1;
+
+                    if (row < 0 || n <= row || col < 0 || n <= col) {
+                        ClusterNonCol_AbortWithMessage("Dense matrix index is out of range in Cluster_DFT_NonCol.c.");
+                    }
+                    if (tnum <= k) {
+                        ClusterNonCol_AbortWithMessage("Dense index buffer overflow in Cluster_DFT_NonCol.c.");
+                    }
+
+                    dense_index[k] = row + col * n;
+                    k++;
+                }
+            }
+        }
+    }
+
+    if (k != tnum) {
+        ClusterNonCol_AbortWithMessage("Dense index count mismatch in Cluster_DFT_NonCol.c.");
+    }
+}
+
+typedef struct {
+    int valid;
+    int device_valid;
+    int n;
+    int tnum;
+    unsigned long long fingerprint;
+    int *dense_index;
+} ClusterNonColDenseIndexCache;
+
+static ClusterNonColDenseIndexCache ClusterNonCol_dense_index_cache = {0};
+
+static unsigned long long ClusterNonCol_DenseIndexFingerprint(const int *order_GA, int *MP, int n)
+{
+    unsigned long long h = 1469598103934665603ULL;
+
+#define CLUSTERNONCOL_HASH_INT(v) \
+    do { \
+        h ^= (unsigned long long)(unsigned int)(v); \
+        h *= 1099511628211ULL; \
+    } while (0)
+
+    CLUSTERNONCOL_HASH_INT(n);
+    CLUSTERNONCOL_HASH_INT(atomnum);
+    for (int AN = 1; AN <= atomnum; AN++) {
+        int GA_AN = order_GA[AN];
+
+        CLUSTERNONCOL_HASH_INT(GA_AN);
+        CLUSTERNONCOL_HASH_INT(MP[GA_AN]);
+        CLUSTERNONCOL_HASH_INT(WhatSpecies[GA_AN]);
+        CLUSTERNONCOL_HASH_INT(Spe_Total_CNO[WhatSpecies[GA_AN]]);
+        CLUSTERNONCOL_HASH_INT(FNAN[GA_AN]);
+        for (int LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
+            CLUSTERNONCOL_HASH_INT(natn[GA_AN][LB_AN]);
+        }
+    }
+
+#undef CLUSTERNONCOL_HASH_INT
+
+    return h;
+}
+
+/* The sparse-to-dense index table only depends on the geometry, so build it
+   once on the host and keep a device copy in the arena instead of rebuilding
+   and re-uploading it for each of the eight dense loads of every SCF
+   iteration.  Returns the DEVICE copy (the o_dindex arena segment).  Only the
+   dense-owner rank calls this. */
+static const int *ClusterNonCol_DenseIndexDevice_Get(const int *order_GA, int *MP, int n, int tnum)
+{
+    ClusterNonColDenseIndexCache *cache = &ClusterNonCol_dense_index_cache;
+    ClusterNonColDenseArena *arena = &ClusterNonCol_dense_arena;
+    unsigned long long fingerprint = ClusterNonCol_DenseIndexFingerprint(order_GA, MP, n);
+
+    if (!arena->valid || arena->tnum_capacity < (size_t)tnum) {
+        ClusterNonCol_AbortWithMessage("The dense arena does not cover the sparse index table in Cluster_DFT_NonCol.c.");
+    }
+
+    if (!(cache->valid && cache->n == n && cache->tnum == tnum && cache->fingerprint == fingerprint)) {
+        free(cache->dense_index);
+        memset(cache, 0, sizeof(*cache));
+
+        cache->dense_index = (int *)ClusterNonCol_MallocArray((size_t)tnum, sizeof(int), "dense index cache");
+        ClusterNonCol_BuildDenseIndexFromGathered(order_GA, MP, n, tnum, cache->dense_index);
+
+        cache->valid = 1;
+        cache->n = n;
+        cache->tnum = tnum;
+        cache->fingerprint = fingerprint;
+    }
+
+    if (!cache->device_valid) {
+        acc_memcpy_to_device(ClusterNonCol_ArenaPtr(arena->o_dindex), cache->dense_index,
+                             (size_t)tnum * sizeof(int));
+        cache->device_valid = 1;
+    }
+    return (const int *)ClusterNonCol_ArenaPtr(arena->o_dindex);
+}
+
+/* Stage the gathered sparse matrix through the arena and scatter it into the
+   present dense matrix H.  H1_host is a HOST buffer; the upload goes through
+   the o_stage arena segment, so no device allocation happens here (the old
+   per-call enter-data copyin aborted fatally on a full device). */
+static void ClusterNonCol_BuildDeviceDenseFromGathered(const double *H1_host, const int *dense_index_dev,
+                                                       int tnum, int n, double *H)
+{
+    ClusterNonColDenseArena *arena = &ClusterNonCol_dense_arena;
+    size_t nn = ClusterNonCol_CheckedMulCount((size_t)n, (size_t)n, "device dense H");
+
+    if (!arena->valid || arena->tnum_capacity < (size_t)tnum) {
+        ClusterNonCol_AbortWithMessage("The dense arena does not cover the gathered matrix in Cluster_DFT_NonCol.c.");
+    }
+    acc_memcpy_to_device(ClusterNonCol_ArenaPtr(arena->o_stage), (void *)H1_host,
+                         (size_t)tnum * sizeof(double));
+
+#pragma acc parallel loop present(H[0 : nn])
+    for (size_t p = 0; p < nn; p++) {
+        H[p] = 0.0;
+    }
+
+    {
+        const double *H1 = (const double *)ClusterNonCol_ArenaPtr(arena->o_stage);
+        const int *dense_index = dense_index_dev;
+
+#pragma acc parallel loop present(H[0 : nn]) deviceptr(H1, dense_index)
+        for (int p = 0; p < tnum; p++) {
+            int idx = dense_index[p];
+#pragma acc atomic update
+            H[idx] += H1[p];
+        }
+    }
+}
+
+static void ClusterNonCol_LoadDeviceDenseFromSetHamCache(const double *H1, int *MP, int n, double *H)
+{
+    int tnum = Set_Hamiltonian_GpuSolver_Packed_Size();
+    int *order_GA = Set_Hamiltonian_GpuSolver_Packed_OrderGA();
+    const int *dense_index_dev;
+
+    if (H1 == NULL || order_GA == NULL) {
+        ClusterNonCol_AbortWithMessage("Set_Hamiltonian packed matrix cache is missing in Cluster_DFT_NonCol.c.");
+    }
+
+    dense_index_dev = ClusterNonCol_DenseIndexDevice_Get(order_GA, MP, n, tnum);
+    ClusterNonCol_BuildDeviceDenseFromGathered(H1, dense_index_dev, tnum, n, H);
+}
+
+static void Patch2Device_Cluster_NonCol_Owner(double ****RH, double *H, int *MP, int owns_dense, int n)
+{
+    int myid, numprocs;
+    int dense_root = Host_ID;
+    int NUM;
+    int local_nzeros;
+    int local_matomnum;
+    int dummy_int = 0;
+    int *recv_nzeros = NULL;
+    int *recv_matomnum = NULL;
+    int *h1_displs = NULL;
+    int *atom_displs = NULL;
+    int *order_GA = NULL;
+    const int *dense_index = NULL;
+    double *local_H1;
+    double *gathered_H1 = NULL;
+
+    MPI_Comm_size(mpi_comm_level1, &numprocs);
+    MPI_Comm_rank(mpi_comm_level1, &myid);
+
+    NUM = ClusterNonCol_SetMPAndReturnNum(MP);
+    if (NUM != n) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "Orbital count mismatch in Cluster_DFT_NonCol.c: n=%d, NUM=%d", n, NUM);
+        ClusterNonCol_AbortWithMessage(msg);
+    }
+
+    local_nzeros = ClusterNonCol_ComputeLocalNZeroCount();
+    local_matomnum = Matomnum;
+    local_H1 = (double *)ClusterNonCol_MallocArray((size_t)local_nzeros, sizeof(double), "local H1 segment");
+    ClusterNonCol_PackLocalSegment(RH, local_H1, local_nzeros);
+
+    if (myid == dense_root) {
+        recv_nzeros = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "recv_nzeros");
+        recv_matomnum = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "recv_matomnum");
+    }
+
+    MPI_Gather(&local_nzeros, 1, MPI_INT, recv_nzeros, 1, MPI_INT, dense_root, mpi_comm_level1);
+    MPI_Gather(&local_matomnum, 1, MPI_INT, recv_matomnum, 1, MPI_INT, dense_root, mpi_comm_level1);
+
+    if (myid == dense_root) {
+        size_t total_nzeros = 0;
+        size_t total_atoms = 0;
+
+        h1_displs = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "h1_displs");
+        atom_displs = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "atom_displs");
+
+        for (int ID = 0; ID < numprocs; ID++) {
+            if (recv_nzeros[ID] < 0 || recv_matomnum[ID] < 0) {
+                ClusterNonCol_AbortWithMessage("Negative gather counts detected in Cluster_DFT_NonCol.c.");
+            }
+
+            if (total_nzeros > (size_t)INT_MAX || total_atoms > (size_t)INT_MAX) {
+                ClusterNonCol_AbortWithMessage("Gather displacements exceed INT_MAX in Cluster_DFT_NonCol.c.");
+            }
+
+            h1_displs[ID] = (int)total_nzeros;
+            atom_displs[ID] = (int)total_atoms;
+            total_nzeros =
+                ClusterNonCol_CheckedAddCount(total_nzeros, (size_t)recv_nzeros[ID], "gathered H1 size");
+            total_atoms =
+                ClusterNonCol_CheckedAddCount(total_atoms, (size_t)recv_matomnum[ID], "gathered atom order");
+        }
+
+        if (total_nzeros > (size_t)INT_MAX) {
+            ClusterNonCol_AbortWithMessage("Gathered H1 size exceeds INT_MAX in Cluster_DFT_NonCol.c.");
+        }
+
+        if (total_atoms != (size_t)atomnum) {
+            ClusterNonCol_AbortWithMessage("Gathered atom order length mismatch in Cluster_DFT_NonCol.c.");
+        }
+
+        gathered_H1 = (double *)ClusterNonCol_MallocArray(total_nzeros, sizeof(double), "gathered H1");
+        order_GA = (int *)ClusterNonCol_MallocArray((size_t)atomnum + 1u, sizeof(int), "order_GA");
+    }
+
+    MPI_Gatherv(local_H1, local_nzeros, MPI_DOUBLE, gathered_H1, recv_nzeros, h1_displs, MPI_DOUBLE, dense_root,
+                mpi_comm_level1);
+    MPI_Gatherv((0 < Matomnum) ? &M2G[1] : &dummy_int, Matomnum, MPI_INT, (myid == dense_root) ? &order_GA[1] : NULL,
+                recv_matomnum, atom_displs, MPI_INT, dense_root, mpi_comm_level1);
+
+    if (myid == dense_root && owns_dense) {
+        int gathered_nzeros = 0;
+
+        if (0 < numprocs) {
+            gathered_nzeros = h1_displs[numprocs - 1] + recv_nzeros[numprocs - 1];
+        }
+
+        dense_index = ClusterNonCol_DenseIndexDevice_Get(order_GA, MP, n, gathered_nzeros);
+        ClusterNonCol_BuildDeviceDenseFromGathered(gathered_H1, dense_index, gathered_nzeros, n, H);
+    }
+
+    free(gathered_H1);
+    free(order_GA);
+    free(atom_displs);
+    free(h1_displs);
+    free(recv_matomnum);
+    free(recv_nzeros);
+    free(local_H1);
+}
+
+static size_t ClusterNonCol_GpuDiagReserveBytes(void)
+{
+    const char *value = getenv("OPENMX_CLUSTER_GPU_DIAG_RESERVE_MB");
+    long mib = 1024;
+
+    if (value != NULL) {
+        long parsed = atol(value);
+        if (0 <= parsed) mib = parsed;
+    }
+    return (size_t)mib * 1024ULL * 1024ULL;
+}
+
+/* Lay out and reserve the dense arena for an (n, n2) solve whose gathered
+   sparse matrices hold at most tnum elements.  Keeps an already-sufficient
+   arena.  Returns 0 when the device cannot hold the reservation. */
+static int ClusterNonCol_DenseArena_TryEnsure(int n, int n2, size_t tnum)
+{
+    ClusterNonColDenseArena *arena = &ClusterNonCol_dense_arena;
+    size_t nn8 = ClusterNonCol_CheckedMulCount(ClusterNonCol_CheckedMulCount((size_t)n, (size_t)n, "dense arena S"),
+                                               sizeof(double), "dense arena S bytes");
+    size_t n2n2z = ClusterNonCol_CheckedMulCount(ClusterNonCol_CheckedMulCount((size_t)n2, (size_t)n2,
+                                                                               "dense arena NC matrix"),
+                                                 sizeof(dcomplex), "dense arena NC matrix bytes");
+    size_t ko8 = (size_t)(n2 + 2) * sizeof(double);
+    size_t pos = 0;
+
+    if (arena->valid && arena->n == n && arena->n2 == n2 && tnum <= arena->tnum_capacity) return 1;
+
+    ClusterNonCol_DenseArena_Release();
+
+    arena->o_S   = ClusterNonCol_ArenaOff(&pos, nn8);
+    arena->o_Ss2 = ClusterNonCol_ArenaOff(&pos, n2n2z);
+    arena->o_ko  = ClusterNonCol_ArenaOff(&pos, ko8);
+    for (int i = 0; i < 7; i++) {
+        arena->o_r[i] = ClusterNonCol_ArenaOff(&pos, nn8);
+    }
+    arena->o_Hs2    = ClusterNonCol_ArenaOff(&pos, n2n2z);
+    arena->o_evec   = ClusterNonCol_ArenaOff(&pos, n2n2z);
+    arena->o_dindex = ClusterNonCol_ArenaOff(&pos, ClusterNonCol_CheckedMulCount(tnum, sizeof(int),
+                                                                                 "dense arena index"));
+    arena->o_stage  = ClusterNonCol_ArenaOff(&pos, ClusterNonCol_CheckedMulCount(tnum, sizeof(double),
+                                                                                 "dense arena stage"));
+
+    if (ClusterNonCol_TryDeviceMalloc((void **)&arena->base, pos) != cudaSuccess) {
+        memset(arena, 0, sizeof(*arena));
+        return 0;
+    }
+    arena->valid = 1;
+    arena->n = n;
+    arena->n2 = n2;
+    arena->tnum_capacity = tnum;
+    arena->total_bytes = pos;
+    return 1;
+}
+
+static void ClusterNonCol_DenseArena_Release(void)
+{
+    ClusterNonColDenseArena *arena = &ClusterNonCol_dense_arena;
+    ClusterNonColDenseSCache *scache = &ClusterNonCol_dense_scache;
+
+    if (!arena->valid) return;
+
+    /* the stashed eigenvectors may still be mapped into the arena; preserve
+       their host copy for the post-SCF scatter before the memory goes away */
+    Cluster_DFT_NonCol_DemoteGpuSolverCachedEVec();
+
+    if (scache->s_on_device) {
+        ClusterNonCol_ArenaUnmap(scache->S);
+        ClusterNonCol_ArenaUnmap(scache->Ss2);
+        scache->s_on_device = 0;
+    }
+    scache->transformed_s_valid = 0;
+
+    ClusterNonCol_dense_index_cache.device_valid = 0;
+
+    wait_cudafunc(cudaFree(arena->base));
+    memset(arena, 0, sizeof(*arena));
+}
+
+/* GPU/CPU crossover of the noncollinear cluster dense eigensolver path,
+   compared against n2 = 2n.  As in the collinear path the root-dense GPU
+   solve beats the multi-rank ELPA fallback at every measured size (on one
+   RTX 5080 shared by 8 ranks: total 1.49x at n2=960 down to 1.13x at
+   n2=480, the complex n2 x n2 problem favors the GPU even more than Col),
+   so the default sits far below the global GPU_CPU_SWITCH_NUM.
+   OPENMX_CLUSTER_NONCOL_GPU_SWITCH_NUM=<dim> overrides it.  Also consulted
+   by DFT.c so the startup fallback notice reports the effective value. */
+#define CLUSTER_NONCOL_GPU_CPU_SWITCH_NUM 400
+
+int Cluster_DFT_NonCol_GpuSwitchNum(void)
+{
+    static int cached = -1;
+
+    if (cached < 0) {
+        const char *value = getenv("OPENMX_CLUSTER_NONCOL_GPU_SWITCH_NUM");
+        int parsed;
+
+        cached = CLUSTER_NONCOL_GPU_CPU_SWITCH_NUM;
+        if (value != NULL && 0 < (parsed = atoi(value))) {
+            cached = parsed;
+        }
+    }
+    return cached;
+}
+
+/* Collectively decide whether the root dense GPU diagonalization fits on the
+   device (mirrors ClusterCol_GpuDiagFits).  The dense owner RESERVES the
+   whole device footprint of the solve up front — one arena every device
+   buffer of the dense path is mapped into, plus the zheevdx workspace at the
+   size cusolverDnXsyevdx_bufferSize() actually reports — so a positive
+   verdict cannot be invalidated later in the SCF cycle.  On top of the
+   reservation the transient workspace of the SCF_iter 1 overlap
+   diagonalization and a configurable margin must still be free.  The verdict
+   is agreed on over mpi_comm_level1 because the ScaLAPACK/ELPA fallback uses
+   level1 collectives; it is cached until the next SCF restart or a change of
+   the matrix size.
+   OPENMX_CLUSTER_GPU_DIAG=1 forces the GPU path, =0 forces the fallback. */
+static int ClusterNonCol_GpuDiagFits(int SCF_iter, int n, int n2, int myid)
+{
+    static int verdict = -1;
+    static int verdict_n2 = 0;
+    const char *force = getenv("OPENMX_CLUSTER_GPU_DIAG");
+    ClusterNonColDenseArena *arena = &ClusterNonCol_dense_arena;
+    long long my_nzeros = 0;
+    long long total_nzeros = 0;
+    int my_fit = 1;
+    int fit = 0;
+
+    if (force != NULL) {
+        static int force_announced = 0;
+        int forced = (atoi(force) != 0);
+
+        if (!forced && !force_announced && myid == Host_ID) {
+            printf("<Cluster_DFT_NonCol> GPU dense diagonalization disabled by OPENMX_CLUSTER_GPU_DIAG=0.\n");
+            fflush(stdout);
+        }
+        force_announced = 1;
+
+        if (forced) {
+            /* the dense path depends on the arena, so build it even when the
+               GPU path is forced and abort with a diagnostic if that fails */
+            my_nzeros = (long long)ClusterNonCol_ComputeLocalNZeroCount();
+            MPI_Allreduce(&my_nzeros, &total_nzeros, 1, MPI_LONG_LONG, MPI_SUM, mpi_comm_level1);
+
+            if (myid == Host_ID &&
+                (!ClusterNonCol_DenseArena_TryEnsure(n, n2, (size_t)total_nzeros) ||
+                 !ClusterNonCol_EigenWorkspace_TryEnsure(ClusterNonCol_ArenaPtr(arena->o_Hs2),
+                                                         (double *)ClusterNonCol_ArenaPtr(arena->o_ko),
+                                                         n2, n2, NULL))) {
+                ClusterNonCol_AbortWithMessage("Cluster_DFT_NonCol.c: OPENMX_CLUSTER_GPU_DIAG=1 forces the GPU"
+                                               " diagonalization but its device reservation failed; unset it or"
+                                               " reduce the MPI ranks sharing the device.");
+            }
+        }
+        return forced;
+    }
+
+    if (verdict != -1 && verdict_n2 == n2 && 1 < SCF_iter) return verdict;
+
+    /* capacity of the sparse-to-dense staging segments: the gathered matrix
+       and its index table scale with the total nonzero count */
+    my_nzeros = (long long)ClusterNonCol_ComputeLocalNZeroCount();
+    MPI_Allreduce(&my_nzeros, &total_nzeros, 1, MPI_LONG_LONG, MPI_SUM, mpi_comm_level1);
+
+    if (myid == Host_ID) {
+        my_fit = ClusterNonCol_DenseArena_TryEnsure(n, n2, (size_t)total_nzeros);
+
+        if (my_fit) {
+            my_fit = ClusterNonCol_EigenWorkspace_TryEnsure(ClusterNonCol_ArenaPtr(arena->o_Hs2),
+                                                            (double *)ClusterNonCol_ArenaPtr(arena->o_ko),
+                                                            n2, n2, NULL);
+        }
+
+        if (my_fit) {
+            /* the SCF_iter 1 overlap diagonalization allocates its own
+               cusolver workspace transiently; require room for it plus the
+               configured margin on top of the reservation */
+            ClusterNonColGpuEigenCtx *ctx = ClusterNonCol_GpuEigenCtx_Get();
+            cusolverEigMode_t const jobz = CUSOLVER_EIG_MODE_VECTOR;
+            cublasFillMode_t const uplo = CUBLAS_FILL_MODE_LOWER;
+            double vl = 0.0, vu = 0.0;
+            int64_t h_meig = 0;
+            size_t overlap_d_bytes = 0;
+            size_t overlap_h_bytes = 0;
+            size_t free_bytes = 0;
+            size_t total_bytes = 0;
+
+            wait_cudafunc(cusolverDnXsyevdx_bufferSize(ctx->handle, NULL, jobz, CUSOLVER_EIG_RANGE_I, uplo, n,
+                                                       CUDA_R_64F, ClusterNonCol_ArenaPtr(arena->o_S), n,
+                                                       &vl, &vu, 1L, (int64_t)n, &h_meig, CUDA_R_64F,
+                                                       ClusterNonCol_ArenaPtr(arena->o_ko), CUDA_R_64F,
+                                                       &overlap_d_bytes, &overlap_h_bytes));
+
+            if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess) {
+                (void)cudaGetLastError();
+                my_fit = 0;
+            }
+            else {
+                my_fit = (ClusterNonCol_CheckedAddCount(overlap_d_bytes, ClusterNonCol_GpuDiagReserveBytes(),
+                                                        "GPU diag margin") <= free_bytes);
+            }
+        }
+
+        if (!my_fit) {
+            size_t free_bytes = 0;
+            size_t total_bytes = 0;
+
+            if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess) {
+                (void)cudaGetLastError();
+            }
+            printf("<Cluster_DFT_NonCol> The dense owner could not reserve its GPU diagonalization"
+                   " buffers (%.1f MiB of %.1f MiB free);"
+                   " falling back to the ELPA/ScaLAPACK diagonalization."
+                   " Force the GPU path with OPENMX_CLUSTER_GPU_DIAG=1 or lower"
+                   " OPENMX_CLUSTER_GPU_DIAG_RESERVE_MB.\n",
+                   (double)free_bytes / (1024.0 * 1024.0),
+                   (double)total_bytes / (1024.0 * 1024.0));
+            fflush(stdout);
+        }
+    }
+
+    MPI_Allreduce(&my_fit, &fit, 1, MPI_INT, MPI_MIN, mpi_comm_level1);
+
+    if (fit == 0) {
+        /* return the reservation and any stale eigenvector stash so the
+           fallback and the later GPU service phases see the memory */
+        ClusterNonCol_DenseArena_Release();
+        ClusterNonCol_GpuEigenCtx_Release();
+        ClusterNonCol_ReleaseGpuSolverCachedEVec(myid);
+    }
+
+    verdict = fit;
+    verdict_n2 = n2;
+    return verdict;
+}
+
+/* Host-side scratch matrices of the root dense solve.  They are refilled
+   from scratch every SCF iteration, so keep the ~1.6 GiB of allocations
+   alive across iterations instead of paying malloc/free plus first-touch
+   faults each time. */
+typedef struct
+{
+    int       n;
+    int       n2;
+    double   *Cs;
+    double   *rHs11;
+    double   *rHs12;
+    double   *rHs22;
+    double   *iHs11;
+    double   *iHs12;
+    double   *iHs22;
+    dcomplex *Hs2;
+} ClusterNonColRootSolveWorkspace;
+
+static ClusterNonColRootSolveWorkspace ClusterNonCol_root_solve_workspace = {0};
+
+static void ClusterNonCol_RootSolveWorkspace_Ensure(int n, int n2)
+{
+    ClusterNonColRootSolveWorkspace *ws = &ClusterNonCol_root_solve_workspace;
+    size_t nn;
+    size_t n2n2;
+
+    if (ws->n == n && ws->n2 == n2) return;
+
+    free(ws->Cs);
+    free(ws->rHs11);
+    free(ws->rHs12);
+    free(ws->rHs22);
+    free(ws->iHs11);
+    free(ws->iHs12);
+    free(ws->iHs22);
+    free(ws->Hs2);
+    memset(ws, 0, sizeof(*ws));
+
+    nn   = ClusterNonCol_CheckedMulCount((size_t)n, (size_t)n, "root dense real matrix");
+    n2n2 = ClusterNonCol_CheckedMulCount((size_t)n2, (size_t)n2, "root dense complex matrix");
+
+    ws->Cs    = (double *)ClusterNonCol_MallocArray(nn, sizeof(double), "root dense work Cs");
+    ws->rHs11 = (double *)ClusterNonCol_MallocArray(nn, sizeof(double), "root dense rHs11");
+    ws->rHs12 = (double *)ClusterNonCol_MallocArray(nn, sizeof(double), "root dense rHs12");
+    ws->rHs22 = (double *)ClusterNonCol_MallocArray(nn, sizeof(double), "root dense rHs22");
+    ws->iHs11 = (double *)ClusterNonCol_MallocArray(nn, sizeof(double), "root dense iHs11");
+    ws->iHs12 = (double *)ClusterNonCol_MallocArray(nn, sizeof(double), "root dense iHs12");
+    ws->iHs22 = (double *)ClusterNonCol_MallocArray(nn, sizeof(double), "root dense iHs22");
+    ws->Hs2   = (dcomplex *)ClusterNonCol_MallocArray(n2n2, sizeof(dcomplex), "root dense Hs2");
+
+    ws->n  = n;
+    ws->n2 = n2;
+}
+
+static void ClusterNonCol_GpuSolverRootDensePath(int SCF_iter, double *ko, double *****nh, double *****ImNL,
+                                                double ****CntOLP, int *MP, int n, int n2, int MaxN,
+                                                int myid, dcomplex **dense_evec_out,
+                                                int *dense_evec_on_device_out)
+{
+    ClusterNonColDenseSCache *scache = &ClusterNonCol_dense_scache;
+    ClusterNonColDenseArena *arena = &ClusterNonCol_dense_arena;
+    dcomplex *cached_Ss2 = NULL;
+    const int owns_dense = (myid == Host_ID);
+    const int use_setham_packed_cache =
+        (Set_Hamiltonian_GpuSolver_Packed_CacheReady() &&
+         Set_Hamiltonian_GpuSolver_Packed_OrderMode() == 1);
+    int rebuild_s = (SCF_iter == 1 || !scache->transformed_s_valid || scache->n != n || scache->n2 != n2);
+    double *S = NULL;
+    double *Cs = NULL;
+    double *rHs11 = NULL, *rHs12 = NULL, *rHs22 = NULL;
+    double *iHs11 = NULL, *iHs12 = NULL, *iHs22 = NULL;
+    dcomplex *Hs2 = NULL;
+    dcomplex *dense_evec = NULL;
+    size_t nn = 0;
+    size_t n2n2 = 0;
+
+    *dense_evec_out = NULL;
+    *dense_evec_on_device_out = 0;
+
+    if (use_setham_packed_cache) {
+        Set_Hamiltonian_GpuSolver_SetMP(MP);
+    }
+    if (Set_Hamiltonian_OpenACC_Rank_Is_Selected()) {
+        set_cuda_default_device_from_local_rank_noncollective();
+        set_openacc_nvidia_device_from_local_rank_noncollective();
+    }
+
+    if (owns_dense) {
+        nn = ClusterNonCol_CheckedMulCount((size_t)n, (size_t)n, "root dense real matrix");
+        n2n2 = ClusterNonCol_CheckedMulCount((size_t)n2, (size_t)n2, "root dense complex matrix");
+
+        if (!arena->valid || arena->n != n || arena->n2 != n2) {
+            ClusterNonCol_AbortWithMessage("The dense arena reservation is missing in Cluster_DFT_NonCol.c.");
+        }
+
+        if (scache->n != n || scache->n2 != n2) {
+            if (scache->s_on_device) {
+                ClusterNonCol_ArenaUnmap(scache->S);
+                ClusterNonCol_ArenaUnmap(scache->Ss2);
+                scache->s_on_device = 0;
+            }
+            free(scache->S);
+            free(scache->Ss2);
+            scache->S = NULL;
+            scache->Ss2 = NULL;
+            scache->transformed_s_valid = 0;
+            rebuild_s = 1;
+        }
+
+        if (scache->S == NULL) {
+            scache->S = (double *)ClusterNonCol_MallocArray(nn, sizeof(double), "cached transformed overlap");
+        }
+        if (scache->Ss2 == NULL) {
+            scache->Ss2 = (dcomplex *)ClusterNonCol_MallocArray(n2n2, sizeof(dcomplex), "cached transformed NC overlap");
+        }
+
+        scache->n = n;
+        scache->n2 = n2;
+        S = scache->S;
+        cached_Ss2 = scache->Ss2;
+
+        ClusterNonCol_RootSolveWorkspace_Ensure(n, n2);
+        Cs    = ClusterNonCol_root_solve_workspace.Cs;
+        rHs11 = ClusterNonCol_root_solve_workspace.rHs11;
+        rHs12 = ClusterNonCol_root_solve_workspace.rHs12;
+        rHs22 = ClusterNonCol_root_solve_workspace.rHs22;
+        iHs11 = ClusterNonCol_root_solve_workspace.iHs11;
+        iHs12 = ClusterNonCol_root_solve_workspace.iHs12;
+        iHs22 = ClusterNonCol_root_solve_workspace.iHs22;
+        Hs2   = ClusterNonCol_root_solve_workspace.Hs2;
+
+        /* ownership of dense_evec moves to the eigenvector stash, so it
+           cannot live in the persistent workspace */
+        dense_evec = (dcomplex *)ClusterNonCol_MallocArray(n2n2, sizeof(dcomplex), "root dense eigenvectors");
+    }
+
+    MPI_Bcast(&rebuild_s, 1, MPI_INT, Host_ID, mpi_comm_level1);
+
+    if (rebuild_s) {
+        if (owns_dense && !scache->s_on_device) {
+            /* The transformed overlap and its spinor expansion only change
+               with the geometry, so they stay resident on the device across
+               SCF iterations instead of being re-uploaded every step. */
+            ClusterNonCol_ArenaMap(S, arena->o_S, nn * sizeof(double));
+            ClusterNonCol_ArenaMap(cached_Ss2, arena->o_Ss2, n2n2 * sizeof(dcomplex));
+            scache->s_on_device = 1;
+        }
+
+        if (use_setham_packed_cache) {
+            if (owns_dense) {
+                if (!Set_Hamiltonian_GpuSolver_Packed_OwnsCache()) {
+                    ClusterNonCol_AbortWithMessage("Set_Hamiltonian packed overlap cache is not owned by this rank.");
+                }
+                ClusterNonCol_LoadDeviceDenseFromSetHamCache(Set_Hamiltonian_GpuSolver_Packed_Overlap(), MP, n, S);
+            }
+        }
+        else {
+            Patch2Device_Cluster_NonCol_Owner(CntOLP, S, MP, owns_dense, n);
+        }
+
+        if (owns_dense) {
+            ClusterNonCol_ArenaMap(ko, arena->o_ko, (size_t)(n2 + 1) * sizeof(double));
+            Eigen_gpusolver_x_openacc2(S, ko, n, n);
+
+#pragma acc parallel loop present(ko[0 : n2 + 1])
+            for (int l = 1; l <= n; l++) {
+                if (ko[l] < 1.0e-10) ko[l] = 1.0e-10;
                 ko[l] = 1.0 / sqrt(ko[l]);
             }
 
-            /* calculate S*1/sqrt(ko) */
-
-            for (i = 0; i < na_rows; i++) {
-                for (j = 0; j < na_cols; j++) {
-                    jg = np_cols * nblk * ((j) / nblk) + (j) % nblk + ((np_cols + my_pcol) % np_cols) * nblk + 1;
-                    Ss[j * na_rows + i] = Ss[j * na_rows + i] * ko[jg];
+#pragma acc parallel loop collapse(2) present(S[0 : n * n], ko[0 : n2 + 1])
+            for (int col = 0; col < n; col++) {
+                for (int row = 0; row < n; row++) {
+                    S[(size_t)row + (size_t)col * (size_t)n] *= ko[col + 1];
                 }
             }
 
-            /* make Ss2 */
+            ClusterNonCol_ArenaUnmap(ko);
 
-            Overlap_Cluster_NC_Ss2(Ss, Ss2);
+#pragma acc parallel loop collapse(2) present(cached_Ss2[0 : n2 * n2], S[0 : n * n])
+            for (int col = 0; col < n2; col++) {
+                for (int row = 0; row < n2; row++) {
+                    double v = 0.0;
 
-            if (measure_time) {
-                dtime(&etime);
-                time1 += etime - stime;
+                    if (row < n && col < n) {
+                        v = S[(size_t)row + (size_t)col * (size_t)n];
+                    }
+                    else if (n <= row && n <= col) {
+                        v = S[(size_t)(row - n) + (size_t)(col - n) * (size_t)n];
+                    }
+
+                    cached_Ss2[(size_t)row + (size_t)col * (size_t)n2].r = v;
+                    cached_Ss2[(size_t)row + (size_t)col * (size_t)n2].i = 0.0;
+                }
+            }
+
+            scache->transformed_s_valid = 1;
+        }
+    }
+
+    if (owns_dense) {
+        ClusterNonCol_ArenaMap(rHs11, arena->o_r[0], nn * sizeof(double));
+        ClusterNonCol_ArenaMap(rHs12, arena->o_r[1], nn * sizeof(double));
+        ClusterNonCol_ArenaMap(rHs22, arena->o_r[2], nn * sizeof(double));
+        ClusterNonCol_ArenaMap(iHs11, arena->o_r[3], nn * sizeof(double));
+        ClusterNonCol_ArenaMap(iHs12, arena->o_r[4], nn * sizeof(double));
+        ClusterNonCol_ArenaMap(iHs22, arena->o_r[5], nn * sizeof(double));
+        ClusterNonCol_ArenaMap(Cs,    arena->o_r[6], nn * sizeof(double));
+    }
+
+    if (use_setham_packed_cache) {
+        if (owns_dense) {
+            if (!Set_Hamiltonian_GpuSolver_Packed_OwnsCache()) {
+                ClusterNonCol_AbortWithMessage("Set_Hamiltonian packed Hamiltonian cache is not owned by this rank.");
+            }
+            ClusterNonCol_LoadDeviceDenseFromSetHamCache(Set_Hamiltonian_GpuSolver_Packed_H(0), MP, n, rHs11);
+            ClusterNonCol_LoadDeviceDenseFromSetHamCache(Set_Hamiltonian_GpuSolver_Packed_H(1), MP, n, rHs22);
+            ClusterNonCol_LoadDeviceDenseFromSetHamCache(Set_Hamiltonian_GpuSolver_Packed_H(2), MP, n, rHs12);
+            ClusterNonCol_LoadDeviceDenseFromSetHamCache(Set_Hamiltonian_GpuSolver_Packed_H(3), MP, n, iHs12);
+            ClusterNonCol_LoadDeviceDenseFromSetHamCache(Set_Hamiltonian_GpuSolver_Packed_ImNL(0), MP, n, iHs11);
+            ClusterNonCol_LoadDeviceDenseFromSetHamCache(Set_Hamiltonian_GpuSolver_Packed_ImNL(1), MP, n, iHs22);
+            ClusterNonCol_LoadDeviceDenseFromSetHamCache(Set_Hamiltonian_GpuSolver_Packed_ImNL(2), MP, n, Cs);
+        }
+    }
+    else {
+        Patch2Device_Cluster_NonCol_Owner(nh[0],   rHs11, MP, owns_dense, n);
+        Patch2Device_Cluster_NonCol_Owner(nh[1],   rHs22, MP, owns_dense, n);
+        Patch2Device_Cluster_NonCol_Owner(nh[2],   rHs12, MP, owns_dense, n);
+        Patch2Device_Cluster_NonCol_Owner(nh[3],   iHs12, MP, owns_dense, n);
+        Patch2Device_Cluster_NonCol_Owner(ImNL[0], iHs11, MP, owns_dense, n);
+        Patch2Device_Cluster_NonCol_Owner(ImNL[1], iHs22, MP, owns_dense, n);
+        Patch2Device_Cluster_NonCol_Owner(ImNL[2], Cs,    MP, owns_dense, n);
+    }
+
+    if (owns_dense) {
+#pragma acc parallel loop present(iHs12[0 : n * n], Cs[0 : n * n])
+        for (size_t i = 0; i < nn; i++) {
+            iHs12[i] += Cs[i];
+        }
+
+        /* S (the scaled overlap eigenvectors) is already resident on the
+           device from the rebuild step. */
+
+#pragma acc parallel loop present(Cs[0 : n * n])
+        for (int i = 0; i < n * n; i++) Cs[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, rHs11, S, Cs);
+#pragma acc parallel loop present(rHs11[0 : n * n])
+        for (int i = 0; i < n * n; i++) rHs11[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, S, Cs, rHs11);
+
+#pragma acc parallel loop present(Cs[0 : n * n])
+        for (int i = 0; i < n * n; i++) Cs[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, rHs12, S, Cs);
+#pragma acc parallel loop present(rHs12[0 : n * n])
+        for (int i = 0; i < n * n; i++) rHs12[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, S, Cs, rHs12);
+
+#pragma acc parallel loop present(Cs[0 : n * n])
+        for (int i = 0; i < n * n; i++) Cs[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, rHs22, S, Cs);
+#pragma acc parallel loop present(rHs22[0 : n * n])
+        for (int i = 0; i < n * n; i++) rHs22[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, S, Cs, rHs22);
+
+#pragma acc parallel loop present(Cs[0 : n * n])
+        for (int i = 0; i < n * n; i++) Cs[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, iHs11, S, Cs);
+#pragma acc parallel loop present(iHs11[0 : n * n])
+        for (int i = 0; i < n * n; i++) iHs11[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, S, Cs, iHs11);
+
+#pragma acc parallel loop present(Cs[0 : n * n])
+        for (int i = 0; i < n * n; i++) Cs[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, iHs12, S, Cs);
+#pragma acc parallel loop present(iHs12[0 : n * n])
+        for (int i = 0; i < n * n; i++) iHs12[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, S, Cs, iHs12);
+
+#pragma acc parallel loop present(Cs[0 : n * n])
+        for (int i = 0; i < n * n; i++) Cs[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, iHs22, S, Cs);
+#pragma acc parallel loop present(iHs22[0 : n * n])
+        for (int i = 0; i < n * n; i++) iHs22[i] = 0.0;
+        ClusterNonCol_GEMMul8Dgemm_OpenACC(CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, S, Cs, iHs22);
+
+        ClusterNonCol_ArenaUnmap(Cs);
+        ClusterNonCol_ArenaMap(Hs2, arena->o_Hs2, n2n2 * sizeof(dcomplex));
+        ClusterNonCol_ArenaMap(ko, arena->o_ko, (size_t)(n2 + 1) * sizeof(double));
+
+#pragma acc parallel loop collapse(2) present(Hs2[0 : n2 * n2], rHs11[0 : n * n], rHs12[0 : n * n], rHs22[0 : n * n], \
+                                             iHs11[0 : n * n], iHs12[0 : n * n], iHs22[0 : n * n])
+        for (int col = 0; col < n2; col++) {
+            for (int row = 0; row < n2; row++) {
+                if (row < n && col < n) {
+                    Hs2[(size_t)row + (size_t)col * (size_t)n2].r = rHs11[(size_t)row + (size_t)col * (size_t)n];
+                    Hs2[(size_t)row + (size_t)col * (size_t)n2].i = iHs11[(size_t)row + (size_t)col * (size_t)n];
+                }
+                else if (row < n && n <= col) {
+                    int jj = col - n;
+                    Hs2[(size_t)row + (size_t)col * (size_t)n2].r = rHs12[(size_t)row + (size_t)jj * (size_t)n];
+                    Hs2[(size_t)row + (size_t)col * (size_t)n2].i = iHs12[(size_t)row + (size_t)jj * (size_t)n];
+                }
+                else if (n <= row && col < n) {
+                    int ii = row - n;
+                    Hs2[(size_t)row + (size_t)col * (size_t)n2].r = rHs12[(size_t)col + (size_t)ii * (size_t)n];
+                    Hs2[(size_t)row + (size_t)col * (size_t)n2].i = -iHs12[(size_t)col + (size_t)ii * (size_t)n];
+                }
+                else {
+                    int ii = row - n;
+                    int jj = col - n;
+                    Hs2[(size_t)row + (size_t)col * (size_t)n2].r = rHs22[(size_t)ii + (size_t)jj * (size_t)n];
+                    Hs2[(size_t)row + (size_t)col * (size_t)n2].i = iHs22[(size_t)ii + (size_t)jj * (size_t)n];
+                }
             }
         }
 
-        /* ***************************************************
+        ClusterNonCol_ArenaUnmap(rHs11);
+        ClusterNonCol_ArenaUnmap(rHs12);
+        ClusterNonCol_ArenaUnmap(rHs22);
+        ClusterNonCol_ArenaUnmap(iHs11);
+        ClusterNonCol_ArenaUnmap(iHs12);
+        ClusterNonCol_ArenaUnmap(iHs22);
+
+        ClusterNonCol_ZheevdxPresent(Hs2, ko, n2, MaxN);
+
+        ClusterNonCol_ArenaMap(dense_evec, arena->o_evec, n2n2 * sizeof(dcomplex));
+
+        if (MaxN < n2) {
+            /* only the first MaxN states are back-transformed below; clear
+               the rest so no consumer ever sees uninitialized rows */
+#pragma acc parallel loop present(dense_evec[0 : n2 * n2])
+            for (size_t i = 0; i < n2n2; i++) {
+                dense_evec[i].r = 0.0;
+                dense_evec[i].i = 0.0;
+            }
+        }
+
+        /* Back-transform only the MaxN solved states (the eigensolver already
+           limits itself to MaxN); the remaining rows of dense_evec are never
+           read by the DM/scatter consumers. */
+        ClusterNonCol_GEMMul8ZgemmLd_OpenACC(CUBLAS_OP_T, CUBLAS_OP_T, MaxN, n2, n2,
+                                             Hs2, n2, n2n2,
+                                             cached_Ss2, n2, n2n2,
+                                             dense_evec, n2, n2n2);
+
+#pragma acc update self(ko[0 : n2 + 1])
+        ClusterNonCol_ArenaUnmap(Hs2);
+        ClusterNonCol_ArenaUnmap(ko);
+
+        /* free the GEMMul8 workspace (the n2-sized complex one from the
+           back-transform dominates) so the DM phase and the grid/force
+           phases of this SCF step see the memory. */
+        if (ClusterNonCol_GemmWorkspaceTurnRelease()) {
+            openmx_gemmul8ReleaseWorkspaces();
+        }
+
+        *dense_evec_out = dense_evec;
+        *dense_evec_on_device_out = 1;
+    }
+
+    MPI_Bcast(ko, n2 + 1, MPI_DOUBLE, Host_ID, mpi_comm_level1);
+}
+
+void solve_evp_real_( int *n1, int *n2, double *Cs, int *na_rows1, double *a, double *Ss, int *na_rows2, int *nblk,
+                      int *mpi_comm_rows_int, int *mpi_comm_cols_int);
+
+void elpa_solve_evp_real_2stage_double_impl_( int *n1, int *n2, double *Cs, int *na_rows1, double *a, double *Ss, int *na_rows2,
+                                              int *nblk, int *na_cols1, int *mpi_comm_rows_int, int *mpi_comm_cols_int, int *mpiworld);
+
+void solve_evp_complex_( int *n2, int *MaxN, dcomplex *Hs2, int *na_rows2_1, double *a, dcomplex *Cs2, int *na_rows2_2,
+                         int *nblk2, int *mpi_comm_rows_int, int *mpi_comm_cols_int );
+
+void elpa_solve_evp_complex_2stage_double_impl_( int *n2, int *MaxN, dcomplex *Hs2, int *na_rows2_1, double *a, dcomplex *Cs2,
+                                                 int *na_rows2_2, int *nblk2, int *na_cols2,
+                                                 int *mpi_comm_rows_int, int *mpi_comm_cols_int, int *mpiworld );
+
+
+
+static void Save_DOS_NonCol(int n, int n2, int MaxN, int *MP, double ****OLP0, dcomplex *EVec1, double *ko);
+static void Save_LCAO_NonCol(int n, int n2, int MaxN, int *MP, double ****OLP0, dcomplex *EVec1, double *ko);
+static dcomplex Lapack_LU_Zinverse(int n, dcomplex *A);
+
+static void Calc_Oscillator_Strength( int n, int n2, int UMOmax, int Nocc[2], int *MP2,
+                                        int *ind2ind,
+                                        dcomplex *Z0, dcomplex *A, dcomplex *Z,
+					dcomplex *Ax, dcomplex *Ay, dcomplex *Az,
+					double Utot1, double Utot2,
+					double XANES_Res[10] );
+
+
+static void Calc_XANES_NonCol( int n, int n2, int MaxN, int *MP,
+			       int *is2, int *ie2, dcomplex *EVec1, double *ko);
+
+double Calc_DM_Cluster_non_collinear_ScaLAPACK(
+    int calc_flag,
+    int myid,
+    int numprocs,
+    int size_H1,
+    int *is2,
+    int *ie2,
+    int *MP,
+    int n,
+    int n2,
+    double *****CDM,
+    double *****iDM0,
+    double *****EDM,
+    double *ko,
+    double *DM1,
+    double *Work1,
+    dcomplex *EVec1 );
+
+
+static int ClusterNonCol_FindOwner(int value, int numprocs, const int *is, const int *ie, const char *label)
+{
+    int ID;
+    char msg[512];
+
+    for (ID = 0; ID < numprocs; ID++) {
+        if (is[ID] <= value && value <= ie[ID]) return ID;
+    }
+    snprintf(msg, sizeof(msg),
+             "Failed to map %s=%d onto an MPI owner in Cluster_DFT_NonCol.c.",
+             label, value);
+    ClusterNonCol_AbortWithMessage(msg);
+    return 0;
+}
+
+double Cluster_DFT_NonCol(
+                   char *mode,
+                   int SCF_iter,
+                   int SpinP_switch,
+                   double *ko,
+                   double *****nh,
+                   double *****ImNL,
+                   double ****CntOLP,
+                   double *****CDM,
+                   double *****EDM,
+                   double Eele0[2], double Eele1[2],
+                   int *MP,
+		   int *is2,
+		   int *ie2,
+		   double *Ss,
+		   double *Cs,
+		   double *rHs11,
+		   double *rHs12,
+		   double *rHs22,
+		   double *iHs11,
+		   double *iHs12,
+		   double *iHs22,
+                   dcomplex *Ss2,
+                   dcomplex *Hs2,
+                   dcomplex *Cs2,
+		   double *DM1,
+		   int size_H1,
+                   dcomplex *EVec1,
+                   double *Work1)
+{
+  static int firsttime=1;
+  int i,j,l,n,n2,n1,i1,i1s,j1,k1,l1;
+  int ii1,jj1,jj2,ki,kj;
+  int wan,HOMO0,HOMO1;
+  int po,num0,num1;
+  int mul,m,wan1,Gc_AN,bcast_flag;
+  double time0,lumos;
+  int ct_AN,k,wanA,tnoA,wanB,tnoB;
+  int GA_AN,Anum,loopN;
+  int MA_AN,LB_AN,GB_AN,Bnum,MaxN;
+  double TZ,my_sum,sum,sumE,max_x=60.0;
+  double My_Eele1[2];
+  double Num_State,x,FermiF,Dnum,Dnum2;
+  double FermiF2,x2,diffF;
+  double dum,ChemP_MAX,ChemP_MIN;
+  double TStime,TEtime;
+  double FermiEps = 1.0e-13;
+  char *Name_Angular[Supported_MaxL+1][2*(Supported_MaxL+1)+1];
+  char *Name_Multiple[20];
+  char file_EV[YOUSO10] = ".EV";
+  FILE *fp_EV;
+  char buf[fp_bsize];          /* setvbuf */
+  double time1,time2,time3,time4,time5,time6,time7;
+  double stime,etime;
+  double av_num,tmp;
+  int ig,jg;
+  int numprocs,myid,ID;
+  int gpusolver_dense_preflight_ok = 0;
+  int use_gpusolver_direct_cluster_dm = 0;
+  int gpusolver_direct_evec_on_device = 0;
+  int ke,ks,nblk_m,nblk_m2;
+  int ID0,IDS,IDR,Max_Num_Snd_EV,Max_Num_Rcv_EV;
+  int *Num_Snd_EV,*Num_Rcv_EV;
+  int *index_Snd_i,*index_Snd_j,*index_Rcv_i,*index_Rcv_j;
+  double *EVec_Snd,*EVec_Rcv;
+  dcomplex *gpusolver_dense_evec = NULL;
+  int ZERO=0,ONE=1,info;
+  double Re_alpha = 1.0; double Re_beta = 0.0;
+  dcomplex alpha = {1.0,0.0}; dcomplex beta = {0.0,0.0};
+
+  MPI_Comm mpi_comm_rows, mpi_comm_cols;
+  int mpi_comm_rows_int,mpi_comm_cols_int;
+  MPI_Status stat;
+  MPI_Request request;
+
+  /* MPI */
+  MPI_Comm_size(mpi_comm_level1,&numprocs);
+  MPI_Comm_rank(mpi_comm_level1,&myid);
+
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&TStime);
+
+  /****************************************************
+             calculation of the array size
+  ****************************************************/
+
+  n = 0;
+  for (i=1; i<=atomnum; i++){
+    wanA  = WhatSpecies[i];
+    n  = n + Spe_Total_CNO[wanA];
+  }
+  n2 = 2*n;
+
+  /* GPU dispatch (added by H.Kawai): assign CUDA/OpenACC device when GPUSOLVER is requested */
+    if (scf_eigen_lib_flag == GPUSOLVER && n2 >= Cluster_DFT_NonCol_GpuSwitchNum() &&
+        Set_Hamiltonian_OpenACC_Rank_Is_Selected()) {
+      set_cuda_default_device_from_local_rank_noncollective();
+      set_openacc_nvidia_device_from_local_rank_noncollective();
+    }
+
+  if (scf_eigen_lib_flag == GPUSOLVER &&
+      Cluster_DFT_NonCol_GpuSwitchNum() <= n2){
+    gpusolver_dense_preflight_ok =
+      ClusterNonCol_GpuDiagFits(SCF_iter,n,n2,myid);
+  }
+
+  use_gpusolver_direct_cluster_dm =
+    (gpusolver_dense_preflight_ok && strcasecmp(mode,"scf") == 0 &&
+     MO_fileout != 1 && xanes_calc != 1 && xanes_gs_fileout != 1 &&
+     !cal_partial_charge && !Dos_fileout && !DosGauss_fileout);
+
+  if (gpusolver_dense_preflight_ok && !use_gpusolver_direct_cluster_dm){
+    /* The legacy single-rank path below uses its own host-to-device
+       eigensolver buffers.  Drop the root-dense reservation after it has
+       served as the collective fit test, otherwise the reservation itself
+       can make that solve run out of device memory. */
+    ClusterNonCol_DenseArena_Release();
+    ClusterNonCol_GpuEigenCtx_Release();
+  }
+
+  /****************************************************
+                  allocation of arrays
+  ****************************************************/
+
+  Num_Snd_EV = (int*)malloc(sizeof(int)*numprocs);
+  Num_Rcv_EV = (int*)malloc(sizeof(int)*numprocs);
+
+  /* initialize variables of measuring elapsed time */
+
+  if (measure_time){
+    time1 = 0.0;
+    time2 = 0.0;
+    time3 = 0.0;
+    time4 = 0.0;
+    time5 = 0.0;
+    time6 = 0.0;
+    time7 = 0.0;
+  }
+
+  /* ***************************************************
+                  total core charge
+  *************************************************** */
+
+  TZ = 0.0;
+  for (i=1; i<=atomnum; i++){
+    wan = WhatSpecies[i];
+    TZ += Spe_Core_Charge[wan];
+  }
+
+  /* ***************************************************
+         find the numbers of partions for MPI
+  *************************************************** */
+
+  /* find the maximum states in solved eigenvalues */
+
+  if (SCF_iter==1){
+    MaxN = n2;
+  }
+  else {
+
+    if      ( strcasecmp(mode,"scf")==0 )
+      lumos = (double)n2*0.20;
+    else if ( strcasecmp(mode,"dos")==0 )
+      lumos = (double)n2*0.40;
+    else if ( strcasecmp(mode,"lcaoout")==0 )
+      lumos = (double)n2*0.40;
+    else if ( strcasecmp(mode,"xanes")==0 )
+      lumos = (double)n2*0.40;
+
+    if (lumos<400.0) lumos = 400.0;
+    MaxN = Cluster_HOMO[0] + (int)lumos;
+    if (n2<MaxN) MaxN = n2;
+
+    if (cal_partial_charge) MaxN = n2;
+  }
+
+  if ( numprocs<=MaxN ){
+
+    av_num = (double)MaxN/(double)numprocs;
+
+    for (ID=0; ID<numprocs; ID++){
+      is2[ID] = (int)(av_num*(double)ID) + 1;
+      ie2[ID] = (int)(av_num*(double)(ID+1));
+    }
+
+    is2[0] = 1;
+    ie2[numprocs-1] = MaxN;
+  }
+
+  else{
+    for (ID=0; ID<MaxN; ID++){
+      is2[ID] = ID + 1;
+      ie2[ID] = ID + 1;
+    }
+    for (ID=MaxN; ID<numprocs; ID++){
+      is2[ID] = 1;
+      ie2[ID] = 0;
+    }
+  }
+
+  /* making data structure of MPI communicaition for eigenvectors */
+
+  for (ID=0; ID<numprocs; ID++){
+    Num_Snd_EV[ID] = 0;
+    Num_Rcv_EV[ID] = 0;
+  }
+
+  for (i=0; i<na_rows2; i++){
+
+    ig = np_rows2*nblk2*((i)/nblk2) + (i)%nblk2 + ((np_rows2+my_prow2)%np_rows2)*nblk2 + 1;
+
+    po = 0;
+    for (ID=0; ID<numprocs; ID++){
+      if (is2[ID]<=ig && ig <=ie2[ID]){
+        po = 1;
+        ID0 = ID;
+        break;
+      }
+    }
+
+    if (po==1) Num_Snd_EV[ID0] += na_cols2;
+  }
+
+  for (ID=0; ID<numprocs; ID++){
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+    if (ID!=0){
+      MPI_Isend(&Num_Snd_EV[IDS], 1, MPI_INT, IDS, 999, mpi_comm_level1, &request);
+      MPI_Recv(&Num_Rcv_EV[IDR], 1, MPI_INT, IDR, 999, mpi_comm_level1, &stat);
+      MPI_Wait(&request,&stat);
+    }
+    else{
+      Num_Rcv_EV[IDR] = Num_Snd_EV[IDS];
+    }
+  }
+
+  Max_Num_Snd_EV = 0;
+  Max_Num_Rcv_EV = 0;
+  for (ID=0; ID<numprocs; ID++){
+    if (Max_Num_Snd_EV<Num_Snd_EV[ID]) Max_Num_Snd_EV = Num_Snd_EV[ID];
+    if (Max_Num_Rcv_EV<Num_Rcv_EV[ID]) Max_Num_Rcv_EV = Num_Rcv_EV[ID];
+  }
+
+  Max_Num_Snd_EV++;
+  Max_Num_Rcv_EV++;
+
+  index_Snd_i = (int*)malloc(sizeof(int)*Max_Num_Snd_EV);
+  index_Snd_j = (int*)malloc(sizeof(int)*Max_Num_Snd_EV);
+  EVec_Snd = (double*)malloc(sizeof(double)*Max_Num_Snd_EV*2);
+  index_Rcv_i = (int*)malloc(sizeof(int)*Max_Num_Rcv_EV);
+  index_Rcv_j = (int*)malloc(sizeof(int)*Max_Num_Rcv_EV);
+  EVec_Rcv = (double*)malloc(sizeof(double)*Max_Num_Rcv_EV*2);
+
+  /* print memory size */
+
+  if (firsttime && memoryusage_fileout){
+    PrintMemory("Cluster_DFT_NonCol: Num_Snd_EV",sizeof(int)*numprocs,NULL);
+    PrintMemory("Cluster_DFT_NonCol: Num_Ecv_EV",sizeof(int)*numprocs,NULL);
+    PrintMemory("Cluster_DFT_NonCol: index_Snd_i",sizeof(int)*Max_Num_Snd_EV,NULL);
+    PrintMemory("Cluster_DFT_NonCol: index_Snd_j",sizeof(int)*Max_Num_Snd_EV,NULL);
+    PrintMemory("Cluster_DFT_NonCol: index_Rcv_i",sizeof(int)*Max_Num_Rcv_EV,NULL);
+    PrintMemory("Cluster_DFT_NonCol: index_Rcv_j",sizeof(int)*Max_Num_Rcv_EV,NULL);
+    PrintMemory("Cluster_DFT_NonCol: EVec_Snd",sizeof(double)*Max_Num_Snd_EV*2,NULL);
+    PrintMemory("Cluster_DFT_NonCol: EVec_Rcv",sizeof(double)*Max_Num_Rcv_EV*2,NULL);
+  }
+  firsttime=0;
+
+  if (use_gpusolver_direct_cluster_dm){
+
+    if (measure_time) dtime(&stime);
+
+    ClusterNonCol_ReleaseGpuSolverCachedEVec(myid);
+
+    for (i1=0; i1<=n2; i1++){ ko[i1] = 1.0e+5; }
+
+    ClusterNonCol_GpuSolverRootDensePath(SCF_iter,ko,nh,ImNL,CntOLP,MP,n,n2,MaxN,myid,
+                                        &gpusolver_dense_evec,&gpusolver_direct_evec_on_device);
+
+    if (measure_time){
+      dtime(&etime);
+      time3 += etime - stime;
+    }
+  }
+  else {
+
+  /* ***************************************************
+            diagonalize the overlap matrix
+  *************************************************** */
+
+  if (SCF_iter==1){
+
+    if (measure_time) dtime(&stime);
+
+    Overlap_Cluster_Ss(CntOLP, Cs, MP, &mpi_comm_level1, 0, n);
+
+    MPI_Comm_split(mpi_comm_level1,my_pcol,my_prow,&mpi_comm_rows);
+    MPI_Comm_split(mpi_comm_level1,my_prow,my_pcol,&mpi_comm_cols);
+
+    mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
+    mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
+
+    /* diagonalize Cs */
+
+    if (scf_eigen_lib_flag==1){
+      F77_NAME(solve_evp_real,SOLVE_EVP_REAL)( &n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk,
+                                               &mpi_comm_rows_int, &mpi_comm_cols_int );
+    }
+    else if (gpusolver_dense_preflight_ok && numprocs==1 && na_rows==n && na_cols==n){
+      ClusterNonCol_GpuSolver_DenseDsyevx(Cs,Ss,ko,n,n,"Cluster_DFT_NonCol overlap");
+    }
+    else if (scf_eigen_lib_flag==2 || scf_eigen_lib_flag==GPUSOLVER){
+
+#ifndef kcomp
+
+      int mpiworld;
+      mpiworld = MPI_Comm_c2f(mpi_comm_level1);
+
+      F77_NAME(elpa_solve_evp_real_2stage_double_impl,ELPA_SOLVE_EVP_REAL_2STAGE_DOUBLE_IMPL)
+	( &n, &n, Cs, &na_rows, &ko[1], Ss, &na_rows, &nblk, &na_cols,
+          &mpi_comm_rows_int, &mpi_comm_cols_int, &mpiworld );
+#endif
+    }
+
+    MPI_Comm_free(&mpi_comm_rows);
+    MPI_Comm_free(&mpi_comm_cols);
+
+    /* print to the standard output */
+
+    if (2<=level_stdout){
+      for (l=1; l<=n; l++){
+	printf("  Eigenvalues of OLP  %2d  %18.15f\n",l,ko[l]);
+      }
+    }
+
+    /* minus eigenvalues to 1.0e-10 */
+
+    for (l=1; l<=n; l++){
+      if (ko[l]<1.0e-10) ko[l] = 1.0e-10;
+      ko[l] = 1.0/sqrt(ko[l]);
+    }
+
+    /* calculate S*1/sqrt(ko) */
+
+    for(i=0; i<na_rows; i++){
+      for(j=0; j<na_cols; j++){
+	jg = np_cols*nblk*((j)/nblk) + (j)%nblk + ((np_cols+my_pcol)%np_cols)*nblk + 1;
+	Ss[j*na_rows+i] = Ss[j*na_rows+i]*ko[jg];
+      }
+    }
+
+    /* make Ss2 */
+
+    Overlap_Cluster_NC_Ss2( Ss, Ss2 );
+
+    if (measure_time){
+      dtime(&etime);
+      time1 += etime - stime;
+    }
+  }
+
+  /* ***************************************************
              transformation of H with Ss
 
-    in case of SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0 
+    in case of SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0
                && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0
 
     H[i    ][j    ].r = RH[0];
@@ -1733,10 +2642,10 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     H[i    ][j+NUM].r = RH[2];
     H[i    ][j+NUM].i = RH[3];
 
-    in case of SO_switch==1 or Hub_U_switch==1 or 1<=Constraint_NCS_switch 
-               or Zeeman_NCS_switch==1 or Zeeman_NCO_switch==1 
+    in case of SO_switch==1 or Hub_U_switch==1 or 1<=Constraint_NCS_switch
+               or Zeeman_NCS_switch==1 or Zeeman_NCO_switch==1
 
-    H[i    ][j    ].r = RH[0];  
+    H[i    ][j    ].r = RH[0];
     H[i    ][j    ].i = IH[0];
     H[i+NUM][j+NUM].r = RH[1];
     H[i+NUM][j+NUM].i = IH[1];
@@ -1744,532 +2653,512 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
     H[i    ][j+NUM].i = RH[3] + IH[2];
   *************************************************** */
 
-        if (measure_time)
-            dtime(&stime);
+  if (measure_time) dtime(&stime);
 
-        /* set rHs and iHs */
+  /* set rHs and iHs */
 
-        Hamiltonian_Cluster_Hs(nh[0], rHs11, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(nh[1], rHs22, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(nh[2], rHs12, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(nh[3], iHs12, MP, 0, &mpi_comm_level1, 0, n);
+  Hamiltonian_Cluster_Hs(nh[0], rHs11, MP, 0, &mpi_comm_level1, 0, n);
+  Hamiltonian_Cluster_Hs(nh[1], rHs22, MP, 0, &mpi_comm_level1, 0, n);
+  Hamiltonian_Cluster_Hs(nh[2], rHs12, MP, 0, &mpi_comm_level1, 0, n);
+  Hamiltonian_Cluster_Hs(nh[3], iHs12, MP, 0, &mpi_comm_level1, 0, n);
 
-        Hamiltonian_Cluster_Hs(ImNL[0], iHs11, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(ImNL[1], iHs22, MP, 0, &mpi_comm_level1, 0, n);
-        Hamiltonian_Cluster_Hs(ImNL[2], Cs, MP, 0, &mpi_comm_level1, 0, n);
+  Hamiltonian_Cluster_Hs(ImNL[0], iHs11, MP, 0, &mpi_comm_level1, 0, n);
+  Hamiltonian_Cluster_Hs(ImNL[1], iHs22, MP, 0, &mpi_comm_level1, 0, n);
+  Hamiltonian_Cluster_Hs(ImNL[2], Cs, MP, 0, &mpi_comm_level1, 0, n);
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            iHs12[i] += Cs[i];
+  for (i=0; i<na_rows*na_cols; i++) iHs12[i] += Cs[i];
 
-        /* S^t x rHs11 x S */
+  /* S^t x rHs11 x S */
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            Cs[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) Cs[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "A");
-        F77_NAME(pdgemm, PDGEMM)("N", "N", &n, &n, &n, &alpha, rHs11, &ONE, &ONE, descH, Ss, &ONE, &ONE, descS, &beta,
-                                 Cs, &ONE, &ONE, descC);
+  Cblacs_barrier(ictxt1,"A");
+  F77_NAME(pdgemm,PDGEMM)("N","N",&n,&n,&n,&Re_alpha,rHs11,&ONE,&ONE,descH,Ss,&ONE,&ONE,descS,&Re_beta,Cs,&ONE,&ONE,descC);
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            rHs11[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) rHs11[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "C");
-        F77_NAME(pdgemm, PDGEMM)("T", "N", &n, &n, &n, &alpha, Ss, &ONE, &ONE, descS, Cs, &ONE, &ONE, descC, &beta,
-                                 rHs11, &ONE, &ONE, descH);
+  Cblacs_barrier(ictxt1,"C");
+  F77_NAME(pdgemm,PDGEMM)("T","N",&n,&n,&n,&Re_alpha,Ss,&ONE,&ONE,descS,Cs,&ONE,&ONE,descC,&Re_beta,rHs11,&ONE,&ONE,descH);
 
-        /* S^t x rHs12 x S */
+  /* S^t x rHs12 x S */
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            Cs[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) Cs[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "A");
-        F77_NAME(pdgemm, PDGEMM)("N", "N", &n, &n, &n, &alpha, rHs12, &ONE, &ONE, descH, Ss, &ONE, &ONE, descS, &beta,
-                                 Cs, &ONE, &ONE, descC);
+  Cblacs_barrier(ictxt1,"A");
+  F77_NAME(pdgemm,PDGEMM)("N","N",&n,&n,&n,&Re_alpha,rHs12,&ONE,&ONE,descH,Ss,&ONE,&ONE,descS,&Re_beta,Cs,&ONE,&ONE,descC);
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            rHs12[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) rHs12[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "C");
-        F77_NAME(pdgemm, PDGEMM)("T", "N", &n, &n, &n, &alpha, Ss, &ONE, &ONE, descS, Cs, &ONE, &ONE, descC, &beta,
-                                 rHs12, &ONE, &ONE, descH);
+  Cblacs_barrier(ictxt1,"C");
+  F77_NAME(pdgemm,PDGEMM)("T","N",&n,&n,&n,&Re_alpha,Ss,&ONE,&ONE,descS,Cs,&ONE,&ONE,descC,&Re_beta,rHs12,&ONE,&ONE,descH);
 
-        /* S^t x rHs22 x S */
+  /* S^t x rHs22 x S */
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            Cs[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) Cs[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "A");
-        F77_NAME(pdgemm, PDGEMM)("N", "N", &n, &n, &n, &alpha, rHs22, &ONE, &ONE, descH, Ss, &ONE, &ONE, descS, &beta,
-                                 Cs, &ONE, &ONE, descC);
+  Cblacs_barrier(ictxt1,"A");
+  F77_NAME(pdgemm,PDGEMM)("N","N",&n,&n,&n,&Re_alpha,rHs22,&ONE,&ONE,descH,Ss,&ONE,&ONE,descS,&Re_beta,Cs,&ONE,&ONE,descC);
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            rHs22[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) rHs22[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "C");
-        F77_NAME(pdgemm, PDGEMM)("T", "N", &n, &n, &n, &alpha, Ss, &ONE, &ONE, descS, Cs, &ONE, &ONE, descC, &beta,
-                                 rHs22, &ONE, &ONE, descH);
+  Cblacs_barrier(ictxt1,"C");
+  F77_NAME(pdgemm,PDGEMM)("T","N",&n,&n,&n,&Re_alpha,Ss,&ONE,&ONE,descS,Cs,&ONE,&ONE,descC,&Re_beta,rHs22,&ONE,&ONE,descH);
 
-        /* S^t x iHs11 x S */
+  /* S^t x iHs11 x S */
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            Cs[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) Cs[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "A");
-        F77_NAME(pdgemm, PDGEMM)("N", "N", &n, &n, &n, &alpha, iHs11, &ONE, &ONE, descH, Ss, &ONE, &ONE, descS, &beta,
-                                 Cs, &ONE, &ONE, descC);
+  Cblacs_barrier(ictxt1,"A");
+  F77_NAME(pdgemm,PDGEMM)("N","N",&n,&n,&n,&Re_alpha,iHs11,&ONE,&ONE,descH,Ss,&ONE,&ONE,descS,&Re_beta,Cs,&ONE,&ONE,descC);
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            iHs11[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) iHs11[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "C");
-        F77_NAME(pdgemm, PDGEMM)("T", "N", &n, &n, &n, &alpha, Ss, &ONE, &ONE, descS, Cs, &ONE, &ONE, descC, &beta,
-                                 iHs11, &ONE, &ONE, descH);
+  Cblacs_barrier(ictxt1,"C");
+  F77_NAME(pdgemm,PDGEMM)("T","N",&n,&n,&n,&Re_alpha,Ss,&ONE,&ONE,descS,Cs,&ONE,&ONE,descC,&Re_beta,iHs11,&ONE,&ONE,descH);
 
-        /* S^t x iHs12 x S */
+  /* S^t x iHs12 x S */
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            Cs[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) Cs[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "A");
-        F77_NAME(pdgemm, PDGEMM)("N", "N", &n, &n, &n, &alpha, iHs12, &ONE, &ONE, descH, Ss, &ONE, &ONE, descS, &beta,
-                                 Cs, &ONE, &ONE, descC);
+  Cblacs_barrier(ictxt1,"A");
+  F77_NAME(pdgemm,PDGEMM)("N","N",&n,&n,&n,&Re_alpha,iHs12,&ONE,&ONE,descH,Ss,&ONE,&ONE,descS,&Re_beta,Cs,&ONE,&ONE,descC);
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            iHs12[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) iHs12[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "C");
-        F77_NAME(pdgemm, PDGEMM)("T", "N", &n, &n, &n, &alpha, Ss, &ONE, &ONE, descS, Cs, &ONE, &ONE, descC, &beta,
-                                 iHs12, &ONE, &ONE, descH);
+  Cblacs_barrier(ictxt1,"C");
+  F77_NAME(pdgemm,PDGEMM)("T","N",&n,&n,&n,&Re_alpha,Ss,&ONE,&ONE,descS,Cs,&ONE,&ONE,descC,&Re_beta,iHs12,&ONE,&ONE,descH);
 
-        /* S^t x iHs22 x S */
+  /* S^t x iHs22 x S */
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            Cs[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) Cs[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "A");
-        F77_NAME(pdgemm, PDGEMM)("N", "N", &n, &n, &n, &alpha, iHs22, &ONE, &ONE, descH, Ss, &ONE, &ONE, descS, &beta,
-                                 Cs, &ONE, &ONE, descC);
+  Cblacs_barrier(ictxt1,"A");
+  F77_NAME(pdgemm,PDGEMM)("N","N",&n,&n,&n,&Re_alpha,iHs22,&ONE,&ONE,descH,Ss,&ONE,&ONE,descS,&Re_beta,Cs,&ONE,&ONE,descC);
 
-        for (i = 0; i < na_rows * na_cols; i++)
-            iHs22[i] = 0.0;
+  for (i=0; i<na_rows*na_cols; i++) iHs22[i] = 0.0;
 
-        Cblacs_barrier(ictxt1, "C");
+  Cblacs_barrier(ictxt1,"C");
+  F77_NAME(pdgemm,PDGEMM)("T","N",&n,&n,&n,&Re_alpha,Ss,&ONE,&ONE,descS,Cs,&ONE,&ONE,descC,&Re_beta,iHs22,&ONE,&ONE,descH);
 
-        F77_NAME(pdgemm, PDGEMM)("T", "N", &n, &n, &n, &alpha, Ss, &ONE, &ONE, descS, Cs, &ONE, &ONE, descC, &beta,
-                                 iHs22, &ONE, &ONE, descH);
+  if (measure_time){
+    dtime(&etime);
+    time2 += etime - stime;
+  }
 
-        if (measure_time) {
-            dtime(&etime);
-            time2 += etime - stime;
-        }
-
-        /* ***************************************************
+  /* ***************************************************
              diagonalize the transformed H
   *************************************************** */
 
-        if (measure_time)
-            dtime(&stime);
+  if (measure_time) dtime(&stime);
 
-        Hamiltonian_Cluster_NC_Hs2(rHs11, rHs22, rHs12, iHs11, iHs22, iHs12, Hs2);
+  /* initialize ko */
+  for (i1=0; i1<=n2; i1++){ ko[i1] = 1.0e+5; }
 
-        MPI_Comm_split(mpi_comm_level1, my_pcol2, my_prow2, &mpi_comm_rows);
-        MPI_Comm_split(mpi_comm_level1, my_prow2, my_pcol2, &mpi_comm_cols);
+  Hamiltonian_Cluster_NC_Hs2( rHs11, rHs22, rHs12, iHs11, iHs22, iHs12, Hs2 );
 
-        mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
-        mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
+  MPI_Comm_split(mpi_comm_level1,my_pcol2,my_prow2,&mpi_comm_rows);
+  MPI_Comm_split(mpi_comm_level1,my_prow2,my_pcol2,&mpi_comm_cols);
 
-        if (scf_eigen_lib_flag == 1) {
-            F77_NAME(solve_evp_complex, SOLVE_EVP_COMPLEX)(&n2, &MaxN, Hs2, &na_rows2, &ko[1], Cs2, &na_rows2, &nblk2,
-                                                           &mpi_comm_rows_int, &mpi_comm_cols_int);
-        } else if (scf_eigen_lib_flag == 2) {
+  mpi_comm_rows_int = MPI_Comm_c2f(mpi_comm_rows);
+  mpi_comm_cols_int = MPI_Comm_c2f(mpi_comm_cols);
+
+  if (scf_eigen_lib_flag==1){
+    F77_NAME(solve_evp_complex,SOLVE_EVP_COMPLEX)( &n2, &MaxN, Hs2, &na_rows2, &ko[1], Cs2, &na_rows2,
+                                                   &nblk2, &mpi_comm_rows_int, &mpi_comm_cols_int );
+  }
+  else if (gpusolver_dense_preflight_ok && numprocs==1 && na_rows2==n2 && na_cols2==n2){
+    ClusterNonCol_GpuSolver_DenseZheevx(Hs2,Cs2,ko,n2,MaxN,"Cluster_DFT_NonCol Hamiltonian");
+  }
+  else if (scf_eigen_lib_flag==2 || scf_eigen_lib_flag==GPUSOLVER){
 
 #ifndef kcomp
 
-            int mpiworld;
-            mpiworld = MPI_Comm_c2f(mpi_comm_level1);
+    int mpiworld;
+    mpiworld = MPI_Comm_c2f(mpi_comm_level1);
 
-            F77_NAME(elpa_solve_evp_complex_2stage_double_impl, ELPA_SOLVE_EVP_COMPLEX_2STAGE_DOUBLE_IMPL)
-            (&n2, &MaxN, Hs2, &na_rows2, &ko[1], Cs2, &na_rows2, &nblk2, &na_cols2, &mpi_comm_rows_int,
-             &mpi_comm_cols_int, &mpiworld);
+    F77_NAME(elpa_solve_evp_complex_2stage_double_impl,ELPA_SOLVE_EVP_COMPLEX_2STAGE_DOUBLE_IMPL)
+      ( &n2, &MaxN, Hs2, &na_rows2, &ko[1], Cs2, &na_rows2, &nblk2, &na_cols2,
+        &mpi_comm_rows_int, &mpi_comm_cols_int, &mpiworld );
 
 #endif
-        }
+  }
 
-        MPI_Comm_free(&mpi_comm_rows);
-        MPI_Comm_free(&mpi_comm_cols);
+  MPI_Comm_free(&mpi_comm_rows);
+  MPI_Comm_free(&mpi_comm_cols);
 
-        if (2 <= level_stdout) {
-            for (i1 = 1; i1 <= MaxN; i1++) {
-                printf("  Eigenvalues of Kohn-Sham %2d  %15.12f\n", i1, ko[i1]);
-            }
-        }
+  if (2<=level_stdout){
+    for (i1=1; i1<=MaxN; i1++){
+      printf("  Eigenvalues of Kohn-Sham %2d  %15.12f\n", i1,ko[i1]);
+    }
+  }
 
-        if (measure_time) {
-            dtime(&etime);
-            time3 += etime - stime;
-        }
+  if (measure_time){
+    dtime(&etime);
+    time3 += etime - stime;
+  }
 
-        /* ***************************************************
+  /* ***************************************************
       Transformation to the original eigenvectors.
       JRCAT NOTE 244P  C = U * lambda^{-1/2} * D
   *************************************************** */
 
-        if (measure_time)
-            dtime(&stime);
+  if (measure_time) dtime(&stime);
 
-        for (k = 0; k < na_rows2 * na_cols2; k++) {
-            Hs2[k].r = 0.0;
-            Hs2[k].i = 0.0;
-        }
+  for(k=0; k<na_rows2*na_cols2; k++){
+    Hs2[k].r = 0.0;
+    Hs2[k].i = 0.0;
+  }
 
-        Cblacs_barrier(ictxt1_2, "A");
-        F77_NAME(pzgemm, PZGEMM)("T", "T", &n2, &n2, &n2, &alpha, Cs2, &ONE, &ONE, descC2, Ss2, &ONE, &ONE, descS2,
-                                 &beta, Hs2, &ONE, &ONE, descH2);
+  Cblacs_barrier(ictxt1_2,"A");
+  F77_NAME(pzgemm,PZGEMM)("T","T", &n2,&n2,&n2,&alpha,Cs2,&ONE,&ONE,
+			           descC2,Ss2,&ONE,&ONE,descS2,&beta,Hs2,
+			           &ONE,&ONE,descH2);
+
+  /* MPI communications of Hs2 */
+
+  for (ID=0; ID<numprocs; ID++){
+
+    IDS = (myid + ID) % numprocs;
+    IDR = (myid - ID + numprocs) % numprocs;
+
+    k = 0;
+    for(i=0; i<na_rows2; i++){
+      ig = np_rows2*nblk2*((i)/nblk2) + (i)%nblk2 + ((np_rows2+my_prow2)%np_rows2)*nblk2 + 1;
+
+      if (is2[IDS]<=ig && ig <=ie2[IDS]){
+
+        for (j=0; j<na_cols2; j++){
+          jg = np_cols2*nblk2*((j)/nblk2) + (j)%nblk2 + ((np_cols2+my_pcol2)%np_cols2)*nblk2 + 1;
+
+          index_Snd_i[k] = ig;
+          index_Snd_j[k] = jg;
+          EVec_Snd[2*k  ] = Hs2[j*na_rows2+i].r;
+          EVec_Snd[2*k+1] = Hs2[j*na_rows2+i].i;
+          k++;
+	}
+      }
     }
 
-    /* MPI communications of Hs2 */
+    if (ID!=0){
 
-    if (!use_cusolver_direct_cluster_dm) {
-        for (ID = 0; ID < numprocs; ID++) {
+      if (Num_Snd_EV[IDS]!=0){
+        MPI_Isend(index_Snd_i, Num_Snd_EV[IDS], MPI_INT, IDS, 999, mpi_comm_level1, &request);
+      }
+      if (Num_Rcv_EV[IDR]!=0){
+        MPI_Recv(index_Rcv_i, Num_Rcv_EV[IDR], MPI_INT, IDR, 999, mpi_comm_level1, &stat);
+      }
+      if (Num_Snd_EV[IDS]!=0){
+        MPI_Wait(&request,&stat);
+      }
 
-            IDS = (myid + ID) % numprocs;
-            IDR = (myid - ID + numprocs) % numprocs;
+      if (Num_Snd_EV[IDS]!=0){
+        MPI_Isend(index_Snd_j, Num_Snd_EV[IDS], MPI_INT, IDS, 999, mpi_comm_level1, &request);
+      }
+      if (Num_Rcv_EV[IDR]!=0){
+        MPI_Recv(index_Rcv_j, Num_Rcv_EV[IDR], MPI_INT, IDR, 999, mpi_comm_level1, &stat);
+      }
+      if (Num_Snd_EV[IDS]!=0){
+        MPI_Wait(&request,&stat);
+      }
 
-            k = 0;
-            for (i = 0; i < na_rows2; i++) {
-                ig = np_rows2 * nblk2 * ((i) / nblk2) + (i) % nblk2 + ((np_rows2 + my_prow2) % np_rows2) * nblk2 + 1;
-
-                if (is2[IDS] <= ig && ig <= ie2[IDS]) {
-
-                    for (j = 0; j < na_cols2; j++) {
-                        jg = np_cols2 * nblk2 * ((j) / nblk2) + (j) % nblk2 +
-                             ((np_cols2 + my_pcol2) % np_cols2) * nblk2 + 1;
-
-                        index_Snd_i[k]      = ig;
-                        index_Snd_j[k]      = jg;
-                        EVec_Snd[2 * k]     = Hs2[j * na_rows2 + i].r;
-                        EVec_Snd[2 * k + 1] = Hs2[j * na_rows2 + i].i;
-                        k++;
-                    }
-                }
-            }
-
-            if (ID != 0) {
-
-                if (Num_Snd_EV[IDS] != 0) {
-                    MPI_Isend(index_Snd_i, Num_Snd_EV[IDS], MPI_INT, IDS, 999, mpi_comm_level1, &request);
-                }
-                if (Num_Rcv_EV[IDR] != 0) {
-                    MPI_Recv(index_Rcv_i, Num_Rcv_EV[IDR], MPI_INT, IDR, 999, mpi_comm_level1, &stat);
-                }
-                if (Num_Snd_EV[IDS] != 0) {
-                    MPI_Wait(&request, &stat);
-                }
-
-                if (Num_Snd_EV[IDS] != 0) {
-                    MPI_Isend(index_Snd_j, Num_Snd_EV[IDS], MPI_INT, IDS, 999, mpi_comm_level1, &request);
-                }
-                if (Num_Rcv_EV[IDR] != 0) {
-                    MPI_Recv(index_Rcv_j, Num_Rcv_EV[IDR], MPI_INT, IDR, 999, mpi_comm_level1, &stat);
-                }
-                if (Num_Snd_EV[IDS] != 0) {
-                    MPI_Wait(&request, &stat);
-                }
-
-                if (Num_Snd_EV[IDS] != 0) {
-                    MPI_Isend(EVec_Snd, Num_Snd_EV[IDS] * 2, MPI_DOUBLE, IDS, 999, mpi_comm_level1, &request);
-                }
-                if (Num_Rcv_EV[IDR] != 0) {
-                    MPI_Recv(EVec_Rcv, Num_Rcv_EV[IDR] * 2, MPI_DOUBLE, IDR, 999, mpi_comm_level1, &stat);
-                }
-                if (Num_Snd_EV[IDS] != 0) {
-                    MPI_Wait(&request, &stat);
-                }
-            } else {
-                for (k = 0; k < Num_Snd_EV[IDS]; k++) {
-                    index_Rcv_i[k]      = index_Snd_i[k];
-                    index_Rcv_j[k]      = index_Snd_j[k];
-                    EVec_Rcv[2 * k]     = EVec_Snd[2 * k];
-                    EVec_Rcv[2 * k + 1] = EVec_Snd[2 * k + 1];
-                }
-            }
-
-            for (k = 0; k < Num_Rcv_EV[IDR]; k++) {
-                ig         = index_Rcv_i[k];
-                jg         = index_Rcv_j[k];
-                m          = (ig - is2[myid]) * n2 + jg - 1;
-                EVec1[m].r = EVec_Rcv[2 * k];
-                EVec1[m].i = EVec_Rcv[2 * k + 1];
-            }
-        }
+      if (Num_Snd_EV[IDS]!=0){
+        MPI_Isend(EVec_Snd, Num_Snd_EV[IDS]*2, MPI_DOUBLE, IDS, 999, mpi_comm_level1, &request);
+      }
+      if (Num_Rcv_EV[IDR]!=0){
+        MPI_Recv(EVec_Rcv, Num_Rcv_EV[IDR]*2, MPI_DOUBLE, IDR, 999, mpi_comm_level1, &stat);
+      }
+      if (Num_Snd_EV[IDS]!=0){
+        MPI_Wait(&request,&stat);
+      }
+    }
+    else{
+      for(k=0; k<Num_Snd_EV[IDS]; k++){
+        index_Rcv_i[k] = index_Snd_i[k];
+        index_Rcv_j[k] = index_Snd_j[k];
+        EVec_Rcv[2*k  ] = EVec_Snd[2*k  ];
+        EVec_Rcv[2*k+1] = EVec_Snd[2*k+1];
+      }
     }
 
-    if (measure_time) {
-        dtime(&etime);
-        time4 += etime - stime;
+    for(k=0; k<Num_Rcv_EV[IDR]; k++){
+      ig = index_Rcv_i[k];
+      jg = index_Rcv_j[k];
+      m = (ig-is2[myid])*n2 + jg - 1;
+      EVec1[m].r = EVec_Rcv[2*k  ];
+      EVec1[m].i = EVec_Rcv[2*k+1];
     }
+  }
 
-    if (strcasecmp(mode, "scf") == 0) {
+  if (measure_time){
+    dtime(&etime);
+    time4 += etime - stime;
+  }
 
-        /****************************************************
+  }
+
+  if ( strcasecmp(mode,"scf")==0 || strcasecmp(mode,"ParDM")==0 ){
+
+    /****************************************************
                   find chemical potential
     ****************************************************/
 
-        if (measure_time)
-            dtime(&stime);
+    double Beta_trial1;
 
-        /* first, find ChemP at five times large temperatue */
+    if (measure_time) dtime(&stime);
 
-        po    = 0;
-        loopN = 0;
+    /* first, find ChemP at 1200 K */
 
-        ChemP_MAX       = 15.0;
-        ChemP_MIN       = -15.0;
-        Cluster_HOMO[0] = 0;
+    Beta_trial1 = 1.0/kB/(1200.0/eV2Hartree);
 
-        do {
-            ChemP     = 0.50 * (ChemP_MAX + ChemP_MIN);
-            Num_State = 0.0;
+    po = 0;
+    loopN = 0;
 
-            for (i1 = 1; i1 <= MaxN; i1++) {
-                x = (ko[i1] - ChemP) * Beta * 0.2;
-                if (x <= -max_x)
-                    x = -max_x;
-                if (max_x <= x)
-                    x = max_x;
-                FermiF    = FermiFunc_NC(x, i1);
-                Num_State = Num_State + FermiF;
-                if (0.5 < FermiF)
-                    Cluster_HOMO[0] = i1;
-            }
+    ChemP_MAX = 15.0;
+    ChemP_MIN =-15.0;
 
-            Dnum = (TZ - Num_State) - system_charge;
-            if (0.0 <= Dnum)
-                ChemP_MIN = ChemP;
-            else
-                ChemP_MAX = ChemP;
-            if (fabs(Dnum) < 1.0e-14)
-                po = 1;
-            loopN++;
-        } while (po == 0 && loopN < 1000);
+    do {
+      ChemP = 0.50*(ChemP_MAX + ChemP_MIN);
+      Num_State = 0.0;
 
-        /* second, find ChemP at the temperatue, starting from the previously found ChemP. */
+      for (i1=1; i1<=MaxN; i1++){
+	x = (ko[i1] - ChemP)*Beta_trial1;
+	if (x<=-max_x) x = -max_x;
+	if (max_x<=x)  x = max_x;
+	FermiF = FermiFunc_NC(x,i1);
+	Num_State = Num_State + FermiF;
+	if (0.5<FermiF) Cluster_HOMO[0] = i1;
+      }
 
-        po    = 0;
-        loopN = 0;
+      Dnum = (TZ - Num_State) - system_charge;
+      if (0.0<=Dnum) ChemP_MIN = ChemP;
+      else           ChemP_MAX = ChemP;
+      if (fabs(Dnum)<1.0e-12) po = 1;
+      loopN++;
+    }
+    while (po==0 && loopN<1000);
 
-        ChemP_MAX       = 15.0;
-        ChemP_MIN       = -15.0;
-        Cluster_HOMO[0] = 0;
+    /* second, find ChemP at the temperatue, starting from the previously found ChemP. */
 
-        do {
+    po = 0;
+    loopN = 0;
 
-            if (loopN != 0) {
-                ChemP = 0.50 * (ChemP_MAX + ChemP_MIN);
-            }
+    ChemP_MAX = 15.0;
+    ChemP_MIN =-15.0;
 
-            Num_State = 0.0;
+    do {
 
-            for (i1 = 1; i1 <= MaxN; i1++) {
-                x = (ko[i1] - ChemP) * Beta;
-                if (x <= -max_x)
-                    x = -max_x;
-                if (max_x <= x)
-                    x = max_x;
-                FermiF    = FermiFunc_NC(x, i1);
-                Num_State = Num_State + FermiF;
-                if (0.5 < FermiF)
-                    Cluster_HOMO[0] = i1;
-            }
+      if (loopN!=0){
+	ChemP = 0.50*(ChemP_MAX + ChemP_MIN);
+      }
 
-            Dnum = (TZ - Num_State) - system_charge;
-            if (0.0 <= Dnum)
-                ChemP_MIN = ChemP;
-            else
-                ChemP_MAX = ChemP;
-            if (fabs(Dnum) < 1.0e-14)
-                po = 1;
-            loopN++;
-        } while (po == 0 && loopN < 1000);
+      Num_State = 0.0;
 
-        if (2 <= level_stdout) {
-            printf("  ChemP=%15.12f\n", ChemP);
-        }
+      for (i1=1; i1<=MaxN; i1++){
+	x = (ko[i1] - ChemP)*Beta;
+	if (x<=-max_x) x = -max_x;
+	if (max_x<=x)  x = max_x;
+	FermiF = FermiFunc_NC(x,i1);
+	Num_State = Num_State + FermiF;
+	if (0.5<FermiF) Cluster_HOMO[0] = i1;
+      }
 
-        if (measure_time) {
-            dtime(&etime);
-            time5 += etime - stime;
-        }
+      Dnum = (TZ - Num_State) - system_charge;
+      if (0.0<=Dnum) ChemP_MIN = ChemP;
+      else           ChemP_MAX = ChemP;
+      if (fabs(Dnum)<1.0e-12) po = 1;
+      loopN++;
+    }
+    while (po==0 && loopN<1000);
 
-        /****************************************************
+    if (2<=level_stdout){
+      printf("  ChemP=%15.12f\n",ChemP);
+    }
+
+    if (measure_time){
+      dtime(&etime);
+      time5 += etime - stime;
+    }
+
+    /****************************************************
             Energies by summing up eigenvalues
     ****************************************************/
 
-        Eele0[0] = 0.0;
-        Eele0[1] = 0.0;
+    Eele0[0] = 0.0;
+    Eele0[1] = 0.0;
 
-        for (i1 = 1; i1 <= MaxN; i1++) {
+    for (i1=1; i1<=MaxN; i1++){
 
-            x = (ko[i1] - ChemP) * Beta;
-            if (x <= -max_x)
-                x = -max_x;
-            if (max_x <= x)
-                x = max_x;
-            FermiF   = FermiFunc_NC(x, i1);
-            Eele0[0] = Eele0[0] + ko[i1] * FermiF;
-        }
+      x = (ko[i1] - ChemP)*Beta;
+      if (x<=-max_x) x = -max_x;
+      if (max_x<=x)  x = max_x;
+      FermiF = FermiFunc_NC(x,i1);
+      Eele0[0] = Eele0[0] + ko[i1]*FermiF;
+    }
 
-        /****************************************************
+    /****************************************************
       LCAO coefficients are stored for calculating
                values of MOs on grids
     ****************************************************/
 
-        if ((Cluster_HOMO[0] - num_HOMOs + 1) < 1)
-            num_HOMOs = Cluster_HOMO[0];
-        if ((Cluster_HOMO[0] + num_LUMOs) > MaxN)
-            num_LUMOs = MaxN - Cluster_HOMO[0];
+    if ( (Cluster_HOMO[0]-num_HOMOs+1)<1 )  num_HOMOs = Cluster_HOMO[0];
+    if ( (Cluster_HOMO[0]+num_LUMOs)>MaxN ) num_LUMOs = MaxN - Cluster_HOMO[0];
 
-        if (myid == Host_ID && 2 <= level_stdout) {
-            printf("  HOMO = %2d\n", Cluster_HOMO[0]);
+    if (myid==Host_ID && 2<=level_stdout){
+      printf("  HOMO = %2d\n",Cluster_HOMO[0]);
+    }
+
+    if (MO_fileout==1){
+
+      /* allocation of arrays */
+      double *array0;
+      int *is3,*ie3;
+
+      array0 = (double*)malloc(sizeof(double)*(n2+2)*2);
+      is3 = (int*)malloc(sizeof(int)*numprocs);
+      ie3 = (int*)malloc(sizeof(int)*numprocs);
+
+      /* set is3 and ie3 */
+
+      if ( numprocs<=MaxN ){
+
+	av_num = (double)MaxN/(double)numprocs;
+	for (ID=0; ID<numprocs; ID++){
+	  is3[ID] = (int)(av_num*(double)ID) + 1;
+	  ie3[ID] = (int)(av_num*(double)(ID+1));
+	}
+
+	is3[0] = 1;
+	ie3[numprocs-1] = MaxN;
+      }
+      else{
+	for (ID=0; ID<MaxN; ID++){
+	  is3[ID] = ID + 1;
+	  ie3[ID] = ID + 1;
+	}
+	for (ID=MaxN; ID<numprocs; ID++){
+	  is3[ID] =  1;
+	  ie3[ID] =  0;
+	}
+      }
+
+      /* HOMOs */
+
+      for (j=0; j<num_HOMOs; j++){
+
+	j1 = Cluster_HOMO[0] - j;
+
+        /* store eigenvalue */
+        HOMOs_Coef[0][0][j][0][0].r = ko[j1];
+        HOMOs_Coef[0][1][j][0][0].r = ko[j1];
+
+	/* store EVec1 */
+	if (numprocs==1){
+	  for (k=0; k<n2; k++){
+	    m = (j1-1)*n2 + k;
+	    array0[2*k  ] = EVec1[m].r;
+	    array0[2*k+1] = EVec1[m].i;
+	  }
+	}
+	else{
+
+	  po = 0;
+	  for (ID=0; ID<numprocs; ID++){
+	    if (is3[ID]<=j1 && j1 <=ie3[ID]){
+	      po = 1;
+	      ID0 = ID;
+	      break;
+	    }
+	  }
+
+	  if (myid==ID0){
+	    for (k=0; k<n2; k++){
+	      m = (j1-is3[ID0])*n2 + k;
+	      array0[2*k  ] = EVec1[m].r;
+	      array0[2*k+1] = EVec1[m].i;
+	    }
+	  }
+
+	  /* MPI communications */
+	  MPI_Bcast(array0, n2*2, MPI_DOUBLE, ID0, mpi_comm_level1);
+	}
+
+	/* store eigenvector */
+	for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
+	  wanA = WhatSpecies[GA_AN];
+	  tnoA = Spe_Total_CNO[wanA];
+	  Anum = MP[GA_AN];
+	  for (i=0; i<tnoA; i++){
+
+	    HOMOs_Coef[0][0][j][GA_AN][i].r = array0[ (Anum+i-1)*2      ];
+	    HOMOs_Coef[0][0][j][GA_AN][i].i = array0[ (Anum+i-1)*2+1    ];
+	    HOMOs_Coef[0][1][j][GA_AN][i].r = array0[ (Anum+i-1)*2  +n2 ];
+	    HOMOs_Coef[0][1][j][GA_AN][i].i = array0[ (Anum+i-1)*2+1+n2 ];
+	  }
+	}
+      }
+
+      /* LUMOs */
+
+      for (j=0; j<num_LUMOs; j++){
+
+	j1 = Cluster_HOMO[0] + 1 + j;
+
+        /* store eigenvalue */
+        LUMOs_Coef[0][0][j][0][0].r = ko[j1];
+        LUMOs_Coef[0][1][j][0][0].r = ko[j1];
+
+	/* store EVec1 */
+	if (numprocs==1){
+          for (k=0; k<n2; k++){
+	    m = (j1-1)*n2 + k;
+	    array0[2*k  ] = EVec1[m].r;
+	    array0[2*k+1] = EVec1[m].i;
+	  }
         }
+	else{
 
-        if (MO_fileout == 1) {
+	  po = 0;
+	  for (ID=0; ID<numprocs; ID++){
+	    if (is3[ID]<=j1 && j1 <=ie3[ID]){
+	      po = 1;
+	      ID0 = ID;
+	      break;
+	    }
+	  }
 
-            /* allocation of arrays */
-            double * array0;
-            int *    is3, *ie3;
+	  if (myid==ID0){
+	    for (k=0; k<n2; k++){
+	      m = (j1-is3[ID0])*n2 + k;
+	      array0[2*k  ] = EVec1[m].r;
+	      array0[2*k+1] = EVec1[m].i;
+	    }
+	  }
 
-            array0 = (double *)ClusterNonCol_MallocArray(
-                ClusterNonCol_CheckedMulCount((size_t)(n2 + 2), 2u, "MO array0 elements"), sizeof(double),
-                "MO array0");
-            is3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "MO is3");
-            ie3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "MO ie3");
+	  /* MPI communications */
+	  MPI_Bcast(array0, n2*2, MPI_DOUBLE, ID0, mpi_comm_level1);
+	}
 
-            /* set is3 and ie3 */
+	/* store eigenvector */
+	for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
+	  wanA = WhatSpecies[GA_AN];
+	  tnoA = Spe_Total_CNO[wanA];
+	  Anum = MP[GA_AN];
+	  for (i=0; i<tnoA; i++){
+	    LUMOs_Coef[0][0][j][GA_AN][i].r = array0[ (Anum+i-1)*2      ];
+	    LUMOs_Coef[0][0][j][GA_AN][i].i = array0[ (Anum+i-1)*2+1    ];
+	    LUMOs_Coef[0][1][j][GA_AN][i].r = array0[ (Anum+i-1)*2  +n2 ];
+	    LUMOs_Coef[0][1][j][GA_AN][i].i = array0[ (Anum+i-1)*2+1+n2 ];
+	  }
+	}
+      }
 
-            if (numprocs <= MaxN) {
+      free(array0);
+      free(is3);
+      free(ie3);
 
-                av_num = (double)MaxN / (double)numprocs;
-                for (ID = 0; ID < numprocs; ID++) {
-                    is3[ID] = (int)(av_num * (double)ID) + 1;
-                    ie3[ID] = (int)(av_num * (double)(ID + 1));
-                }
+    } /* end of if (MO_fileout==1) */
 
-                is3[0]            = 1;
-                ie3[numprocs - 1] = MaxN;
-            } else {
-                for (ID = 0; ID < MaxN; ID++) {
-                    is3[ID] = ID + 1;
-                    ie3[ID] = ID + 1;
-                }
-                for (ID = MaxN; ID < numprocs; ID++) {
-                    is3[ID] = 1;
-                    ie3[ID] = 0;
-                }
-            }
-
-            /* HOMOs */
-
-            for (j = 0; j < num_HOMOs; j++) {
-
-                j1 = Cluster_HOMO[0] - j;
-
-                /* store eigenvalue */
-                HOMOs_Coef[0][0][j][0][0].r = ko[j1];
-                HOMOs_Coef[0][1][j][0][0].r = ko[j1];
-
-                /* store EVec1 */
-                if (numprocs == 1) {
-                    for (k = 0; k < n2; k++) {
-                        m                 = (j1 - 1) * n2 + k;
-                        array0[2 * k]     = EVec1[m].r;
-                        array0[2 * k + 1] = EVec1[m].i;
-                    }
-                } else {
-
-                    ID0 = ClusterNonCol_FindOwner(j1, numprocs, is3, ie3, "MO HOMO eigenvector");
-
-                    if (myid == ID0) {
-                        for (k = 0; k < n2; k++) {
-                            m                 = (j1 - is3[ID0]) * n2 + k;
-                            array0[2 * k]     = EVec1[m].r;
-                            array0[2 * k + 1] = EVec1[m].i;
-                        }
-                    }
-
-                    /* MPI communications */
-                    MPI_Bcast(array0, n2 * 2, MPI_DOUBLE, ID0, mpi_comm_level1);
-                }
-
-                /* store eigenvector */
-                for (GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                    wanA = WhatSpecies[GA_AN];
-                    tnoA = Spe_Total_CNO[wanA];
-                    Anum = MP[GA_AN];
-                    for (i = 0; i < tnoA; i++) {
-
-                        HOMOs_Coef[0][0][j][GA_AN][i].r = array0[(Anum + i - 1) * 2];
-                        HOMOs_Coef[0][0][j][GA_AN][i].i = array0[(Anum + i - 1) * 2 + 1];
-                        HOMOs_Coef[0][1][j][GA_AN][i].r = array0[(Anum + i - 1) * 2 + n2];
-                        HOMOs_Coef[0][1][j][GA_AN][i].i = array0[(Anum + i - 1) * 2 + 1 + n2];
-                    }
-                }
-            }
-
-            /* LUMOs */
-
-            for (j = 0; j < num_LUMOs; j++) {
-
-                j1 = Cluster_HOMO[0] + 1 + j;
-
-                /* store eigenvalue */
-                LUMOs_Coef[0][0][j][0][0].r = ko[j1];
-                LUMOs_Coef[0][1][j][0][0].r = ko[j1];
-
-                /* store EVec1 */
-                if (numprocs == 1) {
-                    for (k = 0; k < n2; k++) {
-                        m                 = (j1 - 1) * n2 + k;
-                        array0[2 * k]     = EVec1[m].r;
-                        array0[2 * k + 1] = EVec1[m].i;
-                    }
-                } else {
-
-                    ID0 = ClusterNonCol_FindOwner(j1, numprocs, is3, ie3, "MO LUMO eigenvector");
-
-                    if (myid == ID0) {
-                        for (k = 0; k < n2; k++) {
-                            m                 = (j1 - is3[ID0]) * n2 + k;
-                            array0[2 * k]     = EVec1[m].r;
-                            array0[2 * k + 1] = EVec1[m].i;
-                        }
-                    }
-
-                    /* MPI communications */
-                    MPI_Bcast(array0, n2 * 2, MPI_DOUBLE, ID0, mpi_comm_level1);
-                }
-
-                /* store eigenvector */
-                for (GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-                    wanA = WhatSpecies[GA_AN];
-                    tnoA = Spe_Total_CNO[wanA];
-                    Anum = MP[GA_AN];
-                    for (i = 0; i < tnoA; i++) {
-                        LUMOs_Coef[0][0][j][GA_AN][i].r = array0[(Anum + i - 1) * 2];
-                        LUMOs_Coef[0][0][j][GA_AN][i].i = array0[(Anum + i - 1) * 2 + 1];
-                        LUMOs_Coef[0][1][j][GA_AN][i].r = array0[(Anum + i - 1) * 2 + n2];
-                        LUMOs_Coef[0][1][j][GA_AN][i].i = array0[(Anum + i - 1) * 2 + 1 + n2];
-                    }
-                }
-            }
-
-            free(array0);
-            free(is3);
-            free(ie3);
-
-        } /* end of if (MO_fileout==1) */
-
-        /****************************************************
+    /****************************************************
         density matrix and energy density matrix
 
         CDM[0]  Re alpha alpha density matrix
@@ -2285,743 +3174,717 @@ double Cluster_DFT_NonCol(char * mode, int SCF_iter, int SpinP_switch, double * 
         EDM[3]  Im alpha beta  energy density matrix
     ****************************************************/
 
-        if (measure_time)
-            dtime(&stime);
+    if (measure_time) dtime(&stime);
 
-        if (use_cusolver_direct_cluster_dm) {
-            if (myid == Host_ID && !cusolver_direct_evec_on_device) {
-                ClusterNonCol_AbortWithMessage("CuSOLVER device eigenvectors are not available in Cluster_DFT_NonCol.c.");
-            }
+    if (use_gpusolver_direct_cluster_dm){
 
-            /*
-             * The direct CuSOLVER path keeps eigenvectors on the device and does
-             * not populate the distributed host EVec1 buffer used by DFT.c's
-             * post-SCF EDM rebuild. Build EDM here as well so force evaluation
-             * never reads stale host eigenvector data after a runtest case switch.
-             */
-            time6 += ClusterNonCol_CalcDMRootDense_OpenACC(myid, size_H1, MP, n, n2, MaxN, CDM, iDM[0], EDM, ko, Cs2,
-                                                           1);
+      if (myid==Host_ID && !gpusolver_direct_evec_on_device){
+        ClusterNonCol_AbortWithMessage("GPUSOLVER device eigenvectors are not available in Cluster_DFT_NonCol.c.");
+      }
 
-            if (myid == Host_ID && cusolver_direct_evec_on_device) {
-#pragma acc exit data delete(Cs2[0 : n2 * n2])
-                cusolver_direct_evec_on_device = 0;
-            }
-        } else {
-            /*
-             * The batched DM path changes the summation order enough to move the
-             * self-consistent solution for sensitive non-collinear cluster cases
-             * such as Cr2. Keep the original per-component accumulation here.
-             */
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(1, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                             iDM[0], EDM, ko, DM1, Work1, EVec1);
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(2, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                             iDM[0], EDM, ko, DM1, Work1, EVec1);
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(3, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                             iDM[0], EDM, ko, DM1, Work1, EVec1);
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(4, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                             iDM[0], EDM, ko, DM1, Work1, EVec1);
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(5, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                             iDM[0], EDM, ko, DM1, Work1, EVec1);
-            time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(6, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                             iDM[0], EDM, ko, DM1, Work1, EVec1);
+      time6 += ClusterNonCol_CalcDMRootDense_OpenACC(myid,size_H1,MP,n,n2,MaxN,CDM,iDM[0],EDM,ko,
+                                                     gpusolver_dense_evec,(Cnt_switch==1));
 
-            if (Cnt_switch == 1) {
-                time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(7, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                                 iDM[0], EDM, ko, DM1, Work1, EVec1);
-                time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(8, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                                 iDM[0], EDM, ko, DM1, Work1, EVec1);
-                time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(9, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                                 iDM[0], EDM, ko, DM1, Work1, EVec1);
-                time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK(10, myid, numprocs, size_H1, is2, ie2, MP, n, n2, CDM,
-                                                                 iDM[0], EDM, ko, DM1, Work1, EVec1);
-            }
-        }
-
-        /****************************************************
-                      Bond Energies
-    ****************************************************/
-
-        My_Eele1[0] = 0.0;
-        My_Eele1[1] = 0.0;
-
-        for (MA_AN = 1; MA_AN <= Matomnum; MA_AN++) {
-            GA_AN = M2G[MA_AN];
-            wanA  = WhatSpecies[GA_AN];
-            tnoA  = Spe_Total_CNO[wanA];
-            for (j = 0; j <= FNAN[GA_AN]; j++) {
-                wanB = WhatSpecies[natn[GA_AN][j]];
-                tnoB = Spe_Total_CNO[wanB];
-
-                /* non-spin-orbit coupling and non-LDA+U */
-                if (SO_switch == 0 && Hub_U_switch == 0 && Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 &&
-                    Zeeman_NCO_switch == 0) {
-                    for (k = 0; k < tnoA; k++) {
-                        for (l = 0; l < tnoB; l++) {
-                            My_Eele1[0] += +CDM[0][MA_AN][j][k][l] * nh[0][MA_AN][j][k][l] +
-                                           CDM[1][MA_AN][j][k][l] * nh[1][MA_AN][j][k][l] +
-                                           2.0 * CDM[2][MA_AN][j][k][l] * nh[2][MA_AN][j][k][l] -
-                                           2.0 * CDM[3][MA_AN][j][k][l] * nh[3][MA_AN][j][k][l];
-                        }
-                    }
-                }
-
-                /* spin-orbit coupling or LDA+U */
-                else {
-                    for (k = 0; k < tnoA; k++) {
-                        for (l = 0; l < tnoB; l++) {
-                            My_Eele1[0] +=
-                                +CDM[0][MA_AN][j][k][l] * nh[0][MA_AN][j][k][l] -
-                                iDM[0][0][MA_AN][j][k][l] * ImNL[0][MA_AN][j][k][l] +
-                                CDM[1][MA_AN][j][k][l] * nh[1][MA_AN][j][k][l] -
-                                iDM[0][1][MA_AN][j][k][l] * ImNL[1][MA_AN][j][k][l] +
-                                2.0 * CDM[2][MA_AN][j][k][l] * nh[2][MA_AN][j][k][l] -
-                                2.0 * CDM[3][MA_AN][j][k][l] * (nh[3][MA_AN][j][k][l] + ImNL[2][MA_AN][j][k][l]);
-                        }
-                    }
-                }
-            }
-        }
-
-        /* MPI, My_Eele1 */
-        MPI_Allreduce(&My_Eele1[0], &Eele1[0], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-        MPI_Allreduce(&My_Eele1[1], &Eele1[1], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-
-        if (2 <= level_stdout && myid == Host_ID) {
-            printf("Eele0=%15.12f Eele1=%15.12f\n", Eele0[0], Eele1[0]);
-        }
-
-        if (measure_time) {
-            dtime(&etime);
-            time6 += etime - stime;
-        }
-
-        /****************************************************
-                           Output
-    ****************************************************/
-
-        if (measure_time)
-            dtime(&stime);
-
-        if (myid == Host_ID) {
-
-            if (snprintf(file_EV, sizeof(file_EV), "%s%s.EV", filepath, filename) >= (int)sizeof(file_EV)) {
-                ClusterNonCol_AbortWithMessage("Output path is too long for EV file.");
-            }
-
-            fp_EV = fopen(file_EV, "w");
-            if (fp_EV != NULL) {
-
-                setvbuf(fp_EV, buf, _IOFBF, fp_bsize); /* setvbuf */
-
-                fprintf(fp_EV, "\n");
-                fprintf(fp_EV, "***********************************************************\n");
-                fprintf(fp_EV, "***********************************************************\n");
-                fprintf(fp_EV, "      Eigenvalues (Hartree) for non-collinear KS-eq.       \n");
-                fprintf(fp_EV, "***********************************************************\n");
-                fprintf(fp_EV, "***********************************************************\n\n");
-
-                fprintf(fp_EV, "   Chemical Potential (Hartree) = %18.14f\n", ChemP);
-                fprintf(fp_EV, "   Number of States             = %18.14f\n", Num_State);
-                fprintf(fp_EV, "   HOMO = %2d\n", Cluster_HOMO[0]);
-
-                fprintf(fp_EV, "   Eigenvalues\n");
-                fprintf(fp_EV, "\n");
-                for (i1 = 1; i1 <= MaxN; i1++) {
-                    fprintf(fp_EV, "      %5d %18.14f\n", i1, ko[i1]);
-                }
-                fclose(fp_EV);
-                fp_EV = NULL;
-            } else {
-                printf("Failure of saving the EV file.\n");
-            }
-        }
-
-        if (2 <= level_fileout) {
-
-            if (myid == Host_ID) {
-
-                if (snprintf(file_EV, sizeof(file_EV), "%s%s.EV", filepath, filename) >= (int)sizeof(file_EV)) {
-                    ClusterNonCol_AbortWithMessage("Output path is too long for EV file.");
-                }
-
-                fp_EV = fopen(file_EV, "a");
-                if (fp_EV != NULL) {
-                    setvbuf(fp_EV, buf, _IOFBF, fp_bsize); /* setvbuf */
-                } else {
-                    printf("Failure of saving the EV file.\n");
-                }
-            }
-
-            if (myid == Host_ID && fp_EV != NULL) {
-
-                fprintf(fp_EV, "\n");
-                fprintf(fp_EV, "***********************************************************\n");
-                fprintf(fp_EV, "***********************************************************\n");
-                fprintf(fp_EV, "  Eigenvalues (Hartree) and Eigenvectors for SCF KS-eq.  \n");
-                fprintf(fp_EV, "***********************************************************\n");
-                fprintf(fp_EV, "***********************************************************\n");
-
-                fprintf(fp_EV, "\n\n");
-                fprintf(fp_EV, "   Chemical Potential (Hartree) = %18.14f\n", ChemP);
-                fprintf(fp_EV, "   HOMO = %2d\n", Cluster_HOMO[0]);
-
-                fprintf(fp_EV, "\n");
-                fprintf(fp_EV, "   Real (Re) and imaginary (Im) parts of LCAO coefficients\n\n");
-            }
-
-            /* allocation of arrays */
-            double * array0;
-            int *    is3, *ie3;
-
-            array0 = (double *)ClusterNonCol_MallocArray(
-                ClusterNonCol_CheckedMulCount((size_t)(n2 + 2), 4u, "EV vector array0 elements"), sizeof(double),
-                "EV vector array0");
-            is3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "EV vector is3");
-            ie3 = (int *)ClusterNonCol_MallocArray((size_t)numprocs, sizeof(int), "EV vector ie3");
-
-            /* set is3 and ie3 */
-
-            if (numprocs <= MaxN) {
-
-                av_num = (double)MaxN / (double)numprocs;
-                for (ID = 0; ID < numprocs; ID++) {
-                    is3[ID] = (int)(av_num * (double)ID) + 1;
-                    ie3[ID] = (int)(av_num * (double)(ID + 1));
-                }
-
-                is3[0]            = 1;
-                ie3[numprocs - 1] = MaxN;
-            }
-
-            else {
-                for (ID = 0; ID < MaxN; ID++) {
-                    is3[ID] = ID + 1;
-                    ie3[ID] = ID + 1;
-                }
-                for (ID = MaxN; ID < numprocs; ID++) {
-                    is3[ID] = 1;
-                    ie3[ID] = -2;
-                }
-            }
-
-            num0 = 2;
-            num1 = MaxN / num0 + 1 * (MaxN % num0 != 0);
-
-            for (i = 1; i <= num1; i++) {
-
-                if (myid == Host_ID && fp_EV != NULL) {
-
-                    /* header */
-
-                    fprintf(fp_EV, "\n");
-
-                    for (i1 = -2; i1 <= 0; i1++) {
-
-                        fprintf(fp_EV, "                     ");
-
-                        for (j = 1; j <= num0; j++) {
-                            j1 = num0 * (i - 1) + j;
-
-                            if (j1 <= MaxN) {
-                                if (i1 == -2) {
-                                    fprintf(fp_EV, " %4d", j1);
-                                    fprintf(fp_EV, "                                   ");
-                                } else if (i1 == -1) {
-                                    fprintf(fp_EV, "   %8.5f", ko[j1]);
-                                    fprintf(fp_EV, "                             ");
-                                }
-
-                                else if (i1 == 0) {
-                                    fprintf(fp_EV, "     Re(U)");
-                                    fprintf(fp_EV, "     Im(U)");
-                                    fprintf(fp_EV, "     Re(D)");
-                                    fprintf(fp_EV, "     Im(D)");
-                                }
-                            }
-                        }
-                        fprintf(fp_EV, "\n");
-                        if (i1 == -1)
-                            fprintf(fp_EV, "\n");
-                        if (i1 == 0)
-                            fprintf(fp_EV, "\n");
-                    }
-                }
-
-                /* MPI communication of EVec1 */
-
-                if (numprocs == 1) {
-
-                    for (j = 1; j <= num0; j++) {
-
-                        j1 = num0 * (i - 1) + j;
-
-                        if (j1 <= MaxN) {
-                            for (k = 0; k < n2; k++) {
-                                m                                    = (j1 - 1) * n2 + k;
-                                array0[(j - 1) * n2 * 2 + 2 * k]     = EVec1[m].r;
-                                array0[(j - 1) * n2 * 2 + 2 * k + 1] = EVec1[m].i;
-                            }
-                        }
-                    }
-                } else {
-
-                    for (j = 1; j <= num0; j++) {
-
-                        j1 = num0 * (i - 1) + j;
-
-                        if (j1 <= MaxN) {
-                            ID0 = ClusterNonCol_FindOwner(j1, numprocs, is3, ie3, "EV output eigenvector");
-
-                            if (myid == ID0) {
-                                for (k = 0; k < n2; k++) {
-                                    m                                    = (j1 - is3[ID0]) * n2 + k;
-                                    array0[(j - 1) * n2 * 2 + 2 * k]     = EVec1[m].r;
-                                    array0[(j - 1) * n2 * 2 + 2 * k + 1] = EVec1[m].i;
-                                }
-                            }
-
-                            /* MPI communications */
-                            MPI_Bcast(&array0[(j - 1) * n2 * 2], n2 * 2, MPI_DOUBLE, ID0, mpi_comm_level1);
-                        }
-
-                    } /* j */
-                } /* else */
-
-                /* LCAO coefficients */
-
-                Name_Angular[0][0] = "s          ";
-                Name_Angular[1][0] = "px         ";
-                Name_Angular[1][1] = "py         ";
-                Name_Angular[1][2] = "pz         ";
-                Name_Angular[2][0] = "d3z^2-r^2  ";
-                Name_Angular[2][1] = "dx^2-y^2   ";
-                Name_Angular[2][2] = "dxy        ";
-                Name_Angular[2][3] = "dxz        ";
-                Name_Angular[2][4] = "dyz        ";
-                Name_Angular[3][0] = "f5z^2-3r^2 ";
-                Name_Angular[3][1] = "f5xz^2-xr^2";
-                Name_Angular[3][2] = "f5yz^2-yr^2";
-                Name_Angular[3][3] = "fzx^2-zy^2 ";
-                Name_Angular[3][4] = "fxyz       ";
-                Name_Angular[3][5] = "fx^3-3*xy^2";
-                Name_Angular[3][6] = "f3yx^2-y^3 ";
-                Name_Angular[4][0] = "g1         ";
-                Name_Angular[4][1] = "g2         ";
-                Name_Angular[4][2] = "g3         ";
-                Name_Angular[4][3] = "g4         ";
-                Name_Angular[4][4] = "g5         ";
-                Name_Angular[4][5] = "g6         ";
-                Name_Angular[4][6] = "g7         ";
-                Name_Angular[4][7] = "g8         ";
-                Name_Angular[4][8] = "g9         ";
-
-                for (m = 0; m < 20; m++) {
-                    snprintf(Name_Multiple[m], sizeof(Name_Multiple[m]), "%d", m);
-                }
-
-                if (myid == Host_ID && fp_EV != NULL) {
-
-                    i1 = 1;
-
-                    for (Gc_AN = 1; Gc_AN <= atomnum; Gc_AN++) {
-
-                        wan1 = WhatSpecies[Gc_AN];
-
-                        for (l = 0; l <= Supported_MaxL; l++) {
-                            for (mul = 0; mul < Spe_Num_CBasis[wan1][l]; mul++) {
-                                for (m = 0; m < (2 * l + 1); m++) {
-
-                                    if (l == 0 && mul == 0 && m == 0)
-                                        fprintf(fp_EV, "%4d %3s %s %s", Gc_AN, SpeName[wan1],
-                                                (mul < 20) ? Name_Multiple[mul] : "?",
-                                                Name_Angular[l][m]);
-                                    else
-                                        fprintf(fp_EV, "         %s %s", (mul < 20) ? Name_Multiple[mul] : "?",
-                                                Name_Angular[l][m]);
-
-                                    for (j = 1; j <= num0; j++) {
-
-                                        j1 = num0 * (i - 1) + j;
-
-                                        if (0 < i1 && j1 <= MaxN) {
-                                            fprintf(fp_EV, "  %8.5f", array0[(j - 1) * n2 * 2 + 2 * (i1 - 1)]);
-                                            fprintf(fp_EV, "  %8.5f", array0[(j - 1) * n2 * 2 + 2 * (i1 - 1) + 1]);
-                                            fprintf(fp_EV, "  %8.5f", array0[(j - 1) * n2 * 2 + 2 * (i1 - 1) + n2]);
-                                            fprintf(fp_EV, "  %8.5f", array0[(j - 1) * n2 * 2 + 2 * (i1 - 1) + 1 + n2]);
-                                        }
-                                    }
-
-                                    fprintf(fp_EV, "\n");
-                                    if (i1 == -1)
-                                        fprintf(fp_EV, "\n");
-                                    if (i1 == 0)
-                                        fprintf(fp_EV, "\n");
-
-                                    i1++;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            /* freeing of arrays */
-
-            free(array0);
-            free(is3);
-            free(ie3);
-
-            /* fclose of fp_EV */
-
-            if (myid == Host_ID && fp_EV != NULL) {
-                fclose(fp_EV);
-                fp_EV = NULL;
-            }
-
-        } /* end of if (2<=level_fileout) */
-
-        if (measure_time) {
-            dtime(&etime);
-            time7 += etime - stime;
-        }
-
-    } /* if ( strcasecmp(mode,"scf")==0 ) */
-
-    else if (strcasecmp(mode, "dos") == 0) {
-        Save_DOS_NonCol(n, n2, MaxN, MP, CntOLP, EVec1, ko);
-    } else if (strcasecmp(mode, "lcaoout") == 0) {
-        Save_LCAO_NonCol(n, n2, MaxN, MP, CntOLP, EVec1, ko);
-    } else if (strcasecmp(mode, "xanes") == 0) {
-        Calc_XANES_NonCol(n, n2, MaxN, MP, is2, ie2, EVec1, ko);
+      /* Keep the latest direct gpuSOLVER eigenvectors for the post-SCF EDM/force
+         rebuild.  Scatter to EVec1 only once after SCF convergence to avoid
+         paying this MPI/data-transfer cost every SCF step. */
+      ClusterNonCol_StashGpuSolverDenseEVec(myid,n2,&gpusolver_dense_evec,&gpusolver_direct_evec_on_device);
     }
+    else {
 
-    if (measure_time) {
-        printf("Cluster_DFT myid=%2d time1=%7.3f time2=%7.3f time3=%7.3f time4=%7.3f time5=%7.3f time6=%7.3f "
-               "time7=%7.3f\n",
-               myid, time1, time2, time3, time4, time5, time6, time7);
-        fflush(stdout);
+      /* DM */
+
+      time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 1, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                        CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+      time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 2, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                        CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+      time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 3, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                        CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+      time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 4, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                        CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+      time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 5, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                        CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+      time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 6, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                        CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+      /* EDM */
+
+      if (Cnt_switch==1){
+
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 7, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                          CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 8, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                          CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 9, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                          CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+
+        time6 += Calc_DM_Cluster_non_collinear_ScaLAPACK( 10, myid, numprocs, size_H1, is2, ie2, MP, n, n2,
+                                                          CDM, iDM[0], EDM, ko, DM1, Work1, EVec1);
+      }
+
     }
 
     /****************************************************
+                      Bond Energies
+    ****************************************************/
+
+    My_Eele1[0] = 0.0;
+    My_Eele1[1] = 0.0;
+
+    for (MA_AN=1; MA_AN<=Matomnum; MA_AN++){
+      GA_AN = M2G[MA_AN];
+      wanA = WhatSpecies[GA_AN];
+      tnoA = Spe_Total_CNO[wanA];
+      for (j=0; j<=FNAN[GA_AN]; j++){
+	wanB = WhatSpecies[natn[GA_AN][j]];
+	tnoB = Spe_Total_CNO[wanB];
+
+	/* non-spin-orbit coupling and non-LDA+U */
+	if (SO_switch==0 && Hub_U_switch==0 && Constraint_NCS_switch==0
+	    && Zeeman_NCS_switch==0 && Zeeman_NCO_switch==0){
+	  for (k=0; k<tnoA; k++){
+	    for (l=0; l<tnoB; l++){
+	      My_Eele1[0] +=
+		+ CDM[0][MA_AN][j][k][l]*nh[0][MA_AN][j][k][l]
+		+ CDM[1][MA_AN][j][k][l]*nh[1][MA_AN][j][k][l]
+		+ 2.0*CDM[2][MA_AN][j][k][l]*nh[2][MA_AN][j][k][l]
+		- 2.0*CDM[3][MA_AN][j][k][l]*nh[3][MA_AN][j][k][l];
+	    }
+	  }
+	}
+
+	/* spin-orbit coupling or LDA+U */
+	else {
+	  for (k=0; k<tnoA; k++){
+	    for (l=0; l<tnoB; l++){
+	      My_Eele1[0] +=
+		+ CDM[0][MA_AN][j][k][l]*nh[0][MA_AN][j][k][l]
+		- iDM[0][0][MA_AN][j][k][l]*ImNL[0][MA_AN][j][k][l]
+		+ CDM[1][MA_AN][j][k][l]*nh[1][MA_AN][j][k][l]
+		- iDM[0][1][MA_AN][j][k][l]*ImNL[1][MA_AN][j][k][l]
+		+ 2.0*CDM[2][MA_AN][j][k][l]*nh[2][MA_AN][j][k][l]
+		- 2.0*CDM[3][MA_AN][j][k][l]*(nh[3][MA_AN][j][k][l]
+					      +ImNL[2][MA_AN][j][k][l]);
+	    }
+	  }
+	}
+
+      }
+    }
+
+    /* MPI, My_Eele1 */
+    MPI_Allreduce(&My_Eele1[0], &Eele1[0], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+    MPI_Allreduce(&My_Eele1[1], &Eele1[1], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+    if (2<=level_stdout && myid==Host_ID){
+      printf("Eele0=%15.12f Eele1=%15.12f\n",Eele0[0],Eele1[0]);
+    }
+
+    if (measure_time){
+      dtime(&etime);
+      time6 += etime - stime;
+    }
+
+    /****************************************************
+                           Output
+    ****************************************************/
+
+    if (measure_time) dtime(&stime);
+
+    if (myid==Host_ID){
+
+      sprintf(file_EV,"%s%s.EV",filepath,filename);
+
+      if ((fp_EV = fopen(file_EV,"w")) != NULL){
+
+	setvbuf(fp_EV,buf,_IOFBF,fp_bsize);  /* setvbuf */
+
+	fprintf(fp_EV,"\n");
+	fprintf(fp_EV,"***********************************************************\n");
+	fprintf(fp_EV,"***********************************************************\n");
+	fprintf(fp_EV,"      Eigenvalues (Hartree) for non-collinear KS-eq.       \n");
+	fprintf(fp_EV,"***********************************************************\n");
+	fprintf(fp_EV,"***********************************************************\n\n");
+
+	fprintf(fp_EV,"   Chemical Potential (Hartree) = %18.14f\n",ChemP);
+	fprintf(fp_EV,"   Number of States             = %18.14f\n",Num_State);
+	fprintf(fp_EV,"   HOMO = %2d\n",Cluster_HOMO[0]);
+
+	fprintf(fp_EV,"   Eigenvalues\n");
+	fprintf(fp_EV,"\n");
+	for (i1=1; i1<=MaxN; i1++){
+	  fprintf(fp_EV,"      %5d %18.14f\n",i1,ko[i1]);
+	}
+
+      }
+      /* fclose of fp_EV */
+      fclose(fp_EV);
+    }
+
+    if (2<=level_fileout){
+
+      if (myid==Host_ID){
+
+	sprintf(file_EV,"%s%s.EV",filepath,filename);
+
+	if ((fp_EV = fopen(file_EV,"a")) != NULL){
+	  setvbuf(fp_EV,buf,_IOFBF,fp_bsize);  /* setvbuf */
+	}
+	else{
+	  printf("Failure of saving the EV file.\n");
+	}
+      }
+
+      if (myid==Host_ID){
+
+	fprintf(fp_EV,"\n");
+	fprintf(fp_EV,"***********************************************************\n");
+	fprintf(fp_EV,"***********************************************************\n");
+	fprintf(fp_EV,"  Eigenvalues (Hartree) and Eigenvectors for SCF KS-eq.  \n");
+	fprintf(fp_EV,"***********************************************************\n");
+	fprintf(fp_EV,"***********************************************************\n");
+
+	fprintf(fp_EV,"\n\n");
+	fprintf(fp_EV,"   Chemical Potential (Hartree) = %18.14f\n",ChemP);
+	fprintf(fp_EV,"   HOMO = %2d\n",Cluster_HOMO[0]);
+
+	fprintf(fp_EV,"\n");
+	fprintf(fp_EV,"   Real (Re) and imaginary (Im) parts of LCAO coefficients\n\n");
+
+      }
+
+      /* allocation of arrays */
+      double *array0;
+      int *is3,*ie3;
+
+      array0 = (double*)malloc(sizeof(double)*(n2+2)*4);
+      is3 = (int*)malloc(sizeof(int)*numprocs);
+      ie3 = (int*)malloc(sizeof(int)*numprocs);
+
+      /* set is3 and ie3 */
+
+      if ( numprocs<=MaxN ){
+
+	av_num = (double)MaxN/(double)numprocs;
+	for (ID=0; ID<numprocs; ID++){
+	  is3[ID] = (int)(av_num*(double)ID) + 1;
+	  ie3[ID] = (int)(av_num*(double)(ID+1));
+	}
+
+	is3[0] = 1;
+	ie3[numprocs-1] = MaxN;
+      }
+
+      else{
+	for (ID=0; ID<MaxN; ID++){
+	  is3[ID] = ID + 1;
+	  ie3[ID] = ID + 1;
+	}
+	for (ID=MaxN; ID<numprocs; ID++){
+	  is3[ID] =  1;
+	  ie3[ID] = -2;
+	}
+      }
+
+      num0 = 2;
+      num1 = MaxN/num0 + 1*(MaxN%num0!=0);
+
+      for (i=1; i<=num1; i++){
+
+	if (myid==Host_ID){
+
+	  /* header */
+
+	  fprintf(fp_EV,"\n");
+
+	  for (i1=-2; i1<=0; i1++){
+
+	    fprintf(fp_EV,"                     ");
+
+	    for (j=1; j<=num0; j++){
+	      j1 = num0*(i-1) + j;
+
+	      if (j1<=MaxN){
+		if (i1==-2){
+		  fprintf(fp_EV," %4d",j1);
+		  fprintf(fp_EV,"                                   ");
+		}
+		else if (i1==-1){
+		  fprintf(fp_EV,"   %8.5f",ko[j1]);
+		  fprintf(fp_EV,"                             ");
+		}
+
+		else if (i1==0){
+		  fprintf(fp_EV,"     Re(U)");
+		  fprintf(fp_EV,"     Im(U)");
+		  fprintf(fp_EV,"     Re(D)");
+		  fprintf(fp_EV,"     Im(D)");
+		}
+
+	      }
+	    }
+	    fprintf(fp_EV,"\n");
+	    if (i1==-1)  fprintf(fp_EV,"\n");
+	    if (i1==0)   fprintf(fp_EV,"\n");
+	  }
+	}
+
+	/* MPI communication of EVec1 */
+
+	if (numprocs==1){
+
+	  for (j=1; j<=num0; j++){
+
+	    j1 = num0*(i-1) + j;
+
+	    if (j1<=MaxN){
+	      for (k=0; k<n2; k++){
+		m = (j1-1)*n2 + k;
+		array0[(j-1)*n2*2+2*k  ] = EVec1[m].r;
+		array0[(j-1)*n2*2+2*k+1] = EVec1[m].i;
+	      }
+	    }
+	  }
+	}
+	else{
+
+	  for (j=1; j<=num0; j++){
+
+	    j1 = num0*(i-1) + j;
+
+	    po = 0;
+	    for (ID=0; ID<numprocs; ID++){
+	      if (is3[ID]<=j1 && j1 <=ie3[ID]){
+		po = 1;
+		ID0 = ID;
+		break;
+	      }
+	    }
+
+	    if (j1<=MaxN){
+
+	      if (myid==ID0){
+		for (k=0; k<n2; k++){
+		  m = (j1-is3[ID0])*n2 + k;
+		  array0[(j-1)*n2*2+2*k  ] = EVec1[m].r;
+		  array0[(j-1)*n2*2+2*k+1] = EVec1[m].i;
+		}
+	      }
+
+	      /* MPI communications */
+	      MPI_Bcast(&array0[(j-1)*n2*2], n2*2, MPI_DOUBLE, ID0, mpi_comm_level1);
+	    }
+
+	  } /* j */
+	} /* else */
+
+        /* LCAO coefficients */
+
+	Name_Angular[0][0] = "s          ";
+	Name_Angular[1][0] = "px         ";
+	Name_Angular[1][1] = "py         ";
+	Name_Angular[1][2] = "pz         ";
+	Name_Angular[2][0] = "d3z^2-r^2  ";
+	Name_Angular[2][1] = "dx^2-y^2   ";
+	Name_Angular[2][2] = "dxy        ";
+	Name_Angular[2][3] = "dxz        ";
+	Name_Angular[2][4] = "dyz        ";
+	Name_Angular[3][0] = "f5z^2-3r^2 ";
+	Name_Angular[3][1] = "f5xz^2-xr^2";
+	Name_Angular[3][2] = "f5yz^2-yr^2";
+	Name_Angular[3][3] = "fzx^2-zy^2 ";
+	Name_Angular[3][4] = "fxyz       ";
+	Name_Angular[3][5] = "fx^3-3*xy^2";
+	Name_Angular[3][6] = "f3yx^2-y^3 ";
+	Name_Angular[4][0] = "g1         ";
+	Name_Angular[4][1] = "g2         ";
+	Name_Angular[4][2] = "g3         ";
+	Name_Angular[4][3] = "g4         ";
+	Name_Angular[4][4] = "g5         ";
+	Name_Angular[4][5] = "g6         ";
+	Name_Angular[4][6] = "g7         ";
+	Name_Angular[4][7] = "g8         ";
+	Name_Angular[4][8] = "g9         ";
+
+	Name_Multiple[0] = "0";
+	Name_Multiple[1] = "1";
+	Name_Multiple[2] = "2";
+	Name_Multiple[3] = "3";
+	Name_Multiple[4] = "4";
+	Name_Multiple[5] = "5";
+
+	if (myid==Host_ID){
+
+	  i1 = 1;
+
+	  for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
+
+	    wan1 = WhatSpecies[Gc_AN];
+
+	    for (l=0; l<=Supported_MaxL; l++){
+	      for (mul=0; mul<Spe_Num_CBasis[wan1][l]; mul++){
+		for (m=0; m<(2*l+1); m++){
+
+		  if (l==0 && mul==0 && m==0)
+		    fprintf(fp_EV,"%4d %3s %s %s",
+			    Gc_AN,SpeName[wan1],Name_Multiple[mul],Name_Angular[l][m]);
+		  else
+		    fprintf(fp_EV,"         %s %s",
+			    Name_Multiple[mul],Name_Angular[l][m]);
+
+		  for (j=1; j<=num0; j++){
+
+		    j1 = num0*(i-1) + j;
+
+		    if (0<i1 && j1<=MaxN){
+		      fprintf(fp_EV,"  %8.5f",array0[ (j-1)*n2*2+2*(i1-1)      ]);
+		      fprintf(fp_EV,"  %8.5f",array0[ (j-1)*n2*2+2*(i1-1)+1    ]);
+		      fprintf(fp_EV,"  %8.5f",array0[ (j-1)*n2*2+2*(i1-1)  +n2 ]);
+		      fprintf(fp_EV,"  %8.5f",array0[ (j-1)*n2*2+2*(i1-1)+1+n2 ]);
+		    }
+		  }
+
+		  fprintf(fp_EV,"\n");
+		  if (i1==-1)  fprintf(fp_EV,"\n");
+		  if (i1==0)   fprintf(fp_EV,"\n");
+
+		  i1++;
+
+		}
+	      }
+	    }
+	  }
+	}
+      }
+
+      /* freeing of arrays */
+
+      free(array0);
+      free(is3);
+      free(ie3);
+
+      /* fclose of fp_EV */
+
+      if (myid==Host_ID){
+	fclose(fp_EV);
+      }
+
+    } /* end of if (2<=level_fileout) */
+
+    if (measure_time){
+      dtime(&etime);
+      time7 += etime - stime;
+    }
+
+  } /* if ( strcasecmp(mode,"scf")==0 ) */
+
+  else if ( strcasecmp(mode,"dos")==0 ){
+    Save_DOS_NonCol(n,n2,MaxN,MP,CntOLP,EVec1,ko);
+  }
+  else if ( strcasecmp(mode,"lcaoout")==0 ){
+    Save_LCAO_NonCol(n,n2,MaxN,MP,CntOLP,EVec1,ko);
+  }
+  else if ( strcasecmp(mode,"xanes")==0 ){
+    Calc_XANES_NonCol(n,n2,MaxN,MP,is2,ie2,EVec1,ko);
+  }
+
+  if (measure_time){
+    printf("Cluster_DFT myid=%2d time1=%7.3f time2=%7.3f time3=%7.3f time4=%7.3f time5=%7.3f time6=%7.3f time7=%7.3f\n",
+            myid,time1,time2,time3,time4,time5,time6,time7);fflush(stdout);
+  }
+
+  /****************************************************
                           Free
   ****************************************************/
 
-    free(is1);
-    free(ie1);
-    free(Num_Snd_EV);
-    free(Num_Rcv_EV);
+  free(Num_Snd_EV);
+  free(Num_Rcv_EV);
 
-    free(index_Snd_i);
-    free(index_Snd_j);
-    free(EVec_Snd);
-    free(index_Rcv_i);
-    free(index_Rcv_j);
-    free(EVec_Rcv);
+  free(index_Snd_i);
+  free(index_Snd_j);
+  free(EVec_Snd);
+  free(index_Rcv_i);
+  free(index_Rcv_j);
+  free(EVec_Rcv);
 
-    scf_eigen_lib_flag = original_scf_eigen_lib_flag;
+  /* for elapsed time */
 
-    /* for elapsed time */
-
-    MPI_Barrier(mpi_comm_level1);
-    dtime(&TEtime);
-    time0 = TEtime - TStime;
-    return time0;
+  MPI_Barrier(mpi_comm_level1);
+  dtime(&TEtime);
+  time0 = TEtime - TStime;
+  return time0;
 }
 
-double Calc_DM_Cluster_non_collinear_ScaLAPACK(int calc_flag, int myid, int numprocs, int size_H1, int * is2, int * ie2,
-                                               int * MP, int n, int n2, double ***** CDM, double ***** iDM0,
-                                               double ***** EDM, double * ko, double * DM1, double * Work1,
-                                               dcomplex * EVec1)
+
+
+
+
+double Calc_DM_Cluster_non_collinear_ScaLAPACK(
+    int calc_flag,
+    int myid,
+    int numprocs,
+    int size_H1,
+    int *is2,
+    int *ie2,
+    int *MP,
+    int n,
+    int n2,
+    double *****CDM,
+    double *****iDM0,
+    double *****EDM,
+    double *ko,
+    double *DM1,
+    double *Work1,
+    dcomplex *EVec1 )
 {
-    static int edm_cache_valid     = 0;
-    static int partial_cache_valid = 0;
-    int         i, j, k, po, p, GA_AN, MA_AN, wanA, tnoA, Anum;
-    int         LB_AN, GB_AN, wanB, tnoB, Bnum, i1, j1, ID;
-    double      max_x = 60.0, dum;
-    double      FermiF, FermiF2, x, x2, diffF;
-    double      FermiEps = 1.0e-13;
-    double      stime, etime, time, lumos;
-    MPI_Status  stat;
-    MPI_Request request;
+  int i,j,k,po,p,GA_AN,MA_AN,wanA,tnoA,Anum;
+  int LB_AN,GB_AN,wanB,tnoB,Bnum,i1,j1,ID;
+  double max_x=60.0,dum;
+  double FermiF,FermiF2,x,x2,diffF;
+  double FermiEps = 1.0e-13;
+  double stime,etime,time,lumos;
+  MPI_Status stat;
+  MPI_Request request;
 
-    if (calc_flag < 7 || 10 < calc_flag) {
-        edm_cache_valid = 0;
+  dtime(&stime);
+
+  /* initialize DM1 */
+
+  for (i=0; i<size_H1; i++){
+    DM1[i] = 0.0;
+  }
+
+  /* calculation of DM1 */
+
+  for (k=is2[myid]; k<=ie2[myid]; k++){
+
+    x = (ko[k] - ChemP)*Beta;
+    if (x<=-max_x) x = -max_x;
+    if (max_x<=x)  x = max_x;
+    FermiF = FermiFunc_NC(x,k);
+
+    if (11<=calc_flag && cal_partial_charge){
+      x2 = (ko[k] - (ChemP+ene_win_partial_charge))*Beta;
+      if (x2<=-max_x) x2 = -max_x;
+      if (max_x<=x2)  x2 = max_x;
+      FermiF2 = FermiFunc_NC(x2,k);
+      diffF = fabs(FermiF-FermiF2);
     }
 
-    if (calc_flag < 11 || 12 < calc_flag) {
-        partial_cache_valid = 0;
+    if ( FermiEps<FermiF ) {
+
+      p = 0;
+      for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
+
+	wanA = WhatSpecies[GA_AN];
+	tnoA = Spe_Total_CNO[wanA];
+	Anum = MP[GA_AN];
+	for (LB_AN=0; LB_AN<=FNAN[GA_AN]; LB_AN++){
+	  GB_AN = natn[GA_AN][LB_AN];
+	  wanB = WhatSpecies[GB_AN];
+	  tnoB = Spe_Total_CNO[wanB];
+	  Bnum = MP[GB_AN];
+	  for (i=0; i<tnoA; i++){
+	    for (j=0; j<tnoB; j++){
+
+              i1 = (k-is2[myid])*n2 + Anum + i - 1;
+              j1 = (k-is2[myid])*n2 + Bnum + j - 1;
+
+              switch (calc_flag){
+
+		/* Re11 */
+              case 1:
+		DM1[p] += FermiF*(EVec1[i1].r*EVec1[j1].r + EVec1[i1].i*EVec1[j1].i);
+		break;
+
+		/* Re22 */
+              case 2:
+		DM1[p] += FermiF*(EVec1[i1+n].r*EVec1[j1+n].r + EVec1[i1+n].i*EVec1[j1+n].i);
+		break;
+
+		/* Re12 */
+              case 3:
+		DM1[p] += FermiF*(EVec1[i1].r*EVec1[j1+n].r + EVec1[i1].i*EVec1[j1+n].i);
+		break;
+
+		/* Im12 */
+              case 4:
+		DM1[p] += FermiF*(EVec1[i1].r*EVec1[j1+n].i - EVec1[i1].i*EVec1[j1+n].r);
+		break;
+
+		/* Im11 */
+              case 5:
+		DM1[p] += FermiF*(EVec1[i1].r*EVec1[j1].i - EVec1[i1].i*EVec1[j1].r);
+		break;
+
+		/* Im22 */
+              case 6:
+		DM1[p] += FermiF*(EVec1[i1+n].r*EVec1[j1+n].i - EVec1[i1+n].i*EVec1[j1+n].r);
+		break;
+
+		/* ReEDM11 */
+              case 7:
+		DM1[p] += FermiF*(EVec1[i1].r*EVec1[j1].r + EVec1[i1].i*EVec1[j1].i)*ko[k];
+		break;
+
+		/* ReEDM22 */
+              case 8:
+		DM1[p] += FermiF*(EVec1[i1+n].r*EVec1[j1+n].r + EVec1[i1+n].i*EVec1[j1+n].i)*ko[k];
+		break;
+
+		/* ReEDM12 */
+              case 9:
+		DM1[p] += FermiF*(EVec1[i1].r*EVec1[j1+n].r + EVec1[i1].i*EVec1[j1+n].i)*ko[k];
+		break;
+
+		/* ImEDM12 */
+              case 10:
+		DM1[p] += FermiF*(EVec1[i1].r*EVec1[j1+n].i - EVec1[i1].i*EVec1[j1+n].r)*ko[k];
+		break;
+
+		/* Partial_DM11 */
+              case 11:
+		DM1[p] += diffF*(EVec1[i1].r*EVec1[j1].r + EVec1[i1].i*EVec1[j1].i);
+		break;
+
+		/* Partial_DM22 */
+              case 12:
+		DM1[p] += diffF*(EVec1[i1+n].r*EVec1[j1+n].r + EVec1[i1+n].i*EVec1[j1+n].i);
+		break;
+
+	      }
+
+	      /* increment of p */
+	      p++;
+
+	    }
+	  }
+	}
+      } /* GA_AN */
     }
+  }
 
-    if (7 <= calc_flag && calc_flag <= 10) {
-        double time = 0.0;
+  /* MPI_Allreduce */
 
-        if (calc_flag == 7 || !edm_cache_valid) {
-            time = ClusterNonCol_CalcEDMAll(myid, size_H1, is2, ie2, MP, n, n2, EDM, ko, EVec1);
-            edm_cache_valid = 1;
-        }
+  MPI_Allreduce(DM1, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+  for (i=0; i<size_H1; i++) DM1[i] = Work1[i];
 
-        if (calc_flag == 10) {
-            edm_cache_valid = 0;
-        }
+  /* store DM1 to a proper place */
 
-        return time;
-    }
+  p = 0;
+  for (GA_AN=1; GA_AN<=atomnum; GA_AN++){
 
-    if (11 <= calc_flag && calc_flag <= 12) {
-        double time = 0.0;
+    MA_AN = F_G2M[GA_AN];
+    wanA = WhatSpecies[GA_AN];
+    tnoA = Spe_Total_CNO[wanA];
+    Anum = MP[GA_AN];
+    ID = G2ID[GA_AN];
 
-        if (!cal_partial_charge) {
-            return 0.0;
-        }
+    for (LB_AN=0; LB_AN<=FNAN[GA_AN]; LB_AN++){
+      GB_AN = natn[GA_AN][LB_AN];
+      wanB = WhatSpecies[GB_AN];
+      tnoB = Spe_Total_CNO[wanB];
+      Bnum = MP[GB_AN];
 
-        if (calc_flag == 11 || !partial_cache_valid) {
-            time = ClusterNonCol_CalcPartialDMAll(myid, size_H1, is2, ie2, MP, n, n2, ko, EVec1);
-            partial_cache_valid = 1;
-        }
+      if (myid==ID){
 
-        if (calc_flag == 12) {
-            partial_cache_valid = 0;
-        }
+	for (i=0; i<tnoA; i++){
+	  for (j=0; j<tnoB; j++){
 
-        return time;
-    }
+            switch (calc_flag){
 
-    dtime(&stime);
+              /* Re11 */
+              case 1:
+		CDM[0][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-    /* initialize DM1 */
+              /* Re22 */
+              case 2:
+		CDM[1][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-    for (i = 0; i < size_H1; i++) {
-        DM1[i] = 0.0;
-    }
+              /* Re12 */
+              case 3:
+		CDM[2][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-    /* calculation of DM1 */
+              /* Im12 */
+              case 4:
+		CDM[3][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-    for (k = is2[myid]; k <= ie2[myid]; k++) {
+              /* Im11 */
+              case 5:
+		iDM0[0][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-        x = (ko[k] - ChemP) * Beta;
-        if (x <= -max_x)
-            x = -max_x;
-        if (max_x <= x)
-            x = max_x;
-        FermiF = FermiFunc_NC(x, k);
+              /* Im22 */
+              case 6:
+		iDM0[1][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-        if (11 <= calc_flag && cal_partial_charge) {
-            x2 = (ko[k] - (ChemP + ene_win_partial_charge)) * Beta;
-            if (x2 <= -max_x)
-                x2 = -max_x;
-            if (max_x <= x2)
-                x2 = max_x;
-            FermiF2 = FermiFunc_NC(x2, k);
-            diffF   = fabs(FermiF - FermiF2);
-        }
+              /* ReEDM11 */
+              case 7:
+		EDM[0][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-        if (FermiEps < FermiF) {
+              /* ReEDM22 */
+              case 8:
+		EDM[1][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-            p = 0;
-            for (GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
+              /* ReEDM12 */
+              case 9:
+		EDM[2][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-                wanA = WhatSpecies[GA_AN];
-                tnoA = Spe_Total_CNO[wanA];
-                Anum = MP[GA_AN];
-                for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-                    GB_AN = natn[GA_AN][LB_AN];
-                    wanB  = WhatSpecies[GB_AN];
-                    tnoB  = Spe_Total_CNO[wanB];
-                    Bnum  = MP[GB_AN];
-                    for (i = 0; i < tnoA; i++) {
-                        for (j = 0; j < tnoB; j++) {
-                            i1 = (k - is2[myid]) * n2 + Anum + i - 1;
-                            j1 = (k - is2[myid]) * n2 + Bnum + j - 1;
+              /* ImEDM12 */
+              case 10:
+		EDM[3][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-                            switch (calc_flag) {
+              /* Partial_DM11 */
+              case 11:
+		Partial_DM[0][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
 
-                                /* Re11 */
-                            case 1:
-                                DM1[p] += FermiF * (EVec1[i1].r * EVec1[j1].r + EVec1[i1].i * EVec1[j1].i);
-                                break;
+              /* Partial_DM22 */
+              case 12:
+		Partial_DM[1][MA_AN][LB_AN][i][j] = DM1[p];
+                break;
+	    }
 
-                                /* Re22 */
-                            case 2:
-                                DM1[p] +=
-                                    FermiF * (EVec1[i1 + n].r * EVec1[j1 + n].r + EVec1[i1 + n].i * EVec1[j1 + n].i);
-                                break;
+	    /* increment of p */
+	    p++;
+	  }
+	}
+      }
+      else{
+	for (i=0; i<tnoA; i++){
+	  for (j=0; j<tnoB; j++){
+	    /* increment of p */
+	    p++;
+	  }
+	}
+      }
 
-                                /* Re12 */
-                            case 3:
-                                DM1[p] += FermiF * (EVec1[i1].r * EVec1[j1 + n].r + EVec1[i1].i * EVec1[j1 + n].i);
-                                break;
+    } /* LB_AN */
+  } /* GA_AN */
 
-                                /* Im12 */
-                            case 4:
-                                DM1[p] += FermiF * (EVec1[i1].r * EVec1[j1 + n].i - EVec1[i1].i * EVec1[j1 + n].r);
-                                break;
-
-                                /* Im11 */
-                            case 5:
-                                DM1[p] += FermiF * (EVec1[i1].r * EVec1[j1].i - EVec1[i1].i * EVec1[j1].r);
-                                break;
-
-                                /* Im22 */
-                            case 6:
-                                DM1[p] +=
-                                    FermiF * (EVec1[i1 + n].r * EVec1[j1 + n].i - EVec1[i1 + n].i * EVec1[j1 + n].r);
-                                break;
-
-                                /* ReEDM11 */
-                            case 7:
-                                DM1[p] += FermiF * (EVec1[i1].r * EVec1[j1].r + EVec1[i1].i * EVec1[j1].i) * ko[k];
-                                break;
-
-                                /* ReEDM22 */
-                            case 8:
-                                DM1[p] += FermiF *
-                                          (EVec1[i1 + n].r * EVec1[j1 + n].r + EVec1[i1 + n].i * EVec1[j1 + n].i) *
-                                          ko[k];
-                                break;
-
-                                /* ReEDM12 */
-                            case 9:
-                                DM1[p] +=
-                                    FermiF * (EVec1[i1].r * EVec1[j1 + n].r + EVec1[i1].i * EVec1[j1 + n].i) * ko[k];
-                                break;
-
-                                /* ImEDM12 */
-                            case 10:
-                                DM1[p] +=
-                                    FermiF * (EVec1[i1].r * EVec1[j1 + n].i - EVec1[i1].i * EVec1[j1 + n].r) * ko[k];
-                                break;
-
-                                /* Partial_DM11 */
-                            case 11:
-                                DM1[p] += diffF * (EVec1[i1].r * EVec1[j1].r + EVec1[i1].i * EVec1[j1].i);
-                                break;
-
-                                /* Partial_DM22 */
-                            case 12:
-                                DM1[p] +=
-                                    diffF * (EVec1[i1 + n].r * EVec1[j1 + n].r + EVec1[i1 + n].i * EVec1[j1 + n].i);
-                                break;
-                            }
-
-                            /* increment of p */
-                            p++;
-                        }
-                    }
-                }
-            } /* GA_AN */
-        }
-    }
-
-    /* MPI_Allreduce */
-
-    MPI_Allreduce(DM1, Work1, size_H1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
-    for (i = 0; i < size_H1; i++)
-        DM1[i] = Work1[i];
-
-    /* store DM1 to a proper place */
-
-    p = 0;
-    for (GA_AN = 1; GA_AN <= atomnum; GA_AN++) {
-
-        MA_AN = F_G2M[GA_AN];
-        wanA  = WhatSpecies[GA_AN];
-        tnoA  = Spe_Total_CNO[wanA];
-        Anum  = MP[GA_AN];
-        ID    = G2ID[GA_AN];
-
-        for (LB_AN = 0; LB_AN <= FNAN[GA_AN]; LB_AN++) {
-            GB_AN = natn[GA_AN][LB_AN];
-            wanB  = WhatSpecies[GB_AN];
-            tnoB  = Spe_Total_CNO[wanB];
-            Bnum  = MP[GB_AN];
-
-            if (myid == ID) {
-
-                for (i = 0; i < tnoA; i++) {
-                    for (j = 0; j < tnoB; j++) {
-
-                        switch (calc_flag) {
-
-                        /* Re11 */
-                        case 1:
-                            CDM[0][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* Re22 */
-                        case 2:
-                            CDM[1][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* Re12 */
-                        case 3:
-                            CDM[2][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* Im12 */
-                        case 4:
-                            CDM[3][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* Im11 */
-                        case 5:
-                            iDM0[0][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* Im22 */
-                        case 6:
-                            iDM0[1][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* ReEDM11 */
-                        case 7:
-                            EDM[0][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* ReEDM22 */
-                        case 8:
-                            EDM[1][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* ReEDM12 */
-                        case 9:
-                            EDM[2][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* ImEDM12 */
-                        case 10:
-                            EDM[3][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* Partial_DM11 */
-                        case 11:
-                            Partial_DM[0][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-
-                        /* Partial_DM22 */
-                        case 12:
-                            Partial_DM[1][MA_AN][LB_AN][i][j] = DM1[p];
-                            break;
-                        }
-
-                        /* increment of p */
-                        p++;
-                    }
-                }
-            } else {
-                for (i = 0; i < tnoA; i++) {
-                    for (j = 0; j < tnoB; j++) {
-                        /* increment of p */
-                        p++;
-                    }
-                }
-            }
-
-        } /* LB_AN */
-    } /* GA_AN */
-
-    dtime(&etime);
-    return (etime - stime);
+  dtime(&etime);
+  return (etime-stime);
 }
+
+
+
+
 
 void Save_DOS_NonCol(int n, int n2, int MaxN, int * MP, double **** OLP0, dcomplex * EVec1, double * ko)
 {

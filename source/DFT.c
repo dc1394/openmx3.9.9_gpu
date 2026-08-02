@@ -13,14 +13,186 @@
 #include "Inputtools.h"
 #include "mpi.h"
 #include "openmx_common.h"
+#include "set_cuda_default_device_from_local_rank.h"
+#include "set_openacc_device_from_local_rank.h"
 #include "tran_prototypes.h"
 #include <math.h>
+#include <omp.h>
+#include <openacc.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
 int TRAN_SCF_Iter_Band;
+
+static int DFT_GPU_BasisCount(void);
+static int DFT_GPU_DenseSwitchNum(void);
+static int DFT_SetOLPKinUseGPU(void);
+static int DFT_SetProExpnVNAUseGPU(void);
+double Cluster_DFT_NonCol_ScatterGpuSolverCachedEVec(int n2, int *is2, int *ie2, dcomplex *EVec1);
+int Band_DFT_Col_GpuSwitchNum(void);
+int Band_DFT_NonCol_GpuSwitchNum(void);
+int Cluster_DFT_Col_GpuSwitchNum(void);
+int Cluster_DFT_NonCol_GpuSwitchNum(void);
+
+static int DFT_GPU_DenseSwitchNum(void)
+{
+    if (Solver == 3)
+        return (SpinP_switch == 3) ? Band_DFT_NonCol_GpuSwitchNum() : Band_DFT_Col_GpuSwitchNum();
+    if (Solver == 2)
+        return (SpinP_switch == 3) ? Cluster_DFT_NonCol_GpuSwitchNum() : Cluster_DFT_Col_GpuSwitchNum();
+    return GPU_CPU_SWITCH_NUM;
+}
+
+static int DFT_SetOLPKinUseGPU(void)
+{
+    return (scf_eigen_lib_flag == GPUSOLVER && omp_get_max_threads() == 1);
+}
+
+static int DFT_SetProExpnVNAUseGPU(void)
+{
+    const char *value = getenv("OPENMX_SETPRO_GPU");
+
+    if (scf_eigen_lib_flag != GPUSOLVER)
+        return 0;
+    return (value == NULL) ? 1 : (atoi(value) != 0);
+}
+
+static int DFT_GPU_BasisCount(void)
+{
+    int i, wan, basis_count = 0;
+
+    for (i = 1; i <= atomnum; i++) {
+        wan = WhatSpecies[i];
+        basis_count += Spe_Total_CNO[wan];
+    }
+    if (SpinP_switch == 3)
+        basis_count *= 2;
+    return basis_count;
+}
+
+static void DFT_GPU_DeviceInit(int basis_count)
+{
+    int myid0;
+    MPI_Comm node_comm, device_comm = MPI_COMM_NULL;
+    int local_rank, local_size, cuda_device_count = 0, acc_device_count = 0, device_count;
+    int cuda_device = -1, cuda_ok = 0, cuda_ok_all;
+    int fail_reason = 0, fail_err = 0;
+    cudaError_t cuda_err, set_err;
+
+    if (scf_eigen_lib_flag_input != GPUSOLVER)
+        return;
+
+    MPI_Comm_rank(mpi_comm_level1, &myid0);
+    scf_eigen_lib_flag = GPUSOLVER;
+
+    if (Solver != 5 && Solver != 8 && Solver != 11 && basis_count < DFT_GPU_DenseSwitchNum() &&
+        myid0 == Host_ID && 0 < level_stdout) {
+        printf("<DFT> GPUSOLVER requested; global matrix dimension %d is below %d, so global dense "
+               "eigensolver paths use a CPU fallback while GPU kernels remain enabled.\n",
+               basis_count, DFT_GPU_DenseSwitchNum());
+        fflush(stdout);
+    }
+
+    MPI_Comm_split_type(mpi_comm_level1, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
+    MPI_Comm_rank(node_comm, &local_rank);
+    MPI_Comm_size(node_comm, &local_size);
+
+    cuda_err = cudaGetDeviceCount(&cuda_device_count);
+    if (cuda_err != cudaSuccess) {
+        fail_reason = 1;
+        fail_err = (int)cuda_err;
+    }
+    else if (cuda_device_count <= 0) {
+        fail_reason = 2;
+    }
+    else {
+        acc_device_count = acc_get_num_devices(acc_device_nvidia);
+        if (acc_device_count <= 0) {
+            fail_reason = 3;
+        }
+        else {
+            device_count = (cuda_device_count < acc_device_count) ? cuda_device_count : acc_device_count;
+            if (0 < SCF_Gpu_Num && SCF_Gpu_Num < device_count) {
+                if (myid0 == Host_ID && 0 < level_stdout) {
+                    printf("<DFT> scf.Gpu.Num caps the GPUs used per node at %d of the %d detected.\n",
+                           SCF_Gpu_Num, device_count);
+                    fflush(stdout);
+                }
+                device_count = SCF_Gpu_Num;
+            }
+            cuda_device = openmx_gpu_map_rank_to_device(local_rank, local_size, device_count);
+            set_err = cudaSetDevice(cuda_device);
+            if (set_err != cudaSuccess) {
+                fail_reason = 4;
+                fail_err = (int)set_err;
+            }
+            else if (!gpu_rank_device_usable()) {
+                fail_reason = 5;
+            }
+            else {
+                acc_set_device_num(cuda_device, acc_device_nvidia);
+                cuda_ok = 1;
+            }
+        }
+    }
+
+    MPI_Allreduce(&cuda_ok, &cuda_ok_all, 1, MPI_INT, MPI_MIN, mpi_comm_level1);
+    MPI_Comm_split(node_comm, cuda_ok_all ? cuda_device : MPI_UNDEFINED, 0, &device_comm);
+    MPI_Comm_free(&node_comm);
+    if (device_comm != MPI_COMM_NULL)
+        MPI_Comm_free(&device_comm);
+
+    if (!cuda_ok_all) {
+        int numprocs, my_fail, nfail, worst_err, inbuf[2], outbuf[2];
+
+        scf_eigen_lib_flag = ELPA2;
+        MPI_Comm_size(mpi_comm_level1, &numprocs);
+        my_fail = cuda_ok ? 0 : 1;
+        MPI_Allreduce(&my_fail, &nfail, 1, MPI_INT, MPI_SUM, mpi_comm_level1);
+        inbuf[0] = fail_reason;
+        inbuf[1] = myid0;
+        MPI_Allreduce(inbuf, outbuf, 1, MPI_2INT, MPI_MAXLOC, mpi_comm_level1);
+        worst_err = fail_err;
+        MPI_Bcast(&worst_err, 1, MPI_INT, outbuf[1], mpi_comm_level1);
+
+        if (myid0 == Host_ID && 0 < level_stdout) {
+            printf("<DFT> GPUSOLVER requested, but GPU initialization failed on %d of %d MPI ranks; using ELPA2.\n",
+                   nfail, numprocs);
+            switch (outbuf[0]) {
+            case 1:
+                printf("<DFT>   cudaGetDeviceCount failed: %s (error %d).\n",
+                       cudaGetErrorString((cudaError_t)worst_err), worst_err);
+                break;
+            case 2:
+                printf("<DFT>   cudaGetDeviceCount reported 0 devices; check CUDA_VISIBLE_DEVICES.\n");
+                break;
+            case 3:
+                printf("<DFT>   the OpenACC runtime reports no NVIDIA device; check ACC_DEVICE_TYPE.\n");
+                break;
+            case 4:
+                printf("<DFT>   cudaSetDevice failed: %s (error %d).\n",
+                       cudaGetErrorString((cudaError_t)worst_err), worst_err);
+                break;
+            case 5:
+                printf("<DFT>   some ranks could not initialize their GPU; reduce MPI ranks per GPU or "
+                       "adjust scf.Gpu.Num.\n");
+                break;
+            }
+            fflush(stdout);
+        }
+    }
+}
+
+static int DFT_GPU_EigensolverActive(void)
+{
+    if (scf_eigen_lib_flag != GPUSOLVER)
+        return 0;
+    if (Solver == 5 || Solver == 8 || Solver == 11)
+        return 1;
+    return (DFT_GPU_DenseSwitchNum() <= DFT_GPU_BasisCount());
+}
 
 /* variables for cluster and band calculations  */
 double *    Ss_Re, *Cs_Re, *Hs_Re;
@@ -65,6 +237,77 @@ double *** Cluster_ReCoes;
 double *   koSU, *koSL;
 dcomplex **SU_Band, **SL_Band;
 
+static int DFT_SetHamiltonianOpenACCSelectedRank(int myid0)
+{
+    if (scf_eigen_lib_flag != GPUSOLVER)
+        return 1;
+
+    if (Solver == 2 || Solver == 12) {
+        if (SpinP_switch == 1 && Comm_World_StartID1 != NULL && 0 < Num_Comm_World1 &&
+            0 <= myworld1 && myworld1 < Num_Comm_World1)
+            return (myid0 == Comm_World_StartID1[myworld1]);
+        return (myid0 == Host_ID);
+    }
+
+    if (Solver == 3) {
+        if (Comm_World_StartID1 != NULL && Comm_World_StartID2 != NULL &&
+            0 < Num_Comm_World1 && 0 < Num_Comm_World2 &&
+            0 <= myworld1 && myworld1 < Num_Comm_World1 &&
+            0 <= myworld2 && myworld2 < Num_Comm_World2) {
+            int root_rank;
+            if (SpinP_switch != 1 && myworld1 != 0)
+                return 0;
+            root_rank = Comm_World_StartID1[myworld1] + Comm_World_StartID2[myworld2];
+            return (myid0 == root_rank);
+        }
+        return (myid0 == Host_ID);
+    }
+    return 1;
+}
+
+static int DFT_SetHamiltonianOpenACCWorkSelectedRank(int myid0)
+{
+    const char *kowner_only;
+
+    if (scf_eigen_lib_flag != GPUSOLVER)
+        return 0;
+    if (Solver != 2 && Solver != 3 && Solver != 12)
+        return 0;
+
+    kowner_only = getenv("OPENMX_SETHAM_GPU_KOWNER_ONLY");
+    if (kowner_only == NULL || atoi(kowner_only) == 0)
+        return 1;
+
+    if (Solver == 2 || Solver == 12)
+        return (myid0 == Host_ID);
+
+    if (Comm_World_StartID1 != NULL && Comm_World_StartID2 != NULL &&
+        0 < Num_Comm_World1 && 0 < Num_Comm_World2 &&
+        0 <= myworld1 && myworld1 < Num_Comm_World1 &&
+        0 <= myworld2 && myworld2 < Num_Comm_World2) {
+        int root_rank;
+        if (myworld1 != 0)
+            return 0;
+        root_rank = Comm_World_StartID1[0] + Comm_World_StartID2[myworld2];
+        return (myid0 == root_rank);
+    }
+    return (myid0 == Host_ID);
+}
+
+static void DFT_ConfigureSetHamiltonianOpenACC(int myid0)
+{
+    Set_Hamiltonian_Set_OpenACC_Rank_Selected(DFT_SetHamiltonianOpenACCSelectedRank(myid0));
+    Set_Hamiltonian_Set_OpenACC_Work_Rank_Selected(DFT_SetHamiltonianOpenACCWorkSelectedRank(myid0));
+}
+
+static void DFT_PrepareGpuSolverHSPackedCache(void)
+{
+    if (scf_eigen_lib_flag == GPUSOLVER && (Solver == 2 || Solver == 3))
+        Set_Hamiltonian_Build_GpuSolver_HS_Cache(Cnt_switch == 1);
+    else
+        Set_Hamiltonian_Invalidate_GpuSolver_HS_Cache();
+}
+
 static double Calc_optical_conductivities_dielectric_functions(
     int myid0, double ** ko_col, double Eele0[2], double Eele1[2], int * MP, int * order_GA, double * ko, double * koS,
     double *** EIGEN_Band, double * S1, double * H1, double * CDM1, dcomplex ** H_Band_Col, dcomplex ** S_Band,
@@ -77,8 +320,6 @@ static double Calc_optical_conductivities_dielectric_functions(
 static void   Output_Energies_Forces(FILE * fp);
 static double dUele;
 static void   Read_SCF_keywords();
-static void   Select_BandCol_SmallMatrixCpuPath(int myid0);
-static void   Select_BandNonCol_CuSolverMemorySafePath(int myid0);
 
 void Allocate_Free_Cluster_Col(int todo_flag);
 void Allocate_Free_Cluster_NonCol(int todo_flag);
@@ -132,9 +373,6 @@ double DFT(int MD_iter, int Cnt_Now)
     MPI_Comm_size(mpi_comm_level1, &numprocs0);
     MPI_Comm_rank(mpi_comm_level1, &myid0);
 
-    Select_BandCol_SmallMatrixCpuPath(myid0);
-    Select_BandNonCol_CuSolverMemorySafePath(myid0);
-
     if (myid0 == Host_ID && monitoring_memory_usage == 1) {
         Get_VSZ2(MD_iter);
     }
@@ -153,6 +391,9 @@ double DFT(int MD_iter, int Cnt_Now)
         Allocate_Free_Band_NonCol(1);
     else if (Solver == 4 && SpinP_switch == 3)
         Allocate_Free_NEGF_NonCol(1);
+
+    DFT_GPU_DeviceInit(DFT_GPU_BasisCount());
+    DFT_ConfigureSetHamiltonianOpenACC(myid0);
 
     Allocate_Free_GridData(1);
     if (Cnt_switch == 1)
@@ -211,7 +452,8 @@ double DFT(int MD_iter, int Cnt_Now)
   ****************************************************/
 
     if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout) {
-        printf("<MD=%2d>  Calculation of the overlap matrix\n", MD_iter);
+        printf("<MD=%2d>  Calculation of the overlap matrix%s\n", MD_iter,
+               DFT_SetOLPKinUseGPU() ? " (GPU-accelerated)" : "");
         fflush(stdout);
     }
 
@@ -219,7 +461,7 @@ double DFT(int MD_iter, int Cnt_Now)
 
     if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout) {
         printf("<MD=%2d>  Calculation of the nonlocal matrix%s\n", MD_iter,
-               (scf_eigen_lib_flag_input == CuSOLVER) ? " (GPU-accelerated)" : "");
+               (scf_eigen_lib_flag == GPUSOLVER) ? " (GPU-accelerated)" : "");
         fflush(stdout);
     }
 
@@ -235,7 +477,8 @@ double DFT(int MD_iter, int Cnt_Now)
 
     if (ProExpn_VNA == 1) {
         if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout) {
-            printf("<MD=%2d>  Calculation of the VNA projector matrix\n", MD_iter);
+            printf("<MD=%2d>  Calculation of the VNA projector matrix%s\n", MD_iter,
+                   DFT_SetProExpnVNAUseGPU() ? " (GPU-accelerated)" : "");
             fflush(stdout);
         }
         time12 = Set_ProExpn_VNA(HVNA, HVNA2, DS_VNA);
@@ -576,13 +819,22 @@ double DFT(int MD_iter, int Cnt_Now)
         s_vec[10] = "DC-LNO";
         s_vec[11] = "Cluster-LNO";
 
-        if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout && scf_eigen_lib_flag == CuSOLVER && (Solver == 2 || Solver == 3 || Solver == 5 || Solver == 11)) {
-            printf("<%s>  Solving the eigenvalue problem (GPU-accelerated)...\n", s_vec[Solver - 1]);
-            fflush(stdout);
-        } else if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout) {
-            printf("<%s>  Solving the eigenvalue problem...\n", s_vec[Solver - 1]);
+        if (MYID_MPI_COMM_WORLD == Host_ID && 0 < level_stdout) {
+            printf("<%s>  Solving the eigenvalue problem%s...\n", s_vec[Solver - 1],
+                   DFT_GPU_EigensolverActive() ? " (GPU-accelerated)" : "");
+            if (!DFT_GPU_EigensolverActive() && DFT_GPU_DenseSwitchNum() <= DFT_GPU_BasisCount()) {
+                static int cpu_diag_notice_done = 0;
+                if (!cpu_diag_notice_done) {
+                    cpu_diag_notice_done = 1;
+                    printf("<%s>  Note: the CPU eigensolver prints nothing until every k point of an SCF iteration "
+                           "is done (matrix dimension %d); minutes of silence here are normal.\n",
+                           s_vec[Solver - 1], DFT_GPU_BasisCount());
+                }
+            }
             fflush(stdout);
         }
+
+        DFT_PrepareGpuSolverHSPackedCache();
 
         if (Cnt_switch == 0) {
 
@@ -1181,25 +1433,21 @@ double DFT(int MD_iter, int Cnt_Now)
   *******************************************************************/
 
     if (Solver == 2 && SpinP_switch == 3) {
-        const int cluster_noncol_cusolver_direct_dm =
-            (scf_eigen_lib_flag == CuSOLVER && MO_fileout != 1 && xanes_calc != 1 && xanes_gs_fileout != 1 &&
-             !cal_partial_charge && !Dos_fileout && !DosGauss_fileout);
+        time5 += Cluster_DFT_NonCol_ScatterGpuSolverCachedEVec(n * 2, is2, ie2, EVec1_NonCol);
 
         /* EDM */
 
-        if (!cluster_noncol_cusolver_direct_dm) {
-            time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(7, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
-                                                             DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
+        time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(7, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
+                                                         DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
 
-            time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(8, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
-                                                             DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
+        time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(8, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
+                                                         DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
 
-            time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(9, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
-                                                             DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
+        time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(9, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
+                                                         DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
 
-            time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(10, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
-                                                             DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
-        }
+        time5 += Calc_DM_Cluster_non_collinear_ScaLAPACK(10, myid0, numprocs0, size_H1, is2, ie2, MP, n, n * 2,
+                                                         DM[0], iDM[0], EDM, ko_noncol, CDM1, Work1, EVec1_NonCol);
 
         /* Partial_DM */
 
@@ -1551,6 +1799,15 @@ double DFT(int MD_iter, int Cnt_Now)
                calculation of forces
   ****************************************************/
 
+    /* Return device-resident SCF caches before the force-stage batches
+       measure and reserve their shared GPU memory. */
+    Set_Hamiltonian_Release_OpenACC_DeviceCache();
+    Divide_Conquer_Release_GPU_SCache();
+    Krylov_Release_GPU_KUCache();
+    Cluster_DFT_Col_Release_GPU_Solver();
+    Cluster_DFT_NonCol_Release_GPU_Solver();
+    Mixing_H_Release_GPU();
+
     if (!orbitalOpt_Force_Skip)
         time7 += Force(H0, DS_NL, OLP, DM[0], EDM);
 
@@ -1877,187 +2134,6 @@ Last1:
     MPI_Barrier(mpi_comm_level1);
 
     return time0;
-}
-
-static void Select_BandCol_SmallMatrixCpuPath(int myid0)
-{
-    int basis_count = 0;
-    int atom_index;
-
-    if (!(Solver == 3 && (SpinP_switch <= 1 || SpinP_switch == 3) && scf_eigen_lib_flag == CuSOLVER)) {
-        return;
-    }
-
-    for (atom_index = 1; atom_index <= atomnum; atom_index++) {
-        const int species = WhatSpecies[atom_index];
-        basis_count += Spe_Total_CNO[species];
-    }
-
-    if (basis_count < GPU_CPU_SWITCH_NUM) {
-        scf_eigen_lib_flag = ELPA1;
-        if (myid0 == Host_ID && 0 < level_stdout) {
-            printf("<Band>  basis size %d is below GPU_CPU_SWITCH_NUM=%d; using the CPU ELPA1 band path.\n",
-                   basis_count, GPU_CPU_SWITCH_NUM);
-            fflush(stdout);
-        }
-    }
-}
-
-static size_t DFT_checked_mul_size(size_t a, size_t b, int *overflow)
-{
-    if (a != 0 && b > ((size_t)-1) / a) {
-        *overflow = 1;
-        return 0;
-    }
-
-    return a * b;
-}
-
-static size_t DFT_checked_add_size(size_t a, size_t b, int *overflow)
-{
-    if (b > ((size_t)-1) - a) {
-        *overflow = 1;
-        return 0;
-    }
-
-    return a + b;
-}
-
-static size_t DFT_matrix_bytes(size_t count, size_t elem_size, int *overflow)
-{
-    return DFT_checked_mul_size(count, elem_size, overflow);
-}
-
-static void Select_BandNonCol_CuSolverMemorySafePath(int myid0)
-{
-    const size_t mib = 1024u * 1024u;
-    const size_t reserve_bytes = 1536u * mib;
-    int          basis_count = 0;
-    int          noncol_basis_count;
-    int          kpoint_count;
-    int          atom_index;
-    int          cuda_device_count = 0;
-    int          cuda_device = -1;
-    int          cuda_ok = 0;
-    int          local_rank = 0;
-    int          local_fallback = 0;
-    int          fallback = 0;
-    int          overflow = 0;
-    size_t       required_bytes = 0;
-    size_t       free_bytes = 0;
-    size_t       total_bytes = 0;
-    MPI_Comm     node_comm;
-    MPI_Comm     device_comm = MPI_COMM_NULL;
-    cudaError_t  cuda_err;
-
-    if (!(Solver == 3 && SpinP_switch == 3 && scf_eigen_lib_flag == CuSOLVER)) {
-        return;
-    }
-
-    for (atom_index = 1; atom_index <= atomnum; atom_index++) {
-        const int species = WhatSpecies[atom_index];
-        basis_count += Spe_Total_CNO[species];
-    }
-
-    noncol_basis_count = 2 * basis_count;
-    kpoint_count = Kspace_grid1 * Kspace_grid2 * Kspace_grid3;
-
-    if (basis_count < GPU_CPU_SWITCH_NUM) {
-        scf_eigen_lib_flag = ELPA1;
-        if (myid0 == Host_ID && 0 < level_stdout) {
-            printf("<Band>  non-collinear basis size %d is below GPU_CPU_SWITCH_NUM=%d; using the CPU ELPA1 band path.\n",
-                   basis_count, GPU_CPU_SWITCH_NUM);
-            fflush(stdout);
-        }
-        return;
-    }
-
-    if (kpoint_count <= 1) {
-        return;
-    }
-
-    {
-        size_t n = (size_t)basis_count;
-        size_t n2 = (size_t)noncol_basis_count;
-        size_t dense_elems = DFT_checked_mul_size(n, n, &overflow);
-        size_t noncol_elems = DFT_checked_mul_size(n2, n2, &overflow);
-        size_t dense_bytes;
-        size_t noncol_bytes;
-
-        dense_bytes = DFT_matrix_bytes(dense_elems, sizeof(dcomplex), &overflow);
-        noncol_bytes = DFT_matrix_bytes(noncol_elems, sizeof(dcomplex), &overflow);
-
-        /*
-         * Band_DFT_NonCol's single-rank cuSOLVER path processes one k-point
-         * at a time.  It keeps up to eight n x n work matrices during the
-         * spin-block transforms, then up to three n2 x n2 matrices plus a
-         * cuSOLVER-sized cushion during the final transform/eigensolve.  A
-         * larger estimate incorrectly forces large non-collinear band jobs
-         * onto the much slower ELPA1 path.
-         */
-        required_bytes = DFT_checked_add_size(required_bytes, DFT_checked_mul_size(8u, dense_bytes, &overflow), &overflow);
-        required_bytes = DFT_checked_add_size(required_bytes, DFT_checked_mul_size(5u, noncol_bytes, &overflow), &overflow);
-        required_bytes = DFT_checked_add_size(required_bytes, reserve_bytes, &overflow);
-    }
-
-    if (overflow) {
-        fallback = 1;
-    }
-
-    MPI_Comm_split_type(mpi_comm_level1, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
-    MPI_Comm_rank(node_comm, &local_rank);
-
-    cuda_err = cudaGetDeviceCount(&cuda_device_count);
-    if (cuda_err == cudaSuccess && 0 < cuda_device_count) {
-        cuda_device = local_rank % cuda_device_count;
-        cuda_err = cudaSetDevice(cuda_device);
-        if (cuda_err == cudaSuccess) {
-            cuda_err = cudaMemGetInfo(&free_bytes, &total_bytes);
-            if (cuda_err == cudaSuccess) {
-                cuda_ok = 1;
-            }
-        }
-    }
-
-    local_fallback = overflow;
-
-    MPI_Comm_split(node_comm, cuda_ok ? cuda_device : MPI_UNDEFINED, 0, &device_comm);
-
-    if (!cuda_ok) {
-        local_fallback |= (myid0 == Host_ID);
-    }
-    else if (device_comm != MPI_COMM_NULL) {
-        unsigned long long local_required = (myid0 == Host_ID) ? (unsigned long long)required_bytes : 0ULL;
-        unsigned long long group_required = 0ULL;
-        unsigned long long local_free = (unsigned long long)free_bytes;
-        unsigned long long group_free = 0ULL;
-
-        MPI_Allreduce(&local_required, &group_required, 1, MPI_UNSIGNED_LONG_LONG, MPI_SUM, device_comm);
-        MPI_Allreduce(&local_free, &group_free, 1, MPI_UNSIGNED_LONG_LONG, MPI_MIN, device_comm);
-        MPI_Comm_free(&device_comm);
-
-        local_fallback |= (0ULL < group_required && group_free < group_required);
-    }
-
-    MPI_Comm_free(&node_comm);
-    MPI_Allreduce(&local_fallback, &fallback, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
-
-    if (fallback) {
-        scf_eigen_lib_flag = ELPA1;
-        if (myid0 == Host_ID && 0 < level_stdout) {
-            if (cuda_ok) {
-                printf("<Band>  non-collinear Band/cusolver needs about %.3f MiB of safe GPU memory "
-                       "for basis=%d, states=%d, k-points=%d; device %d has %.3f MiB free "
-                       "(%.3f MiB total). Using the CPU ELPA1 band path.\n",
-                       (double)required_bytes / (1024.0 * 1024.0), basis_count, noncol_basis_count, kpoint_count,
-                       cuda_device, (double)free_bytes / (1024.0 * 1024.0), (double)total_bytes / (1024.0 * 1024.0));
-            }
-            else {
-                printf("<Band>  CUDA memory query failed for non-collinear Band/cusolver; using the CPU ELPA1 band path.\n");
-            }
-            fflush(stdout);
-        }
-    }
 }
 
 void Read_SCF_keywords()
@@ -2474,27 +2550,20 @@ void Allocate_Free_Band_Col(int todo_flag)
 
         double av_num;
         int    ke, ks, n3;
-        int    band_col_cusolver_single_kloop;
         int    evec1_cx_count;
         size_t ss_cx_count, hs_cx_count, cs_cx_count;
-
-        band_col_cusolver_single_kloop =
-            (scf_eigen_lib_flag == CuSOLVER && T_knum <= numprocs1 && !(SpinP_switch == 1 && numprocs0 == 1));
 
         n3     = n;
         av_num = (double)n3 / (double)numprocs2;
         ke     = (int)(av_num * (double)(myid2 + 1));
         ks     = (int)(av_num * (double)myid2) + 1;
-        if (myid1 == 0)
+        if (myid2 == 0)
             ks = 1;
-        if (myid1 == (numprocs2 - 1))
+        if (myid2 == (numprocs2 - 1))
             ke = n3;
         k = ke - ks + 2;
 
         evec1_cx_count = k * n3;
-        if (band_col_cusolver_single_kloop) {
-            evec1_cx_count = 1;
-        }
 
         EVec1_Cx = (dcomplex **)malloc(sizeof(dcomplex *) * spinmax);
         for (spin = 0; spin < spinmax; spin++) {
@@ -2532,30 +2601,15 @@ void Allocate_Free_Band_Col(int todo_flag)
         bhandle2 = Csys2blacs_handle(MPI_CommWD2[myworld2]);
         ictxt2   = bhandle2;
         Cblacs_gridinit(&ictxt2, "Row", np_rows, np_cols);
-        if (scf_eigen_lib_flag == CuSOLVER) {
-            if (myid2 == 0) {
-                ss_cx_count = (size_t)n * (size_t)n;
-                hs_cx_count = (size_t)n * (size_t)n;
-                cs_cx_count = band_col_cusolver_single_kloop ? 1 : (size_t)n * (size_t)n;
-            } else {
-                ss_cx_count = 1;
-                hs_cx_count = band_col_cusolver_single_kloop ? 1 : (size_t)na_rows * (size_t)na_cols;
-                cs_cx_count = 1;
-            }
-        } else {
-            ss_cx_count = (size_t)na_rows * (size_t)na_cols;
-            hs_cx_count = (size_t)na_rows * (size_t)na_cols;
-            cs_cx_count = 1;
-        }
+        ss_cx_count = (size_t)na_rows * (size_t)na_cols;
+        hs_cx_count = (size_t)na_rows * (size_t)na_cols;
 
         Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * ss_cx_count);
         Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * hs_cx_count);
 
         MPI_Allreduce(&na_rows, &na_rows_max, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
         MPI_Allreduce(&na_cols, &na_cols_max, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
-        if (scf_eigen_lib_flag != CuSOLVER) {
-            cs_cx_count = (size_t)na_rows_max * (size_t)na_cols_max;
-        }
+        cs_cx_count = (size_t)na_rows_max * (size_t)na_cols_max;
         Cs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * cs_cx_count);
 
         descinit_(descS, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt2, &na_rows, &info);
@@ -2730,8 +2784,9 @@ void Allocate_Free_Band_NonCol(int todo_flag)
     int        ZERO = 0, ONE = 1, info, myid0, numprocs0, myid1, numprocs1, myid2, numprocs2;
     ;
     int    spinmax, i, j, k, ii, ij, ik, nblk_m, nblk_m2, wanA, spin, size_EVec1_Cx;
-    int    cusolver_single_kloop, cusolver_dense_owner, cusolver_direct_single_k_dm;
-    size_t ss_cx_count;
+    int    gpusolver_dense_owner;
+    size_t ss_cx_count, hs_cx_count, cs_cx_count, spin_hs_cx_count;
+    size_t ss2_cx_count, hs2_cx_count, cs2_cx_count;
     double tmp, tmp1;
 
     MPI_Barrier(mpi_comm_level1);
@@ -2889,12 +2944,8 @@ void Allocate_Free_Band_NonCol(int todo_flag)
 
         MPI_Comm_size(MPI_CommWD2[myworld2], &numprocs2);
         MPI_Comm_rank(MPI_CommWD2[myworld2], &myid2);
-        cusolver_single_kloop = (scf_eigen_lib_flag == CuSOLVER && T_knum <= numprocs1);
-        cusolver_direct_single_k_dm = (scf_eigen_lib_flag == CuSOLVER && T_knum == 1 && GB_switch == 0 && CDDF_on != 1);
-        cusolver_dense_owner =
-            (scf_eigen_lib_flag == CuSOLVER &&
-             ((cusolver_single_kloop && myid0 == Host_ID) || (!cusolver_single_kloop && myid2 == 0)));
-
+        gpusolver_dense_owner =
+            (scf_eigen_lib_flag == GPUSOLVER && T_knum <= numprocs1 && myid0 == Host_ID);
         double av_num;
         int    ke, ks, n3;
 
@@ -2903,16 +2954,11 @@ void Allocate_Free_Band_NonCol(int todo_flag)
         av_num = (double)n3 / (double)numprocs2;
         ke     = (int)(av_num * (double)(myid2 + 1));
         ks     = (int)(av_num * (double)myid2) + 1;
-        if (myid1 == 0)
+        if (myid2 == 0)
             ks = 1;
-        if (myid1 == (numprocs2 - 1))
+        if (myid2 == (numprocs2 - 1))
             ke = n3;
         k = ke - ks + 2;
-
-        if (cusolver_direct_single_k_dm) {
-            k = 1;
-            n3 = 1;
-        }
 
         EVec1_Cx = (dcomplex **)malloc(sizeof(dcomplex *) * spinmax);
         for (spin = 0; spin < spinmax; spin++) {
@@ -2951,50 +2997,26 @@ void Allocate_Free_Band_NonCol(int todo_flag)
         ictxt2   = bhandle2;
         Cblacs_gridinit(&ictxt2, "Row", np_rows, np_cols);
 
-        if (cusolver_dense_owner) {
-            ss_cx_count = (size_t)n * (size_t)n;
-            if (cusolver_single_kloop) {
-                ss_cx_count *= (size_t)T_knum;
-            }
-            Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * ss_cx_count);
-            Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            ss_cx_count = 1;
-            Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-            Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-        } else {
-            ss_cx_count = (size_t)na_rows * (size_t)na_cols;
-            Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
-            Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
-        }
+        ss_cx_count = gpusolver_dense_owner ? (size_t)T_knum * (size_t)n * (size_t)n
+                                             : (size_t)na_rows * (size_t)na_cols;
+        hs_cx_count = gpusolver_dense_owner ? (size_t)n * (size_t)n
+                                             : (size_t)na_rows * (size_t)na_cols;
+        Ss_Cx = (dcomplex *)malloc(sizeof(dcomplex) * ss_cx_count);
+        Hs_Cx = (dcomplex *)malloc(sizeof(dcomplex) * hs_cx_count);
 
         MPI_Allreduce(&na_rows, &na_rows_max, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
         MPI_Allreduce(&na_cols, &na_cols_max, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
-        if (cusolver_dense_owner) {
-            Cs_Cx    = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-            rHs11_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-            rHs12_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-            rHs22_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-            iHs11_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-            iHs12_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-            iHs22_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n * n);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Cs_Cx    = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-            rHs11_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-            rHs12_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-            rHs22_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-            iHs11_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-            iHs12_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-            iHs22_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-        } else {
-            Cs_Cx    = (dcomplex *)malloc(sizeof(dcomplex) * na_rows_max * na_cols_max);
-            rHs11_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
-            rHs12_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
-            rHs22_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
-            iHs11_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
-            iHs12_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
-            iHs22_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows * na_cols);
-        }
+        cs_cx_count = gpusolver_dense_owner ? (size_t)n * (size_t)n
+                                             : (size_t)na_rows_max * (size_t)na_cols_max;
+        spin_hs_cx_count = gpusolver_dense_owner ? (size_t)n * (size_t)n
+                                                  : (size_t)na_rows * (size_t)na_cols;
+        Cs_Cx    = (dcomplex *)malloc(sizeof(dcomplex) * cs_cx_count);
+        rHs11_Cx = (dcomplex *)malloc(sizeof(dcomplex) * spin_hs_cx_count);
+        rHs12_Cx = (dcomplex *)malloc(sizeof(dcomplex) * spin_hs_cx_count);
+        rHs22_Cx = (dcomplex *)malloc(sizeof(dcomplex) * spin_hs_cx_count);
+        iHs11_Cx = (dcomplex *)malloc(sizeof(dcomplex) * spin_hs_cx_count);
+        iHs12_Cx = (dcomplex *)malloc(sizeof(dcomplex) * spin_hs_cx_count);
+        iHs22_Cx = (dcomplex *)malloc(sizeof(dcomplex) * spin_hs_cx_count);
 
         descinit_(descS, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt2, &na_rows, &info);
         descinit_(descH, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt2, &na_rows, &info);
@@ -3033,31 +3055,18 @@ void Allocate_Free_Band_NonCol(int todo_flag)
         ictxt1_2   = bhandle1_2;
 
         Cblacs_gridinit(&ictxt1_2, "Row", np_rows2, np_cols2);
-        if (cusolver_dense_owner) {
-            Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-        } else {
-            Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows2 * na_cols2);
-        }
-
-        if (cusolver_dense_owner) {
-            Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
-        } else if (scf_eigen_lib_flag == CuSOLVER && cusolver_single_kloop) {
-            Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-        } else {
-            Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows2 * na_cols2);
-        }
+        ss2_cx_count = gpusolver_dense_owner ? (size_t)n2 * (size_t)n2
+                                              : (size_t)na_rows2 * (size_t)na_cols2;
+        hs2_cx_count = gpusolver_dense_owner ? (size_t)n2 * (size_t)n2
+                                              : (size_t)na_rows2 * (size_t)na_cols2;
+        Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * ss2_cx_count);
+        Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * hs2_cx_count);
 
         MPI_Allreduce(&na_rows2, &na_rows_max2, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
         MPI_Allreduce(&na_cols2, &na_cols_max2, 1, MPI_INT, MPI_MAX, MPI_CommWD2[myworld2]);
-        if (cusolver_dense_owner) {
-            Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-        } else {
-            Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows_max2 * na_cols_max2);
-        }
+        cs2_cx_count = gpusolver_dense_owner ? (size_t)n2 * (size_t)n2
+                                              : (size_t)na_rows_max2 * (size_t)na_cols_max2;
+        Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * cs2_cx_count);
 
         descinit_(descH2, &n2, &n2, &nblk2, &nblk2, &ZERO, &ZERO, &ictxt1_2, &na_rows2, &info);
         descinit_(descC2, &n2, &n2, &nblk2, &nblk2, &ZERO, &ZERO, &ictxt1_2, &na_rows2, &info);
@@ -3113,17 +3122,17 @@ void Allocate_Free_Band_NonCol(int todo_flag)
             PrintMemory("Allocate_Free_Band_NonCol: MPI_CommWD2", sizeof(MPI_Comm) * Num_Comm_World2, NULL);
             PrintMemory("Allocate_Free_Band_NonCol: EVec1_Cx", sizeof(dcomplex) * size_EVec1_Cx, NULL);
             PrintMemory("Allocate_Free_Band_NonCol: Ss_Cx", sizeof(dcomplex) * ss_cx_count, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: Hs_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: Cs_Cx", sizeof(dcomplex) * na_rows_max * na_cols_max, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: rHs11_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: rHs12_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: rHs22_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: iHs11_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: iHs12_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: iHs22_Cx", sizeof(dcomplex) * na_rows * na_cols, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: Hs2_Cx", sizeof(dcomplex) * na_rows2 * na_cols2, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: Ss2_Cx", sizeof(dcomplex) * na_rows2 * na_cols2, NULL);
-            PrintMemory("Allocate_Free_Band_NonCol: Cs2_Cx", sizeof(dcomplex) * na_rows_max2 * na_cols_max2, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: Hs_Cx", sizeof(dcomplex) * hs_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: Cs_Cx", sizeof(dcomplex) * cs_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: rHs11_Cx", sizeof(dcomplex) * spin_hs_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: rHs12_Cx", sizeof(dcomplex) * spin_hs_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: rHs22_Cx", sizeof(dcomplex) * spin_hs_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: iHs11_Cx", sizeof(dcomplex) * spin_hs_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: iHs12_Cx", sizeof(dcomplex) * spin_hs_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: iHs22_Cx", sizeof(dcomplex) * spin_hs_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: Hs2_Cx", sizeof(dcomplex) * hs2_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: Ss2_Cx", sizeof(dcomplex) * ss2_cx_count, NULL);
+            PrintMemory("Allocate_Free_Band_NonCol: Cs2_Cx", sizeof(dcomplex) * cs2_cx_count, NULL);
             if (GB_switch) {
                 PrintMemory("Allocate_Free_Band_NonCol: koSU", sizeof(double) * (n + 1), NULL);
                 PrintMemory("Allocate_Free_Band_NonCol: koSL", sizeof(double) * (n + 1), NULL);
@@ -3285,7 +3294,6 @@ void Allocate_Free_Cluster_Col(int todo_flag)
     static int firsttime = 1;
     int        ZERO = 0, ONE = 1, info, myid0, numprocs0, myid1, numprocs1;
     int        i, k, nblk_m, nblk_m2, wanA, spin;
-    int        cluster_col_cusolver_direct_device_dm;
     size_t     size_EVec1, evec1_re_count, ss_re_count, hs_re_count, cs_re_count;
     double     tmp, tmp1;
 
@@ -3353,10 +3361,6 @@ void Allocate_Free_Cluster_Col(int todo_flag)
         MPI_Comm_size(MPI_CommWD1[myworld1], &numprocs1);
         MPI_Comm_rank(MPI_CommWD1[myworld1], &myid1);
 
-        cluster_col_cusolver_direct_device_dm =
-            (scf_eigen_lib_flag == CuSOLVER && MO_fileout != 1 && xanes_calc != 1 && xanes_gs_fileout != 1 &&
-             !cal_partial_charge && !Dos_fileout && !DosGauss_fileout && !(SpinP_switch == 1 && numprocs0 == 1));
-
         double av_num;
         int    ke, ks;
         av_num = (double)n / (double)numprocs1;
@@ -3368,7 +3372,7 @@ void Allocate_Free_Cluster_Col(int todo_flag)
             ke = n;
         k = ke - ks + 2;
 
-        evec1_re_count = cluster_col_cusolver_direct_device_dm ? 1 : (size_t)k * (size_t)n;
+        evec1_re_count = (size_t)k * (size_t)n;
         EVec1_Re = (double **)malloc(sizeof(double *) * (SpinP_switch + 1));
         for (spin = 0; spin < (SpinP_switch + 1); spin++) {
             EVec1_Re[spin] = (double *)malloc(sizeof(double) * evec1_re_count);
@@ -3407,31 +3411,16 @@ void Allocate_Free_Cluster_Col(int todo_flag)
         ictxt1   = bhandle1;
 
         Cblacs_gridinit(&ictxt1, "Row", np_rows, np_cols);
-        if (scf_eigen_lib_flag == CuSOLVER && myid1 == 0) {
-            ss_re_count = (size_t)n * (size_t)n;
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            ss_re_count = 1;
-        } else {
-            ss_re_count = (size_t)na_rows * (size_t)na_cols;
-        }
+        ss_re_count = (size_t)na_rows * (size_t)na_cols;
         Ss_Re = (double *)malloc(sizeof(double) * ss_re_count);
 
-        // Ss_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
-        hs_re_count = cluster_col_cusolver_direct_device_dm ? 1 : (size_t)na_rows * (size_t)na_cols;
+        hs_re_count = (size_t)na_rows * (size_t)na_cols;
         Hs_Re = (double *)malloc(sizeof(double) * hs_re_count);
 
         MPI_Allreduce(&na_rows, &na_rows_max, 1, MPI_INT, MPI_MAX, MPI_CommWD1[myworld1]);
         MPI_Allreduce(&na_cols, &na_cols_max, 1, MPI_INT, MPI_MAX, MPI_CommWD1[myworld1]);
 
-        if (cluster_col_cusolver_direct_device_dm) {
-            cs_re_count = 1;
-        } else if (scf_eigen_lib_flag == CuSOLVER && myid1 == 0) {
-            cs_re_count = (size_t)n * (size_t)n;
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            cs_re_count = 1;
-        } else {
-            cs_re_count = (size_t)na_rows_max * (size_t)na_cols_max;
-        }
+        cs_re_count = (size_t)na_rows_max * (size_t)na_cols_max;
         Cs_Re = (double *)malloc(sizeof(double) * cs_re_count);
 
         descinit_(descS, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt1, &na_rows, &info);
@@ -3537,7 +3526,6 @@ void Allocate_Free_Cluster_NonCol(int todo_flag)
     static int firsttime = 1;
     int        ZERO = 0, ONE = 1, info, size_EVec1;
     int        i, k, nblk_m, nblk_m2, wanA, myid0, numprocs0, numprocs1;
-    int        cluster_noncol_cusolver_direct_dm;
     size_t     evec1_noncol_count;
     double     tmp, tmp1;
 
@@ -3584,10 +3572,7 @@ void Allocate_Free_Cluster_NonCol(int todo_flag)
             ke = n * 2;
         k = ke - ks + 2;
 
-        cluster_noncol_cusolver_direct_dm =
-            (scf_eigen_lib_flag == CuSOLVER && MO_fileout != 1 && xanes_calc != 1 && xanes_gs_fileout != 1 &&
-             !cal_partial_charge && !Dos_fileout && !DosGauss_fileout);
-        evec1_noncol_count = cluster_noncol_cusolver_direct_dm ? 1 : (size_t)k * (size_t)n * 2;
+        evec1_noncol_count = (size_t)k * (size_t)n * 2;
         EVec1_NonCol       = (dcomplex *)malloc(sizeof(dcomplex) * evec1_noncol_count);
         size_EVec1         = (int)evec1_noncol_count;
 
@@ -3622,41 +3607,17 @@ void Allocate_Free_Cluster_NonCol(int todo_flag)
         ictxt1   = bhandle1;
 
         Cblacs_gridinit(&ictxt1, "Row", np_rows, np_cols);
-        if (scf_eigen_lib_flag == CuSOLVER && myid0 == 0) {
-            Ss_Re    = (double *)malloc(sizeof(double) * n * n);
-            rHs11_Re = (double *)malloc(sizeof(double) * n * n);
-            rHs12_Re = (double *)malloc(sizeof(double) * n * n);
-            rHs22_Re = (double *)malloc(sizeof(double) * n * n);
-            iHs11_Re = (double *)malloc(sizeof(double) * n * n);
-            iHs12_Re = (double *)malloc(sizeof(double) * n * n);
-            iHs22_Re = (double *)malloc(sizeof(double) * n * n);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Ss_Re    = (double *)malloc(sizeof(double) * 1);
-            rHs11_Re = (double *)malloc(sizeof(double) * 1);
-            rHs12_Re = (double *)malloc(sizeof(double) * 1);
-            rHs22_Re = (double *)malloc(sizeof(double) * 1);
-            iHs11_Re = (double *)malloc(sizeof(double) * 1);
-            iHs12_Re = (double *)malloc(sizeof(double) * 1);
-            iHs22_Re = (double *)malloc(sizeof(double) * 1);
-        } else {
-            Ss_Re    = (double *)malloc(sizeof(double) * na_rows * na_cols);
-            rHs11_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
-            rHs12_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
-            rHs22_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
-            iHs11_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
-            iHs12_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
-            iHs22_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
-        }
+        Ss_Re    = (double *)malloc(sizeof(double) * na_rows * na_cols);
+        rHs11_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
+        rHs12_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
+        rHs22_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
+        iHs11_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
+        iHs12_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
+        iHs22_Re = (double *)malloc(sizeof(double) * na_rows * na_cols);
 
         MPI_Allreduce(&na_rows, &na_rows_max, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
         MPI_Allreduce(&na_cols, &na_cols_max, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
-        if (scf_eigen_lib_flag == CuSOLVER && myid0 == 0) {
-            Cs_Re = (double *)malloc(sizeof(double) * n * n);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Cs_Re = (double *)malloc(sizeof(double) * 1);
-        } else {
-            Cs_Re = (double *)malloc(sizeof(double) * na_rows_max * na_cols_max);
-        }
+        Cs_Re = (double *)malloc(sizeof(double) * na_rows_max * na_cols_max);
 
         descinit_(descS, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt1, &na_rows, &info);
         descinit_(descH, &n, &n, &nblk, &nblk, &ZERO, &ZERO, &ictxt1, &na_rows, &info);
@@ -3693,30 +3654,12 @@ void Allocate_Free_Cluster_NonCol(int todo_flag)
         ictxt1_2   = bhandle1_2;
 
         Cblacs_gridinit(&ictxt1_2, "Row", np_rows2, np_cols2);
-        if (scf_eigen_lib_flag == CuSOLVER && myid0 == 0) {
-            Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
-        } else if (cluster_noncol_cusolver_direct_dm) {
-            Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-        } else {
-            Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows2 * na_cols2);
-        }
-        if (scf_eigen_lib_flag == CuSOLVER && myid0 == 0) {
-            Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-        } else {
-            Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows2 * na_cols2);
-        }
+        Hs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows2 * na_cols2);
+        Ss2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows2 * na_cols2);
 
         MPI_Allreduce(&na_rows2, &na_rows_max2, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
         MPI_Allreduce(&na_cols2, &na_cols_max2, 1, MPI_INT, MPI_MAX, mpi_comm_level1);
-        if (scf_eigen_lib_flag == CuSOLVER && myid0 == 0) {
-            Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * n2 * n2);
-        } else if (scf_eigen_lib_flag == CuSOLVER) {
-            Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * 1);
-        } else {
-            Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows_max2 * na_cols_max2);
-        }
+        Cs2_Cx = (dcomplex *)malloc(sizeof(dcomplex) * na_rows_max2 * na_cols_max2);
         
         descinit_(descH2, &n2, &n2, &nblk2, &nblk2, &ZERO, &ZERO, &ictxt1_2, &na_rows2, &info);
         descinit_(descC2, &n2, &n2, &nblk2, &nblk2, &ZERO, &ZERO, &ictxt1_2, &na_rows2, &info);

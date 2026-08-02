@@ -62,6 +62,47 @@ CC3 = mpicc -O2 -Minfo=accel -acc -std=c11 -mtune=native -march=native -fopenmp 
 FC = mpif90 -O2 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
 LIB= -L/home/x10402/nvpl-linux-sbsa-24.7/lib -lnvpl_scalapack_lp64 -lnvpl_blacs_lp64_openmpi4 -lnvpl_lapack_lp64_gomp -lnvpl_blas_lp64_gomp -pgf90libs -lmpi_mpifh -lfftw3 -lpthread -lgfortran -lm -ldl -L/work/opt/local/aarch64/cores/nvidia/25.9/Linux_aarch64/25.9/cuda/12.9/lib64 -L/work/opt/local/aarch64/cores/nvidia/25.9/Linux_aarch64/25.9/math_libs/12.9/targets/sbsa-linux/lib -lcudart -lcusolver -lcublas -cuda
 
+# GPU build support shared with the main OpenMX 4.0 GPU configuration.
+# Keep the Miyabi compiler and library selections above, but make the CUDA
+# paths overridable so the file can follow future module revisions.
+MIYABI_NVHPC_ROOT       ?= /work/opt/local/aarch64/cores/nvidia/25.9/Linux_aarch64/25.9
+MIYABI_CUDA_VERSION     ?= 12.9
+MIYABI_CUDA_HOME        ?= $(MIYABI_NVHPC_ROOT)/cuda/$(MIYABI_CUDA_VERSION)
+MIYABI_CUDA_TARGET      ?= $(MIYABI_CUDA_HOME)/targets/sbsa-linux
+MIYABI_MATH_DIR         ?= $(MIYABI_NVHPC_ROOT)/math_libs/$(MIYABI_CUDA_VERSION)/targets/sbsa-linux
+MIYABI_NVPL_LIBDIR      ?= /home/x10402/nvpl-linux-sbsa-24.7/lib
+
+GEMMUL8_REPO_URL        ?= https://github.com/RIKEN-RCCS/GEMMul8.git
+GEMMUL8_REPO_DIR        ?= third_party/GEMMul8
+GEMMUL8_COMMIT          ?= 6bf409bdc69a638970ad5f91948a8b3e44c5378b
+GEMMUL8_DIR             ?= $(GEMMUL8_REPO_DIR)
+GEMMUL8_LIB             ?= $(GEMMUL8_DIR)/lib/libgemmul8.a
+GEMMUL8_OPENMX_OBJ      ?= $(GEMMUL8_DIR)/src/gemmul8_openmx.o
+GEMMUL8_CUDA_PATH       ?= $(MIYABI_CUDA_HOME)
+GEMMUL8_GPU_ARCH        ?= auto
+GEMMUL8_DEFAULT_GPU_ARCH ?= 90
+GEMMUL8_DETECTED_GPU_ARCH := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '.')
+ifeq ($(GEMMUL8_GPU_ARCH),auto)
+GEMMUL8_BUILD_GPU_ARCH := $(if $(strip $(GEMMUL8_DETECTED_GPU_ARCH)),$(GEMMUL8_DETECTED_GPU_ARCH),$(GEMMUL8_DEFAULT_GPU_ARCH))
+else
+GEMMUL8_BUILD_GPU_ARCH := $(GEMMUL8_GPU_ARCH)
+endif
+
+NVCC                    ?= $(GEMMUL8_CUDA_PATH)/bin/nvcc
+NVCC_HOST               ?= nvc++
+NVCC_GEMMUL8_ENV         = CUDA_HOME="$(MIYABI_CUDA_HOME)"
+NVCC_GEMMUL8_FLAGS       = -ccbin $(NVCC_HOST) -std=c++20 -O3 -diag-suppress 177 -DGPU_ARCH=$(GEMMUL8_BUILD_GPU_ARCH) -I$(GEMMUL8_DIR)/include -I$(GEMMUL8_DIR)/src -I$(GEMMUL8_CUDA_PATH)/include -I$(MIYABI_CUDA_TARGET)/include -I$(MIYABI_MATH_DIR)/include -gencode arch=compute_$(GEMMUL8_BUILD_GPU_ARCH),code=sm_$(GEMMUL8_BUILD_GPU_ARCH)
+
+# Pin the non-system libraries selected above into the executable.  NVHPC
+# may still emit DT_RUNPATH, so force_rpath changes the dynamic tag after
+# linking.  The large AArch64 stub group follows upstream GEMMul8's setting.
+MIYABI_RPATH_FLAGS      ?= -Wl,-rpath,$(MIYABI_NVPL_LIBDIR) -Wl,-rpath,$(MIYABI_CUDA_HOME)/lib64 -Wl,-rpath,$(MIYABI_MATH_DIR)/lib
+MIYABI_CUDA_STUBDIR     ?= $(MIYABI_CUDA_TARGET)/lib/stubs
+MIYABI_AARCH64_LDFLAGS  ?= -Wl,--stub-group-size=33554432
+LIB += $(MIYABI_RPATH_FLAGS) -L$(MIYABI_CUDA_STUBDIR) -lcublasLt -Wl,--no-as-needed -lnvJitLink -lcusparse -Wl,--as-needed -lcuda -lstdc++ $(MIYABI_AARCH64_LDFLAGS)
+
+HOST_CC ?= gcc
+
 CFLAGS  = -g 
 
 OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o init.o LU_inverse.o ReLU_inverse.o \
@@ -74,22 +115,22 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o init.o LU_inverse.o 
           Cluster_DFT_Col.o Cluster_DFT_NonCol.o Cluster_DFT_Dosout.o Cluster_DFT_ON2.o Cluster_DFT_LNO.o \
           Band_DFT_Col.o Band_DFT_NonCol.o Band_DFT_NonCol_GB.o \
           Band_DFT_kpath.o Band_DFT_kpath_LNO.o Band_DFT_MO.o \
-          Unfolding_Bands.o Band_DFT_Dosout.o Set_Density_Grid.o Set_Orbitals_Grid.o Set_Aden_Grid.o \
+          Unfolding_Bands.o Band_DFT_Dosout.o Set_Density_Grid.o Set_Density_Grid_GPU.o Set_Orbitals_Grid.o Set_Aden_Grid.o \
           Gauss_Legendre.o zero_cfrac.o xyz2spherical.o AngularF.o RadialF.o Dr_RadialF.o PhiF.o \
           VNAF.o Dr_VNAF.o VH_AtomF.o Dr_VH_AtomF.o RF_BesselF.o QuickSort.o Nonlocal_RadialF.o \
           KumoF.o Dr_KumoF.o Mulliken_Charge.o Occupation_Number_LDA_U.o Eff_Hub_Pot.o Coulomb_Interaction.o \
           EulerAngle_Spin.o Smoothing_Func.o Orbital_Moment.o Pot_NeutralAtom.o Simple_Mixing_DM.o \
           DIIS_Mixing_DM.o ADIIS_Mixing_DM.o GR_Pulay_DM.o Kerker_Mixing_Rhok.o DIIS_Mixing_Rhok.o \
-          Total_Energy.o Contract_Hamiltonian.o Contract_iHNL.o Cont_Matrix0.o Cont_Matrix1.o Cont_Matrix2.o \
+          Total_Energy.o Total_Energy_GPU.o Contract_Hamiltonian.o Contract_iHNL.o Cont_Matrix0.o Cont_Matrix1.o Cont_Matrix2.o \
           Cont_Matrix3.o Cont_Matrix4.o Opt_Contraction.o Initial_CntCoes.o Initial_CntCoes2.o \
           Set_XC_Grid.o Set_XC_NL1_Grid.o \
           Get_Orbitals.o Get_dOrbitals.o Get_Cnt_Orbitals.o \
           Get_Cnt_dOrbitals.o Gaunt.o Find_CGrids.o MD_pac.o \
           RestartFileDFT.o Output_CompTime.o Merge_LogFile.o Make_FracCoord.o \
           Make_InputFile_with_FinalCoord.o Output_Energy_Decomposition.o \
-          Divide_Conquer.o Divide_Conquer_LNO.o my_cublasDgemm.o my_cublasZgemm.o Krylov.o \
+          Divide_Conquer.o Divide_Conquer_LNO.o gemmul8_bridge.o Krylov.o \
           Divide_Conquer_Dosout.o EGAC_DFT.o LNO.o \
-          Eigen_lapack.o cusolver_Syevd.o cusolver_Syevdx.o set_cuda_default_device_from_local_rank.o set_openacc_device_from_local_rank.o utility.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
+          Eigen_lapack.o gpusolver_Syevd.o gpusolver_Syevdx.o set_cuda_default_device_from_local_rank.o set_openacc_device_from_local_rank.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
           Eigen_PReHH.o BroadCast_ReMatrix.o \
           Eigen_PHH.o BroadCast_ComplexMatrix.o \
           lapack_dstedc1.o lapack_dstedc2.o lapack_dstedc3.o\
@@ -97,7 +138,7 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o init.o LU_inverse.o 
           lapack_dstevx1.o lapack_dstevx2.o lapack_dstevx3.o \
           lapack_dstevx4.o lapack_dstevx5.o lapack_dsteqr1.o \
           Nonlocal_Basis.o Set_OLP_Kin.o Set_Nonlocal.o Set_ProExpn_VNA.o \
-          Set_CoreHoleMatrix.o Set_OLP_p.o Set_Hamiltonian.o Set_Vpot.o \
+          Set_CoreHoleMatrix.o Set_OLP_p.o Set_Hamiltonian.o set_hamiltonian_gpu.o Set_Vpot.o \
           Voronoi_Charge.o Voronoi_Orbital_Moment.o Fuzzy_Weight.o \
           dampingF.o deri_dampingF.o Spherical_Bessel.o \
           iterout.o iterout_md.o Allocate_Arrays.o Free_Arrays.o \
@@ -166,8 +207,14 @@ UTIL 	= DosMain jx analysis_example esp polB calB Z2FH bandgnu13 bin2txt cube2xs
 # OpenMX
 #
 
-openmx:	$(OBJS)
-	$(CC) $(OBJS) $(STACK) $(LIB) -lm -o openmx
+.DEFAULT_GOAL := openmx
+
+openmx:	$(GEMMUL8_LIB) $(OBJS) force_rpath
+	$(CC) $(OBJS) $(STACK) $(GEMMUL8_LIB) $(LIB) -lm -o openmx
+	./force_rpath openmx
+
+force_rpath: force_rpath.c
+	$(HOST_CC) -O2 -o force_rpath force_rpath.c
 	
 #
 #
@@ -342,6 +389,8 @@ Set_Orbitals_Grid.o: Set_Orbitals_Grid.c openmx_common.h
 	$(CC) -c Set_Orbitals_Grid.c
 Set_Density_Grid.o: Set_Density_Grid.c openmx_common.h
 	$(CC) -c Set_Density_Grid.c
+Set_Density_Grid_GPU.o: Set_Density_Grid_GPU.c openmx_common.h
+	$(CC) -c Set_Density_Grid_GPU.c
 Set_Aden_Grid.o: Set_Aden_Grid.c openmx_common.h
 	$(CC) -c Set_Aden_Grid.c
 
@@ -365,6 +414,8 @@ DIIS_Mixing_Rhok.o: DIIS_Mixing_Rhok.c openmx_common.h
 	$(CC) -c DIIS_Mixing_Rhok.c
 Total_Energy.o: Total_Energy.c openmx_common.h
 	$(CC) -c Total_Energy.c
+Total_Energy_GPU.o: Total_Energy_GPU.c openmx_common.h
+	$(CC) -c Total_Energy_GPU.c
 Contract_Hamiltonian.o: Contract_Hamiltonian.c openmx_common.h
 	$(CC) -c Contract_Hamiltonian.c
 Contract_iHNL.o: Contract_iHNL.c openmx_common.h
@@ -421,16 +472,14 @@ QuickSort.o: QuickSort.c openmx_common.h
 	$(CC) -c QuickSort.c
 Eigen_lapack.o: Eigen_lapack.c openmx_common.h lapack_prototypes.h
 	$(CC) -c Eigen_lapack.c
-cusolver_Syevd.o: cusolver_Syevd.c openmx_common.h
-	$(CC) -c cusolver_Syevd.c
-cusolver_Syevdx.o: cusolver_Syevdx.c openmx_common.h
-	$(CC) -c cusolver_Syevdx.c
+gpusolver_Syevd.o: gpusolver_Syevd.c openmx_common.h
+	$(CC) -c gpusolver_Syevd.c
+gpusolver_Syevdx.o: gpusolver_Syevdx.c openmx_common.h
+	$(CC) -c gpusolver_Syevdx.c
 set_cuda_default_device_from_local_rank.o: set_cuda_default_device_from_local_rank.c openmx_common.h
 	$(CC) -c set_cuda_default_device_from_local_rank.c
 set_openacc_device_from_local_rank.o: set_openacc_device_from_local_rank.c openmx_common.h
 	$(CC) -c set_openacc_device_from_local_rank.c
-utility.o: utility.c openmx_common.h
-	$(CC) -c utility.c
 Eigen_lapack2.o: Eigen_lapack2.c openmx_common.h lapack_prototypes.h
 	$(CC) -c Eigen_lapack2.c
 Eigen_lapack3.o: Eigen_lapack3.c openmx_common.h lapack_prototypes.h
@@ -483,6 +532,8 @@ Set_OLP_p.o: Set_OLP_p.c openmx_common.h
 	$(CC) -c Set_OLP_p.c
 Set_Hamiltonian.o: Set_Hamiltonian.c openmx_common.h
 	$(CC) -c Set_Hamiltonian.c
+set_hamiltonian_gpu.o: set_hamiltonian_gpu.cu
+	$(NVCC_GEMMUL8_ENV) $(NVCC) $(NVCC_GEMMUL8_FLAGS) -c set_hamiltonian_gpu.cu -o set_hamiltonian_gpu.o
 Set_Vpot.o: Set_Vpot.c openmx_common.h
 	$(CC) -c Set_Vpot.c
 #
@@ -505,10 +556,22 @@ Divide_Conquer.o: Divide_Conquer.c openmx_common.h
 	$(CC3) -c Divide_Conquer.c
 Divide_Conquer_LNO.o: Divide_Conquer_LNO.c openmx_common.h
 	$(CC) -c Divide_Conquer_LNO.c
-my_cublasDgemm.o: my_cublasDgemm.c openmx_common.h
-	$(CC) -c my_cublasDgemm.c
-my_cublasZgemm.o: my_cublasZgemm.c openmx_common.h
-	$(CC) -c my_cublasZgemm.c
+gemmul8_bridge.o: gemmul8_bridge.cu openmx_common.h $(GEMMUL8_DIR)/include/gemmul8.hpp $(GEMMUL8_LIB)
+	$(NVCC_GEMMUL8_ENV) $(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_bridge.cu -o gemmul8_bridge.o
+$(GEMMUL8_DIR)/Makefile:
+	mkdir -p $(GEMMUL8_REPO_DIR)
+	cd $(GEMMUL8_REPO_DIR) && \
+	  { [ -d .git ] || git init -q .; } && \
+	  { git remote get-url origin >/dev/null 2>&1 || git remote add origin $(GEMMUL8_REPO_URL); } && \
+	  git fetch --depth 1 origin $(GEMMUL8_COMMIT) && \
+	  git checkout -q $(GEMMUL8_COMMIT)
+$(GEMMUL8_DIR)/include/gemmul8.hpp: | $(GEMMUL8_DIR)/Makefile
+	@:
+$(GEMMUL8_OPENMX_OBJ): gemmul8_openmx.cu $(GEMMUL8_DIR)/Makefile
+	$(NVCC_GEMMUL8_ENV) $(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_openmx.cu -o $(GEMMUL8_OPENMX_OBJ)
+$(GEMMUL8_LIB): $(GEMMUL8_OPENMX_OBJ)
+	mkdir -p $(GEMMUL8_DIR)/lib
+	ar rcs $(GEMMUL8_LIB) $(GEMMUL8_OPENMX_OBJ)
 Divide_Conquer_Dosout.o: Divide_Conquer_Dosout.c openmx_common.h
 	$(CC) -c Divide_Conquer_Dosout.c
 Krylov.o: Krylov.c openmx_common.h
@@ -655,8 +718,13 @@ install: $(PROG)
 #
 #
 
-clean:
-	rm -f $(PROG) $(OBJS) $(OBJS_jx) $(UTIL) *.o *.mod *.dbg 
+.PHONY: gemmul8-clean clean
+
+gemmul8-clean:
+	rm -f "$(GEMMUL8_OPENMX_OBJ)" "$(GEMMUL8_LIB)"
+
+clean: gemmul8-clean
+	rm -f $(PROG) $(OBJS) $(OBJS_jx) $(UTIL) force_rpath *.o *.mod *.dbg
 
 #
 #

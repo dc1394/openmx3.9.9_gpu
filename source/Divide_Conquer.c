@@ -37,10 +37,14 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 static void Save_DOS_Col(double ****** Residues, double **** OLP0, double *** EVal, int * Msize);
 static void Save_DOS_NonCol(dcomplex ****** Residues, double **** OLP0, double ** EVal, int * Msize);
 
+/* Per-atom truncated-cluster crossover dimensions. */
+#define DC_GPU_CPU_SWITCH_NUM 400
+#define DC_NONCOL_GPU_CPU_SWITCH_NUM 300
+
 static int DC_GPU_Threshold(void)
 {
     static int initialized = 0;
-    static int threshold   = GPU_CPU_SWITCH_NUM;
+    static int threshold   = DC_GPU_CPU_SWITCH_NUM;
 
     if (!initialized) {
         char *env = getenv("OPENMX_DC_GPU_THRESHOLD");
@@ -49,6 +53,23 @@ static int DC_GPU_Threshold(void)
             if (0 < env_threshold) {
                 threshold = env_threshold;
             }
+        }
+        initialized = 1;
+    }
+
+    return threshold;
+}
+
+static int DC_NonCol_GPU_Threshold(void)
+{
+    static int initialized = 0;
+    static int threshold   = DC_NONCOL_GPU_CPU_SWITCH_NUM;
+
+    if (!initialized) {
+        char *env = getenv("OPENMX_DC_NONCOL_GPU_THRESHOLD");
+        if (env != NULL && env[0] != '\0') {
+            int env_threshold = atoi(env);
+            if (0 < env_threshold) threshold = env_threshold;
         }
         initialized = 1;
     }
@@ -222,7 +243,7 @@ typedef struct {
     size_t             h_work_bytes;
     cudaStream_t       stream;
     cublasHandle_t     cublas;
-    cusolverDnHandle_t cusolver;
+    cusolverDnHandle_t gpusolver;
     double *           d_S;
     double *           d_H;
     double *           d_tmp;
@@ -233,13 +254,572 @@ typedef struct {
     void *             d_work;
     void *             h_work;
     double *           h_matrix;
-} DCCuSolverCtx;
+} DCGpuSolverCtx;
 
-static DCCuSolverCtx DC_cusolver_ctx = {0};
+static DCGpuSolverCtx DC_gpusolver_ctx = {0};
+static int            DC_gpusolver_gemm_disabled = 0;
+static int            DC_gpusolver_gemmul8_disabled = 0;
+static int            DC_gpusolver_eigen_disabled = 0;
 
-static void DC_CuSolver_Destroy(void)
+/* Largest GEMM shape whose device-memory preflight already succeeded.  The
+   GEMMul8/cuBLAS workspaces only grow when a larger shape arrives, so any
+   solve within the approved shape cannot trigger a new allocation and may
+   skip the cudaMemGetInfo query. */
+static int DC_gpusolver_approved_gemm_n    = 0;
+static int DC_gpusolver_approved_gemm_num1 = 0;
+static int DC_gpusolver_native_approved    = 0;
+
+typedef struct {
+    int state;      /* 0: not built, 1: active, -1: disabled */
+    int matomnum;
+    int *dim;
+    int *valid;
+    size_t *off;
+    double *d_arena;
+    size_t arena_elems;
+} DCColSCacheCtx;
+
+static DCColSCacheCtx DC_scache = {0};
+
+static unsigned DC_EnvU32(const char *name, unsigned fallback)
 {
-    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    const char *value = getenv(name);
+    char       *end   = NULL;
+    unsigned long parsed;
+
+    if (value == NULL || value[0] == '\0') {
+        return fallback;
+    }
+
+    parsed = strtoul(value, &end, 10);
+    if (end == value || *end != '\0') {
+        return fallback;
+    }
+
+    return (unsigned)parsed;
+}
+
+static const char *DC_GpuSolver_CublasStatusName(cublasStatus_t status)
+{
+    if (status == CUBLAS_STATUS_SUCCESS)
+        return "CUBLAS_STATUS_SUCCESS";
+    if (status == CUBLAS_STATUS_NOT_INITIALIZED)
+        return "CUBLAS_STATUS_NOT_INITIALIZED";
+    if (status == CUBLAS_STATUS_ALLOC_FAILED)
+        return "CUBLAS_STATUS_ALLOC_FAILED";
+    if (status == CUBLAS_STATUS_INVALID_VALUE)
+        return "CUBLAS_STATUS_INVALID_VALUE";
+    if (status == CUBLAS_STATUS_ARCH_MISMATCH)
+        return "CUBLAS_STATUS_ARCH_MISMATCH";
+    if (status == CUBLAS_STATUS_MAPPING_ERROR)
+        return "CUBLAS_STATUS_MAPPING_ERROR";
+    if (status == CUBLAS_STATUS_EXECUTION_FAILED)
+        return "CUBLAS_STATUS_EXECUTION_FAILED";
+    if (status == CUBLAS_STATUS_INTERNAL_ERROR)
+        return "CUBLAS_STATUS_INTERNAL_ERROR";
+    if (status == CUBLAS_STATUS_NOT_SUPPORTED)
+        return "CUBLAS_STATUS_NOT_SUPPORTED";
+    if (status == CUBLAS_STATUS_LICENSE_ERROR)
+        return "CUBLAS_STATUS_LICENSE_ERROR";
+    return "CUBLAS_STATUS_ERROR";
+}
+
+static const char *DC_GpuSolver_StatusName(cusolverStatus_t status)
+{
+    if (status == CUSOLVER_STATUS_SUCCESS)
+        return "CUSOLVER_STATUS_SUCCESS";
+    if (status == CUSOLVER_STATUS_NOT_INITIALIZED)
+        return "CUSOLVER_STATUS_NOT_INITIALIZED";
+    if (status == CUSOLVER_STATUS_ALLOC_FAILED)
+        return "CUSOLVER_STATUS_ALLOC_FAILED";
+    if (status == CUSOLVER_STATUS_INVALID_VALUE)
+        return "CUSOLVER_STATUS_INVALID_VALUE";
+    if (status == CUSOLVER_STATUS_ARCH_MISMATCH)
+        return "CUSOLVER_STATUS_ARCH_MISMATCH";
+    if (status == CUSOLVER_STATUS_MAPPING_ERROR)
+        return "CUSOLVER_STATUS_MAPPING_ERROR";
+    if (status == CUSOLVER_STATUS_EXECUTION_FAILED)
+        return "CUSOLVER_STATUS_EXECUTION_FAILED";
+    if (status == CUSOLVER_STATUS_INTERNAL_ERROR)
+        return "CUSOLVER_STATUS_INTERNAL_ERROR";
+    if (status == CUSOLVER_STATUS_MATRIX_TYPE_NOT_SUPPORTED)
+        return "CUSOLVER_STATUS_MATRIX_TYPE_NOT_SUPPORTED";
+    if (status == CUSOLVER_STATUS_NOT_SUPPORTED)
+        return "CUSOLVER_STATUS_NOT_SUPPORTED";
+    if (status == CUSOLVER_STATUS_ZERO_PIVOT)
+        return "CUSOLVER_STATUS_ZERO_PIVOT";
+    if (status == CUSOLVER_STATUS_INVALID_LICENSE)
+        return "CUSOLVER_STATUS_INVALID_LICENSE";
+    if (status == CUSOLVER_STATUS_INVALID_WORKSPACE)
+        return "CUSOLVER_STATUS_INVALID_WORKSPACE";
+    return "CUSOLVER_STATUS_ERROR";
+}
+
+static void DC_GpuSolver_DisableGemmPathCuda(const char *where, cudaError_t status);
+
+static int DC_GpuSolver_GemmDisabled(void)
+{
+    return DC_gpusolver_gemm_disabled;
+}
+
+static int DC_GpuSolver_EigenDisabled(void)
+{
+    return DC_gpusolver_eigen_disabled;
+}
+
+static size_t DC_GpuSolver_Gemmul8ReserveBytes(void)
+{
+    unsigned reserve_mib;
+
+    reserve_mib = DC_EnvU32("GEMMUL8_MIN_FREE_AFTER_MB", 1536u);
+    reserve_mib = DC_EnvU32("OPENMX_GEMMUL8_MIN_FREE_AFTER_MB", reserve_mib);
+
+    return (size_t)reserve_mib * (size_t)1024 * (size_t)1024;
+}
+
+static size_t DC_GpuSolver_CublasReserveBytes(void)
+{
+    unsigned reserve_mib;
+
+    reserve_mib = DC_EnvU32("CUBLAS_MIN_FREE_AFTER_MB", 3072u);
+    reserve_mib = DC_EnvU32("OPENMX_CUBLAS_MIN_FREE_AFTER_MB", reserve_mib);
+
+    return (size_t)reserve_mib * (size_t)1024 * (size_t)1024;
+}
+
+static size_t DC_GpuSolver_EigenReserveBytes(void)
+{
+    unsigned reserve_mib;
+
+    reserve_mib = DC_EnvU32("GPUSOLVER_MIN_FREE_AFTER_MB", 1536u);
+    reserve_mib = DC_EnvU32("OPENMX_GPUSOLVER_MIN_FREE_AFTER_MB", reserve_mib);
+
+    return (size_t)reserve_mib * (size_t)1024 * (size_t)1024;
+}
+
+static void DC_GpuSolver_DisableEigenPathMemory(const char *where, size_t need_bytes, size_t free_bytes,
+                                               size_t total_bytes, size_t reserve_bytes)
+{
+    int rank = -1;
+
+    DC_gpusolver_eigen_disabled = 1;
+    DC_gpusolver_gemm_disabled  = 1;
+    openmx_gemmul8ReleaseWorkspaces();
+
+    MPI_Comm_rank(mpi_comm_level1, &rank);
+    fprintf(stderr,
+            "<DC> rank %d: gpuSOLVER is unsafe before %s; "
+            "needed device workspace %.3f MiB, CUDA free %.3f MiB / total %.3f MiB, reserve %.3f MiB. "
+            "Falling back to the CPU divide-conquer solve.\n",
+            rank, where, (double)need_bytes / (1024.0 * 1024.0), (double)free_bytes / (1024.0 * 1024.0),
+            (double)total_bytes / (1024.0 * 1024.0), (double)reserve_bytes / (1024.0 * 1024.0));
+    fflush(stderr);
+}
+
+static void DC_GpuSolver_DisableEigenPathStatus(const char *where, const char *api, cusolverStatus_t status)
+{
+    int rank = -1;
+
+    DC_gpusolver_eigen_disabled = 1;
+    DC_gpusolver_gemm_disabled  = 1;
+    openmx_gemmul8ReleaseWorkspaces();
+
+    MPI_Comm_rank(mpi_comm_level1, &rank);
+    fprintf(stderr,
+            "<DC> rank %d: gpuSOLVER failed in %s at %s: %s (%d). "
+            "Falling back to the CPU divide-conquer solve.\n",
+            rank, where, api, DC_GpuSolver_StatusName(status), (int)status);
+    fflush(stderr);
+}
+
+static void DC_GpuSolver_DisableEigenPathHost(const char *where, size_t need_bytes)
+{
+    int rank = -1;
+
+    DC_gpusolver_eigen_disabled = 1;
+    DC_gpusolver_gemm_disabled  = 1;
+    openmx_gemmul8ReleaseWorkspaces();
+
+    MPI_Comm_rank(mpi_comm_level1, &rank);
+    fprintf(stderr,
+            "<DC> rank %d: gpuSOLVER host workspace allocation is unsafe before %s; "
+            "needed %.3f MiB. Falling back to the CPU divide-conquer solve.\n",
+            rank, where, (double)need_bytes / (1024.0 * 1024.0));
+    fflush(stderr);
+}
+
+static void DC_GpuSolver_DisableEigenPathInfo(const char *where, int32_t info)
+{
+    int rank = -1;
+
+    DC_gpusolver_eigen_disabled = 1;
+    DC_gpusolver_gemm_disabled  = 1;
+    openmx_gemmul8ReleaseWorkspaces();
+
+    MPI_Comm_rank(mpi_comm_level1, &rank);
+    fprintf(stderr,
+            "<DC> rank %d: gpuSOLVER failed in %s: cusolverDnXsyevdx info=%d. "
+            "Falling back to the CPU divide-conquer solve.\n",
+            rank, where, (int)info);
+    fflush(stderr);
+}
+
+static void DC_GpuSolver_DisableEigenPathEigenpairs(const char *where, int64_t h_meig, int maxn)
+{
+    int rank = -1;
+
+    DC_gpusolver_eigen_disabled = 1;
+    DC_gpusolver_gemm_disabled  = 1;
+    openmx_gemmul8ReleaseWorkspaces();
+
+    MPI_Comm_rank(mpi_comm_level1, &rank);
+    fprintf(stderr,
+            "<DC> rank %d: gpuSOLVER returned %lld eigenpairs in %s, expected %d. "
+            "Falling back to the CPU divide-conquer solve.\n",
+            rank, (long long)h_meig, where, maxn);
+    fflush(stderr);
+}
+
+static size_t DC_GpuSolver_EstimateGemmul8WorkspaceBytes(int m, int n, int k)
+{
+    size_t mn, mk, kn, max_elems;
+
+    mn        = DC_CheckedMulCount((size_t)m, (size_t)n, "GEMMul8 workspace estimate mn");
+    mk        = DC_CheckedMulCount((size_t)m, (size_t)k, "GEMMul8 workspace estimate mk");
+    kn        = DC_CheckedMulCount((size_t)k, (size_t)n, "GEMMul8 workspace estimate kn");
+    max_elems = mn;
+    if (max_elems < mk)
+        max_elems = mk;
+    if (max_elems < kn)
+        max_elems = kn;
+
+    return DC_CheckedArrayBytes(max_elems, sizeof(double) * (size_t)20, "GEMMul8 workspace estimate");
+}
+
+static int DC_GpuSolver_HasCublasMemoryForSolve(const char *where)
+{
+    size_t      reserve_bytes;
+    size_t      free_bytes = 0, total_bytes = 0;
+    cudaError_t status;
+    int         rank = -1;
+
+    if (DC_GpuSolver_GemmDisabled()) {
+        return 0;
+    }
+
+    if (DC_gpusolver_native_approved) {
+        return 1;
+    }
+
+    reserve_bytes = DC_GpuSolver_CublasReserveBytes();
+    status        = cudaMemGetInfo(&free_bytes, &total_bytes);
+    if (status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemGetInfo(native cuBLAS preflight)", status);
+        return 0;
+    }
+
+    if (free_bytes < reserve_bytes) {
+        DC_gpusolver_gemm_disabled = 1;
+        DC_gpusolver_eigen_disabled = 1;
+        openmx_gemmul8ReleaseWorkspaces();
+
+        MPI_Comm_rank(mpi_comm_level1, &rank);
+        fprintf(stderr,
+                "<DC> rank %d: native cuBLAS is also unsafe before %s; "
+                "CUDA free %.3f MiB / total %.3f MiB, reserve %.3f MiB. "
+                "Falling back to the CPU divide-conquer Hamiltonian solve.\n",
+                rank, where, (double)free_bytes / (1024.0 * 1024.0),
+                (double)total_bytes / (1024.0 * 1024.0), (double)reserve_bytes / (1024.0 * 1024.0));
+        fflush(stderr);
+        return 0;
+    }
+
+    DC_gpusolver_native_approved = 1;
+    return 1;
+}
+
+static int DC_GpuSolver_PrepareGemmBackendForSolve(int n, int num1)
+{
+    size_t      reserve_bytes, estimate_bytes, estimate2;
+    size_t      free_bytes = 0, total_bytes = 0;
+    cudaError_t status;
+    int         rank = -1;
+
+    if (DC_GpuSolver_GemmDisabled()) {
+        return 0;
+    }
+
+    if (DC_gpusolver_gemmul8_disabled) {
+        return DC_GpuSolver_HasCublasMemoryForSolve("DC Hamiltonian GEMM");
+    }
+
+    if (n <= DC_gpusolver_approved_gemm_n && num1 <= DC_gpusolver_approved_gemm_num1) {
+        return 1;
+    }
+
+    reserve_bytes  = DC_GpuSolver_Gemmul8ReserveBytes();
+    estimate_bytes = DC_GpuSolver_EstimateGemmul8WorkspaceBytes(n, n, n);
+    estimate2      = DC_GpuSolver_EstimateGemmul8WorkspaceBytes(n, num1, num1);
+    if (estimate_bytes < estimate2) {
+        estimate_bytes = estimate2;
+    }
+
+    status = cudaMemGetInfo(&free_bytes, &total_bytes);
+    if (status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemGetInfo(GEMM preflight)", status);
+        return 0;
+    }
+
+    if (free_bytes < reserve_bytes || free_bytes - reserve_bytes < estimate_bytes) {
+        DC_gpusolver_gemmul8_disabled = 1;
+        openmx_gemmul8ReleaseWorkspaces();
+
+        MPI_Comm_rank(mpi_comm_level1, &rank);
+        fprintf(stderr,
+                "<DC> rank %d: GEMMul8 is unsafe before DC Hamiltonian GEMM; "
+                "estimated GEMMul8 workspace %.3f MiB, "
+                "CUDA free %.3f MiB / total %.3f MiB, reserve %.3f MiB. "
+                "Trying native cuBLAS instead.\n",
+                rank, (double)estimate_bytes / (1024.0 * 1024.0), (double)free_bytes / (1024.0 * 1024.0),
+                (double)total_bytes / (1024.0 * 1024.0), (double)reserve_bytes / (1024.0 * 1024.0));
+        fflush(stderr);
+        return DC_GpuSolver_HasCublasMemoryForSolve("DC Hamiltonian GEMM");
+    }
+
+    if (DC_gpusolver_approved_gemm_n < n)
+        DC_gpusolver_approved_gemm_n = n;
+    if (DC_gpusolver_approved_gemm_num1 < num1)
+        DC_gpusolver_approved_gemm_num1 = num1;
+    return 1;
+}
+
+static void DC_GpuSolver_DisableGemmPath(const char *where, const char *backend, cublasStatus_t status, int m, int n,
+                                        int k)
+{
+    int rank = -1;
+
+    DC_gpusolver_gemm_disabled = 1;
+    DC_gpusolver_eigen_disabled = 1;
+    openmx_gemmul8ReleaseWorkspaces();
+
+    /* pop any latched CUDA error: this path recovers by falling back to the
+       CPU, so the error must not linger for the next cudaGetLastError() caller */
+    (void)cudaGetLastError();
+
+    MPI_Comm_rank(mpi_comm_level1, &rank);
+    fprintf(stderr,
+            "<DC> rank %d: %s failed in %s for GEMM(m=%d,n=%d,k=%d): %s (%d). "
+            "Falling back to the CPU divide-conquer Hamiltonian solve.\n",
+            rank, backend, where, m, n, k, DC_GpuSolver_CublasStatusName(status), (int)status);
+    fflush(stderr);
+}
+
+static void DC_GpuSolver_DisableGemmPathCuda(const char *where, cudaError_t status)
+{
+    int rank = -1;
+
+    DC_gpusolver_gemm_disabled = 1;
+    DC_gpusolver_eigen_disabled = 1;
+    openmx_gemmul8ReleaseWorkspaces();
+
+    /* pop any latched CUDA error: this path recovers by falling back to the
+       CPU, so the error must not linger for the next cudaGetLastError() caller */
+    (void)cudaGetLastError();
+
+    MPI_Comm_rank(mpi_comm_level1, &rank);
+    fprintf(stderr,
+            "<DC> rank %d: %s failed in the GPU divide-conquer solve: %s (%d). "
+            "Falling back to the CPU path.\n",
+            rank, where, cudaGetErrorString(status), (int)status);
+    fflush(stderr);
+}
+
+static int DC_GpuSolver_TryGpuDgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m,
+                                   int n, int k, const double *alpha, const double *A, int lda, const double *B,
+                                   int ldb, const double *beta, double *C, int ldc, const char *where)
+{
+    cublasStatus_t status;
+    int            rank = -1;
+
+    if (DC_GpuSolver_GemmDisabled()) {
+        return 0;
+    }
+
+    if (!DC_gpusolver_gemmul8_disabled) {
+        status = openmx_gemmul8Dgemm(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+        if (status == CUBLAS_STATUS_SUCCESS) {
+            return 1;
+        }
+
+        DC_gpusolver_gemmul8_disabled = 1;
+        openmx_gemmul8ReleaseWorkspaces();
+
+        MPI_Comm_rank(mpi_comm_level1, &rank);
+        fprintf(stderr,
+                "<DC> rank %d: GEMMul8 failed in %s for GEMM(m=%d,n=%d,k=%d): %s (%d). "
+                "Retrying this DC Hamiltonian solve with native cuBLAS.\n",
+                rank, where, m, n, k, DC_GpuSolver_CublasStatusName(status), (int)status);
+        fflush(stderr);
+
+        if (!DC_GpuSolver_HasCublasMemoryForSolve(where)) {
+            return 0;
+        }
+    }
+
+    status = cublasDgemm(handle, transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+    if (status == CUBLAS_STATUS_SUCCESS) {
+        return 1;
+    }
+
+    DC_GpuSolver_DisableGemmPath(where, "native cuBLAS", status, m, n, k);
+    return 0;
+}
+
+
+static int DCCol_SCache_Enabled(void)
+{
+    return (int)DC_EnvU32("OPENMX_DC_GPU_S_CACHE", 1u);
+}
+
+static size_t DCCol_SCache_ReserveBytes(void)
+{
+    return (size_t)DC_EnvU32("OPENMX_DC_GPU_S_CACHE_RESERVE_MB", 4096u) * (size_t)1024 * (size_t)1024;
+}
+
+static int DC_NodeRanks(void)
+{
+    static int ranks = 0;
+
+    if (ranks == 0) {
+        MPI_Comm node_comm = MPI_COMM_NULL;
+        MPI_Comm_split_type(mpi_comm_level1, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
+        MPI_Comm_size(node_comm, &ranks);
+        MPI_Comm_free(&node_comm);
+        if (ranks < 1) ranks = 1;
+    }
+    return ranks;
+}
+
+static void DCCol_SCache_FreeHostTables(void)
+{
+    free(DC_scache.dim);
+    free(DC_scache.valid);
+    free(DC_scache.off);
+    DC_scache.dim = NULL;
+    DC_scache.valid = NULL;
+    DC_scache.off = NULL;
+}
+
+void Divide_Conquer_Release_GPU_SCache(void)
+{
+    if (DC_scache.d_arena != NULL) wait_cudafunc(cudaFree(DC_scache.d_arena));
+    DCCol_SCache_FreeHostTables();
+    DC_scache.d_arena = NULL;
+    DC_scache.arena_elems = 0;
+    DC_scache.matomnum = 0;
+    if (DC_scache.state == 1) DC_scache.state = 0;
+}
+
+static void DCCol_SCache_Prepare(int matomnum, const int *Msize, int scf_iter, int gpu_threshold)
+{
+    int Mc_AN, rebuild = 0, admitted = 0;
+    int node_ranks = DC_NodeRanks();
+    size_t used_elems = 0, free_bytes = 0, total_bytes = 0, budget_bytes;
+    cudaError_t status;
+
+    if (DC_scache.state == -1) return;
+    if (!DCCol_SCache_Enabled()) {
+        Divide_Conquer_Release_GPU_SCache();
+        DC_scache.state = -1;
+        return;
+    }
+
+    /* the GPU solve is permanently off on this rank; do not hold an arena */
+    if (DC_GpuSolver_GemmDisabled() || DC_GpuSolver_EigenDisabled()) {
+        Divide_Conquer_Release_GPU_SCache();
+        return;
+    }
+
+    if (DC_scache.state == 1) {
+        if (DC_scache.matomnum != matomnum) rebuild = 1;
+        else {
+            for (Mc_AN = 1; Mc_AN <= matomnum; Mc_AN++) {
+                if (DC_scache.dim[Mc_AN] != 0 && DC_scache.dim[Mc_AN] != Msize[Mc_AN]) {
+                    rebuild = 1;
+                    break;
+                }
+            }
+        }
+        if (!rebuild) {
+            if (scf_iter <= 2)
+                memset(DC_scache.valid, 0, sizeof(int) * (size_t)(matomnum + 1));
+            return;
+        }
+        Divide_Conquer_Release_GPU_SCache();
+    }
+
+    DC_scache.matomnum = matomnum;
+    DC_scache.dim = (int *)DC_MallocArray((size_t)(matomnum + 1), sizeof(int), "DC S-cache dims");
+    DC_scache.valid = (int *)DC_MallocArray((size_t)(matomnum + 1), sizeof(int), "DC S-cache validity");
+    DC_scache.off = (size_t *)DC_MallocArray((size_t)(matomnum + 1), sizeof(size_t), "DC S-cache offsets");
+    memset(DC_scache.dim, 0, sizeof(int) * (size_t)(matomnum + 1));
+    memset(DC_scache.valid, 0, sizeof(int) * (size_t)(matomnum + 1));
+    memset(DC_scache.off, 0, sizeof(size_t) * (size_t)(matomnum + 1));
+
+    status = cudaMemGetInfo(&free_bytes, &total_bytes);
+    if (status != cudaSuccess) {
+        (void)cudaGetLastError();
+        DCCol_SCache_FreeHostTables();
+        DC_scache.state = -1;
+        return;
+    }
+
+    budget_bytes = DCCol_SCache_ReserveBytes();
+    budget_bytes = free_bytes > budget_bytes ?
+        (free_bytes - budget_bytes) / (size_t)node_ranks : 0;
+
+    for (Mc_AN = 1; Mc_AN <= matomnum; Mc_AN++) {
+        size_t n = (size_t)Msize[Mc_AN];
+        size_t elems = DC_CheckedMulCount(n, n, "DC S-cache slot");
+        size_t bytes = DC_CheckedArrayBytes(elems, sizeof(double), "DC S-cache slot");
+
+        if (Msize[Mc_AN] < gpu_threshold) continue;
+        if (bytes > budget_bytes || used_elems * sizeof(double) > budget_bytes - bytes) continue;
+        DC_scache.dim[Mc_AN] = Msize[Mc_AN];
+        DC_scache.off[Mc_AN] = used_elems;
+        used_elems += elems;
+        admitted++;
+    }
+
+    if (used_elems != 0) {
+        status = cudaMalloc((void **)&DC_scache.d_arena,
+                            DC_CheckedArrayBytes(used_elems, sizeof(double), "DC S-cache arena"));
+        if (status != cudaSuccess) {
+            (void)cudaGetLastError();
+            DC_scache.d_arena = NULL;
+            DCCol_SCache_FreeHostTables();
+            DC_scache.state = -1;
+            return;
+        }
+    }
+
+    DC_scache.arena_elems = used_elems;
+    DC_scache.state = 1;
+    if (0 < level_stdout && 0 < admitted) {
+        int myid;
+        MPI_Comm_rank(mpi_comm_level1, &myid);
+        if (myid == Host_ID) {
+            printf("<DC> GPU S-cache: rank %d keeps %d of %d cluster overlaps on the device (%.1f MiB)\n",
+                   myid, admitted, matomnum,
+                   (double)(used_elems * sizeof(double)) / (1024.0 * 1024.0));
+            fflush(stdout);
+        }
+    }
+}
+
+static void DC_GpuSolver_Destroy(void)
+{
+    DCGpuSolverCtx *ctx = &DC_gpusolver_ctx;
 
     if (ctx->d_S != NULL)
         wait_cudafunc(cudaFree(ctx->d_S));
@@ -261,21 +841,23 @@ static void DC_CuSolver_Destroy(void)
         free(ctx->h_work);
     if (ctx->h_matrix != NULL)
         wait_cudafunc(cudaFreeHost(ctx->h_matrix));
-    if (ctx->cusolver != NULL)
-        wait_cudafunc(cusolverDnDestroy(ctx->cusolver));
+    if (ctx->gpusolver != NULL)
+        wait_cudafunc(cusolverDnDestroy(ctx->gpusolver));
     if (ctx->cublas != NULL)
         wait_cudafunc(cublasDestroy(ctx->cublas));
     if (ctx->stream != NULL)
         wait_cudafunc(cudaStreamDestroy(ctx->stream));
+
+    Divide_Conquer_Release_GPU_SCache();
 
     memset(ctx, 0, sizeof(*ctx));
     ctx->device_id    = -1;
     ctx->loaded_s_dim = 0;
 }
 
-static void DC_CuSolver_Init(void)
+static void DC_GpuSolver_Init(void)
 {
-    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    DCGpuSolverCtx *ctx = &DC_gpusolver_ctx;
     int            current_device;
 
     wait_cudafunc(cudaGetDevice(&current_device));
@@ -285,72 +867,143 @@ static void DC_CuSolver_Init(void)
     }
 
     if (ctx->initialized) {
-        DC_CuSolver_Destroy();
+        DC_GpuSolver_Destroy();
     }
 
     wait_cudafunc(cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking));
     wait_cudafunc(cublasCreate(&ctx->cublas));
-    wait_cudafunc(cusolverDnCreate(&ctx->cusolver));
+    wait_cudafunc(cusolverDnCreate(&ctx->gpusolver));
     wait_cudafunc(cublasSetStream(ctx->cublas, ctx->stream));
-    wait_cudafunc(cusolverDnSetStream(ctx->cusolver, ctx->stream));
+    wait_cudafunc(cusolverDnSetStream(ctx->gpusolver, ctx->stream));
 
     ctx->initialized  = 1;
     ctx->device_id    = current_device;
     ctx->loaded_s_dim = 0;
 }
 
-static void DC_CuSolver_EnsureMatrixCapacity(int num)
+static int DC_GpuSolver_EnsureMatrixCapacity(int num)
 {
-    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    DCGpuSolverCtx *ctx = &DC_gpusolver_ctx;
     size_t         matrix_bytes;
+    cudaError_t    cuda_status;
 
     if (num <= 0) {
-        DC_AbortWithMessage("Invalid matrix size in DC_CuSolver_EnsureMatrixCapacity.");
+        DC_AbortWithMessage("Invalid matrix size in DC_GpuSolver_EnsureMatrixCapacity.");
     }
 
-    DC_CuSolver_Init();
+    DC_GpuSolver_Init();
 
     if (num <= ctx->matrix_dim) {
-        return;
+        return 1;
     }
 
-    if (ctx->d_S != NULL)
+    if (ctx->d_S != NULL) {
         wait_cudafunc(cudaFree(ctx->d_S));
-    if (ctx->d_H != NULL)
+        ctx->d_S = NULL;
+    }
+    if (ctx->d_H != NULL) {
         wait_cudafunc(cudaFree(ctx->d_H));
-    if (ctx->d_tmp != NULL)
+        ctx->d_H = NULL;
+    }
+    if (ctx->d_tmp != NULL) {
         wait_cudafunc(cudaFree(ctx->d_tmp));
-    if (ctx->d_A != NULL)
+        ctx->d_tmp = NULL;
+    }
+    if (ctx->d_A != NULL) {
         wait_cudafunc(cudaFree(ctx->d_A));
-    if (ctx->d_C != NULL)
+        ctx->d_A = NULL;
+    }
+    if (ctx->d_C != NULL) {
         wait_cudafunc(cudaFree(ctx->d_C));
-    if (ctx->d_W != NULL)
+        ctx->d_C = NULL;
+    }
+    if (ctx->d_W != NULL) {
         wait_cudafunc(cudaFree(ctx->d_W));
-    if (ctx->d_info != NULL)
+        ctx->d_W = NULL;
+    }
+    if (ctx->d_info != NULL) {
         wait_cudafunc(cudaFree(ctx->d_info));
-    if (ctx->h_matrix != NULL)
+        ctx->d_info = NULL;
+    }
+    if (ctx->d_work != NULL) {
+        wait_cudafunc(cudaFree(ctx->d_work));
+        ctx->d_work       = NULL;
+        ctx->d_work_bytes = 0;
+    }
+    if (ctx->h_work != NULL) {
+        free(ctx->h_work);
+        ctx->h_work       = NULL;
+        ctx->h_work_bytes = 0;
+    }
+    if (ctx->h_matrix != NULL) {
         wait_cudafunc(cudaFreeHost(ctx->h_matrix));
+        ctx->h_matrix = NULL;
+    }
 
-    matrix_bytes = DC_CheckedArrayBytes(DC_CheckedMulCount((size_t)num, (size_t)num, "CuSOLVER dense matrix"),
-                                        sizeof(double), "CuSOLVER dense matrix");
+    ctx->matrix_dim   = 0;
+    ctx->loaded_s_dim = 0;
 
-    wait_cudafunc(cudaMalloc((void **)&ctx->d_S, matrix_bytes));
-    wait_cudafunc(cudaMalloc((void **)&ctx->d_H, matrix_bytes));
-    wait_cudafunc(cudaMalloc((void **)&ctx->d_tmp, matrix_bytes));
-    wait_cudafunc(cudaMalloc((void **)&ctx->d_A, matrix_bytes));
-    wait_cudafunc(cudaMalloc((void **)&ctx->d_C, matrix_bytes));
-    wait_cudafunc(cudaMalloc((void **)&ctx->d_W,
-                             DC_CheckedArrayBytes((size_t)num, sizeof(double), "CuSOLVER eigenvalue buffer")));
-    wait_cudafunc(cudaMalloc((void **)&ctx->d_info, sizeof(int32_t)));
-    wait_cudafunc(cudaMallocHost((void **)&ctx->h_matrix, matrix_bytes));
+    matrix_bytes = DC_CheckedArrayBytes(DC_CheckedMulCount((size_t)num, (size_t)num, "GPUSOLVER dense matrix"),
+                                        sizeof(double), "GPUSOLVER dense matrix");
+
+    cuda_status = cudaMalloc((void **)&ctx->d_S, matrix_bytes);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMalloc(d_S)", cuda_status);
+        DC_GpuSolver_Destroy();
+        return 0;
+    }
+    cuda_status = cudaMalloc((void **)&ctx->d_H, matrix_bytes);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMalloc(d_H)", cuda_status);
+        DC_GpuSolver_Destroy();
+        return 0;
+    }
+    cuda_status = cudaMalloc((void **)&ctx->d_tmp, matrix_bytes);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMalloc(d_tmp)", cuda_status);
+        DC_GpuSolver_Destroy();
+        return 0;
+    }
+    cuda_status = cudaMalloc((void **)&ctx->d_A, matrix_bytes);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMalloc(d_A)", cuda_status);
+        DC_GpuSolver_Destroy();
+        return 0;
+    }
+    cuda_status = cudaMalloc((void **)&ctx->d_C, matrix_bytes);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMalloc(d_C)", cuda_status);
+        DC_GpuSolver_Destroy();
+        return 0;
+    }
+    cuda_status = cudaMalloc((void **)&ctx->d_W,
+                             DC_CheckedArrayBytes((size_t)num, sizeof(double), "GPUSOLVER eigenvalue buffer"));
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMalloc(d_W)", cuda_status);
+        DC_GpuSolver_Destroy();
+        return 0;
+    }
+    cuda_status = cudaMalloc((void **)&ctx->d_info, sizeof(int32_t));
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMalloc(d_info)", cuda_status);
+        DC_GpuSolver_Destroy();
+        return 0;
+    }
+    cuda_status = cudaMallocHost((void **)&ctx->h_matrix, matrix_bytes);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMallocHost(h_matrix)", cuda_status);
+        DC_GpuSolver_Destroy();
+        return 0;
+    }
 
     ctx->matrix_dim   = num;
     ctx->loaded_s_dim = 0;
+    return 1;
 }
 
-static void DC_CuSolver_EnsureWorkspace(int m, int maxn, double *d_A)
+static int DC_GpuSolver_EnsureWorkspace(int m, int maxn, double *d_A, const char *where)
 {
-    DCCuSolverCtx *    ctx   = &DC_cusolver_ctx;
+    DCGpuSolverCtx *    ctx   = &DC_gpusolver_ctx;
     cusolverEigMode_t  jobz  = CUSOLVER_EIG_MODE_VECTOR;
     cublasFillMode_t   uplo  = CUBLAS_FILL_MODE_LOWER;
     cusolverEigRange_t range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
@@ -359,23 +1012,56 @@ static void DC_CuSolver_EnsureWorkspace(int m, int maxn, double *d_A)
     int64_t            h_meig;
     size_t             d_bytes = 0;
     size_t             h_bytes = 0;
+    size_t             free_bytes = 0, total_bytes = 0, reserve_bytes, releasable_bytes, available_bytes;
+    cusolverStatus_t   solver_status;
+    cudaError_t        cuda_status;
+    void *             new_h_work;
 
     if (m <= 0 || maxn <= 0 || maxn > m) {
-        DC_AbortWithMessage("Invalid eigensolver dimensions in DC_CuSolver_EnsureWorkspace.");
+        DC_AbortWithMessage("Invalid eigensolver dimensions in DC_GpuSolver_EnsureWorkspace.");
     }
 
-    DC_CuSolver_EnsureMatrixCapacity(m);
+    if (DC_GpuSolver_EigenDisabled()) {
+        return 0;
+    }
+    if (!DC_GpuSolver_EnsureMatrixCapacity(m)) {
+        return 0;
+    }
 
-    wait_cudafunc(cusolverDnXsyevdx_bufferSize(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_R_64F, d_A, m, &vl,
-                                               &vu, 1L, maxn, &h_meig, CUDA_R_64F, ctx->d_W, CUDA_R_64F, &d_bytes,
-                                               &h_bytes));
+    solver_status = cusolverDnXsyevdx_bufferSize(ctx->gpusolver, NULL, jobz, range, uplo, m, CUDA_R_64F, d_A, m, &vl,
+                                                 &vu, 1L, maxn, &h_meig, CUDA_R_64F, ctx->d_W, CUDA_R_64F, &d_bytes,
+                                                 &h_bytes);
+    if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+        DC_GpuSolver_DisableEigenPathStatus(where, "cusolverDnXsyevdx_bufferSize", solver_status);
+        return 0;
+    }
 
     if (d_bytes > ctx->d_work_bytes) {
-        if (ctx->d_work != NULL)
+        reserve_bytes    = DC_GpuSolver_EigenReserveBytes();
+        cuda_status      = cudaMemGetInfo(&free_bytes, &total_bytes);
+        releasable_bytes = (ctx->d_work != NULL) ? ctx->d_work_bytes : 0;
+        available_bytes  = (SIZE_MAX - free_bytes < releasable_bytes) ? SIZE_MAX : free_bytes + releasable_bytes;
+
+        if (cuda_status != cudaSuccess) {
+            DC_GpuSolver_DisableGemmPathCuda("cudaMemGetInfo(gpuSOLVER preflight)", cuda_status);
+            return 0;
+        }
+        if (available_bytes < d_bytes || available_bytes - d_bytes < reserve_bytes) {
+            DC_GpuSolver_DisableEigenPathMemory(where, d_bytes, free_bytes, total_bytes, reserve_bytes);
+            return 0;
+        }
+
+        if (ctx->d_work != NULL) {
             wait_cudafunc(cudaFree(ctx->d_work));
+        }
         ctx->d_work = NULL;
         if (0 < d_bytes) {
-            wait_cudafunc(cudaMalloc((void **)&ctx->d_work, d_bytes));
+            cuda_status = cudaMalloc((void **)&ctx->d_work, d_bytes);
+            if (cuda_status != cudaSuccess) {
+                ctx->d_work_bytes = 0;
+                DC_GpuSolver_DisableGemmPathCuda("cudaMalloc(gpuSOLVER device workspace)", cuda_status);
+                return 0;
+            }
         }
         ctx->d_work_bytes = d_bytes;
     }
@@ -388,14 +1074,23 @@ static void DC_CuSolver_EnsureWorkspace(int m, int maxn, double *d_A)
     } else if (h_bytes > ctx->h_work_bytes) {
         if (ctx->h_work != NULL)
             free(ctx->h_work);
-        ctx->h_work       = DC_MallocArray(h_bytes, 1, "CuSOLVER host workspace");
+        ctx->h_work       = NULL;
+        new_h_work        = malloc(h_bytes);
+        if (new_h_work == NULL) {
+            ctx->h_work_bytes = 0;
+            DC_GpuSolver_DisableEigenPathHost(where, h_bytes);
+            return 0;
+        }
+        ctx->h_work       = new_h_work;
         ctx->h_work_bytes = h_bytes;
     }
+
+    return 1;
 }
 
-static void DC_CuSolver_Eigen(double *d_A, int m, int maxn, double *W)
+static int DC_GpuSolver_Eigen(double *d_A, int m, int maxn, double *W, const char *where)
 {
-    DCCuSolverCtx *    ctx   = &DC_cusolver_ctx;
+    DCGpuSolverCtx *    ctx   = &DC_gpusolver_ctx;
     cusolverEigMode_t  jobz  = CUSOLVER_EIG_MODE_VECTOR;
     cublasFillMode_t   uplo  = CUBLAS_FILL_MODE_LOWER;
     cusolverEigRange_t range = (m == maxn) ? CUSOLVER_EIG_RANGE_ALL : CUSOLVER_EIG_RANGE_I;
@@ -403,137 +1098,402 @@ static void DC_CuSolver_Eigen(double *d_A, int m, int maxn, double *W)
     double             vu    = 0.0;
     int64_t            h_meig = 0;
     int32_t            info   = 0;
-    char               msg[256];
+    cusolverStatus_t   solver_status;
+    cudaError_t        cuda_status;
 
-    DC_CuSolver_EnsureWorkspace(m, maxn, d_A);
+    if (!DC_GpuSolver_EnsureWorkspace(m, maxn, d_A, where)) {
+        return 0;
+    }
 
-    wait_cudafunc(cusolverDnXsyevdx(ctx->cusolver, NULL, jobz, range, uplo, m, CUDA_R_64F, d_A, m, &vl, &vu, 1L, maxn,
-                                    &h_meig, CUDA_R_64F, ctx->d_W, CUDA_R_64F, ctx->d_work, ctx->d_work_bytes,
-                                    ctx->h_work, ctx->h_work_bytes, ctx->d_info));
+    solver_status = cusolverDnXsyevdx(ctx->gpusolver, NULL, jobz, range, uplo, m, CUDA_R_64F, d_A, m, &vl, &vu, 1L,
+                                      maxn, &h_meig, CUDA_R_64F, ctx->d_W, CUDA_R_64F, ctx->d_work,
+                                      ctx->d_work_bytes, ctx->h_work, ctx->h_work_bytes, ctx->d_info);
+    if (solver_status != CUSOLVER_STATUS_SUCCESS) {
+        DC_GpuSolver_DisableEigenPathStatus(where, "cusolverDnXsyevdx", solver_status);
+        return 0;
+    }
 
-    wait_cudafunc(cudaMemcpyAsync(W, ctx->d_W, sizeof(double) * (size_t)maxn, cudaMemcpyDeviceToHost, ctx->stream));
-    wait_cudafunc(cudaMemcpyAsync(&info, ctx->d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, ctx->stream));
-    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+    cuda_status = cudaMemcpyAsync(W, ctx->d_W, sizeof(double) * (size_t)maxn, cudaMemcpyDeviceToHost, ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemcpyAsync(gpuSOLVER eigenvalues)", cuda_status);
+        return 0;
+    }
+    cuda_status = cudaMemcpyAsync(&info, ctx->d_info, sizeof(int32_t), cudaMemcpyDeviceToHost, ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemcpyAsync(gpuSOLVER info)", cuda_status);
+        return 0;
+    }
+    cuda_status = cudaStreamSynchronize(ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaStreamSynchronize(gpuSOLVER)", cuda_status);
+        return 0;
+    }
 
     if (info != 0) {
-        snprintf(msg, sizeof(msg), "cusolverDnXsyevdx failed in Divide_Conquer.c: info=%d", (int)info);
-        DC_AbortWithMessage(msg);
+        DC_GpuSolver_DisableEigenPathInfo(where, info);
+        return 0;
     }
     if (h_meig != (int64_t)maxn) {
-        snprintf(msg, sizeof(msg), "cusolverDnXsyevdx returned %lld eigenpairs, expected %d in Divide_Conquer.c.",
-                 (long long)h_meig, maxn);
-        DC_AbortWithMessage(msg);
+        DC_GpuSolver_DisableEigenPathEigenpairs(where, h_meig, maxn);
+        return 0;
     }
+
+    return 1;
 }
 
-static void DCCol_CuSolver_PackMatrix(int n, double **src, double *dst)
+/* The host matrices are row-contiguous, so staging them row by row is a
+   plain streaming copy; the strided transpose that column-major cuBLAS needs
+   is done on the device instead (DC_GpuSolver_DeviceTranspose), which is
+   bitwise-exact data movement. */
+static void DCCol_GpuSolver_PackRows(int n, double **src, double *dst)
 {
-    int i, j;
+    int j;
 
     for (j = 1; j <= n; j++) {
-        for (i = 1; i <= n; i++) {
-            dst[(size_t)(j - 1) * (size_t)n + (size_t)(i - 1)] = src[i][j];
-        }
+        memcpy(dst + (size_t)(j - 1) * (size_t)n, &src[j][1], sizeof(double) * (size_t)n);
     }
 }
 
-static void DCCol_CuSolver_UnpackMatrix(int n, const double *src, double **dst)
+static void DCCol_GpuSolver_UnpackRows(int n_rows, int n_cols, const double *src, double **dst)
 {
-    int i, j;
+    int i;
 
-    for (j = 1; j <= n; j++) {
-        for (i = 1; i <= n; i++) {
-            dst[i][j] = src[(size_t)(j - 1) * (size_t)n + (size_t)(i - 1)];
-        }
+    for (i = 1; i <= n_rows; i++) {
+        memcpy(&dst[i][1], src + (size_t)(i - 1) * (size_t)n_cols, sizeof(double) * (size_t)n_cols);
     }
 }
 
-static void DCCol_CuSolver_LoadTransformedOverlap(int n, double **S_DC)
+/* d_out (rows_out x cols_out, column-major, ld_out) = transpose of d_in
+   (cols_out x rows_out, column-major, ld_in).  Uses the documented cuBLAS
+   geam in-place-B mode (B == C, transb == N) with beta == 0 so no second
+   input buffer is referenced. */
+static int DC_GpuSolver_DeviceTranspose(int rows_out, int cols_out, const double *d_in, int ld_in, double *d_out,
+                                        int ld_out, const char *where)
 {
-    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    double         alpha = 1.0;
+    double         beta  = 0.0;
+    cublasStatus_t status;
+
+    status = cublasDgeam(DC_gpusolver_ctx.cublas, CUBLAS_OP_T, CUBLAS_OP_N, rows_out, cols_out, &alpha, d_in, ld_in,
+                         &beta, d_out, ld_out, d_out, ld_out);
+    if (status != CUBLAS_STATUS_SUCCESS) {
+        DC_GpuSolver_DisableGemmPath(where, "cublasDgeam", status, rows_out, cols_out, 0);
+        return 0;
+    }
+
+    return 1;
+}
+
+static int DCCol_GpuSolver_LoadTransformedOverlap(int n, double **S_DC)
+{
+    DCGpuSolverCtx *ctx = &DC_gpusolver_ctx;
     size_t         matrix_bytes;
+    cudaError_t    cuda_status;
 
-    DC_CuSolver_EnsureMatrixCapacity(n);
+    if (!DC_GpuSolver_EnsureMatrixCapacity(n)) {
+        return 0;
+    }
 
     matrix_bytes = DC_CheckedArrayBytes(DC_CheckedMulCount((size_t)n, (size_t)n, "DC transformed overlap"),
                                         sizeof(double), "DC transformed overlap");
 
-    DCCol_CuSolver_PackMatrix(n, S_DC, ctx->h_matrix);
-    wait_cudafunc(cudaMemcpyAsync(ctx->d_S, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
-    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+    DCCol_GpuSolver_PackRows(n, S_DC, ctx->h_matrix);
+    cuda_status = cudaMemcpyAsync(ctx->d_tmp, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemcpyAsync(transformed overlap)", cuda_status);
+        return 0;
+    }
+    if (!DC_GpuSolver_DeviceTranspose(n, n, ctx->d_tmp, n, ctx->d_S, n, "transformed overlap staging")) {
+        return 0;
+    }
+    cuda_status = cudaStreamSynchronize(ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaStreamSynchronize(transformed overlap)", cuda_status);
+        return 0;
+    }
 
     ctx->loaded_s_dim = n;
+    return 1;
 }
 
-static void DCCol_CuSolver_DiagonalizeOverlap(int n, double **S_DC, double *ko)
+static int DCCol_GpuSolver_DiagonalizeOverlap(int n, double **S_DC, double *ko)
 {
-    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    DCGpuSolverCtx *ctx = &DC_gpusolver_ctx;
     size_t         matrix_bytes;
+    cudaError_t    cuda_status;
 
-    DC_CuSolver_EnsureMatrixCapacity(n);
+    if (!DC_GpuSolver_EnsureMatrixCapacity(n)) {
+        return 0;
+    }
 
     matrix_bytes = DC_CheckedArrayBytes(DC_CheckedMulCount((size_t)n, (size_t)n, "DC overlap matrix"),
                                         sizeof(double), "DC overlap matrix");
 
-    DCCol_CuSolver_PackMatrix(n, S_DC, ctx->h_matrix);
-    wait_cudafunc(cudaMemcpyAsync(ctx->d_S, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    DCCol_GpuSolver_PackRows(n, S_DC, ctx->h_matrix);
+    cuda_status = cudaMemcpyAsync(ctx->d_tmp, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemcpyAsync(overlap)", cuda_status);
+        return 0;
+    }
+    if (!DC_GpuSolver_DeviceTranspose(n, n, ctx->d_tmp, n, ctx->d_S, n, "overlap staging")) {
+        return 0;
+    }
 
-    DC_CuSolver_Eigen(ctx->d_S, n, n, ko + 1);
+    if (!DC_GpuSolver_Eigen(ctx->d_S, n, n, ko + 1, "overlap diagonalization")) {
+        return 0;
+    }
 
-    wait_cudafunc(cudaMemcpyAsync(ctx->h_matrix, ctx->d_S, matrix_bytes, cudaMemcpyDeviceToHost, ctx->stream));
-    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
+    if (!DC_GpuSolver_DeviceTranspose(n, n, ctx->d_S, n, ctx->d_tmp, n, "overlap eigenvector readback")) {
+        return 0;
+    }
+    cuda_status = cudaMemcpyAsync(ctx->h_matrix, ctx->d_tmp, matrix_bytes, cudaMemcpyDeviceToHost, ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemcpyAsync(overlap eigenvectors)", cuda_status);
+        return 0;
+    }
+    cuda_status = cudaStreamSynchronize(ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaStreamSynchronize(overlap diagonalization)", cuda_status);
+        return 0;
+    }
 
-    DCCol_CuSolver_UnpackMatrix(n, ctx->h_matrix, S_DC);
+    DCCol_GpuSolver_UnpackRows(n, n, ctx->h_matrix, S_DC);
     ctx->loaded_s_dim = 0;
+    return 1;
 }
 
-static void DCCol_CuSolver_SolveHamiltonian(int n, int p_min, double **H_DC_spin, double *ko, double **C)
+static int DCCol_CPU_SolveHamiltonian(int n, int p_min, double **S_DC, double **H_DC_spin, double *ko, double **C)
 {
-    DCCuSolverCtx *ctx = &DC_cusolver_ctx;
+    int    i1, j1, l, j1s;
+    int    num1 = n - (p_min - 1);
+    double tmp1, tmp2;
+    double sum, sum1, sum2, sum3, sum4;
+
+    for (i1 = 1; i1 <= n; i1++) {
+        for (j1 = i1 + 1; j1 <= n; j1++) {
+            tmp1         = S_DC[i1][j1];
+            tmp2         = S_DC[j1][i1];
+            S_DC[i1][j1] = tmp2;
+            S_DC[j1][i1] = tmp1;
+        }
+    }
+
+    for (j1 = 1; j1 <= n - 3; j1 = j1 + 4) {
+        for (i1 = 1; i1 <= n; i1++) {
+            sum1 = 0.0;
+            sum2 = 0.0;
+            sum3 = 0.0;
+            sum4 = 0.0;
+            for (l = 1; l <= n; l++) {
+                sum1 += H_DC_spin[i1][l] * S_DC[j1][l];
+                sum2 += H_DC_spin[i1][l] * S_DC[j1 + 1][l];
+                sum3 += H_DC_spin[i1][l] * S_DC[j1 + 2][l];
+                sum4 += H_DC_spin[i1][l] * S_DC[j1 + 3][l];
+            }
+            C[j1][i1]     = sum1;
+            C[j1 + 1][i1] = sum2;
+            C[j1 + 2][i1] = sum3;
+            C[j1 + 3][i1] = sum4;
+        }
+    }
+
+    j1s = n - n % 4 + 1;
+    for (j1 = j1s; j1 <= n; j1++) {
+        for (i1 = 1; i1 <= n; i1++) {
+            sum = 0.0;
+            for (l = 1; l <= n; l++) {
+                sum += H_DC_spin[i1][l] * S_DC[j1][l];
+            }
+            C[j1][i1] = sum;
+        }
+    }
+
+    for (j1 = 1; j1 <= n - 3; j1 = j1 + 4) {
+        for (i1 = 1; i1 <= n; i1++) {
+            sum1 = 0.0;
+            sum2 = 0.0;
+            sum3 = 0.0;
+            sum4 = 0.0;
+            for (l = 1; l <= n; l++) {
+                sum1 += S_DC[i1][l] * C[j1][l];
+                sum2 += S_DC[i1][l] * C[j1 + 1][l];
+                sum3 += S_DC[i1][l] * C[j1 + 2][l];
+                sum4 += S_DC[i1][l] * C[j1 + 3][l];
+            }
+            H_DC_spin[j1][i1]     = sum1;
+            H_DC_spin[j1 + 1][i1] = sum2;
+            H_DC_spin[j1 + 2][i1] = sum3;
+            H_DC_spin[j1 + 3][i1] = sum4;
+        }
+    }
+
+    j1s = n - n % 4 + 1;
+    for (j1 = j1s; j1 <= n; j1++) {
+        for (i1 = 1; i1 <= n; i1++) {
+            sum1 = 0.0;
+            for (l = 1; l <= n; l++) {
+                sum1 += S_DC[i1][l] * C[j1][l];
+            }
+            H_DC_spin[j1][i1] = sum1;
+        }
+    }
+
+    for (i1 = p_min; i1 <= n; i1++) {
+        for (j1 = p_min; j1 <= n; j1++) {
+            C[j1 - (p_min - 1)][i1 - (p_min - 1)] = H_DC_spin[i1][j1];
+        }
+    }
+
+    Eigen_lapack(C, ko, num1, num1);
+
+    for (i1 = 1; i1 <= n; i1++) {
+        for (j1 = 1; j1 <= num1; j1++) {
+            H_DC_spin[j1][i1] = C[i1][j1];
+        }
+    }
+
+    for (i1 = 1; i1 <= n; i1++) {
+        for (j1 = i1 + 1; j1 <= n; j1++) {
+            tmp1         = S_DC[i1][j1];
+            tmp2         = S_DC[j1][i1];
+            S_DC[i1][j1] = tmp2;
+            S_DC[j1][i1] = tmp1;
+        }
+    }
+
+    for (j1 = 1; j1 <= num1; j1++) {
+        for (l = n; p_min <= l; l--) {
+            H_DC_spin[j1][l] = H_DC_spin[j1][l - (p_min - 1)];
+        }
+    }
+
+    for (j1 = 1; j1 <= n - 3; j1 = j1 + 4) {
+        for (i1 = 1; i1 <= n; i1++) {
+            sum1 = 0.0;
+            sum2 = 0.0;
+            sum3 = 0.0;
+            sum4 = 0.0;
+            for (l = p_min; l <= n; l++) {
+                sum1 += S_DC[i1][l] * H_DC_spin[j1][l];
+                sum2 += S_DC[i1][l] * H_DC_spin[j1 + 1][l];
+                sum3 += S_DC[i1][l] * H_DC_spin[j1 + 2][l];
+                sum4 += S_DC[i1][l] * H_DC_spin[j1 + 3][l];
+            }
+            C[i1][j1]     = sum1;
+            C[i1][j1 + 1] = sum2;
+            C[i1][j1 + 2] = sum3;
+            C[i1][j1 + 3] = sum4;
+        }
+    }
+
+    j1s = n - n % 4 + 1;
+    for (j1 = j1s; j1 <= n; j1++) {
+        for (i1 = 1; i1 <= n; i1++) {
+            sum = 0.0;
+            for (l = p_min; l <= n; l++) {
+                sum += S_DC[i1][l] * H_DC_spin[j1][l];
+            }
+            C[i1][j1] = sum;
+        }
+    }
+
+    return num1;
+}
+
+/* d_S_use == NULL means "use the overlap staged by LoadTransformedOverlap";
+   otherwise it points at a device-resident copy (the S-cache arena). */
+static int DCCol_GpuSolver_SolveHamiltonian(int n, int p_min, const double *d_S_use, double **H_DC_spin, double *ko,
+                                            double **C)
+{
+    DCGpuSolverCtx *ctx = &DC_gpusolver_ctx;
     double         alpha = 1.0;
     double         beta  = 0.0;
     int            num1  = n - (p_min - 1);
-    int            i, j;
     size_t         matrix_bytes;
+    cudaError_t    cuda_status;
 
-    if (ctx->loaded_s_dim != n) {
-        DC_AbortWithMessage("Transformed overlap is not loaded in DCCol_CuSolver_SolveHamiltonian.");
+    if (d_S_use == NULL) {
+        if (ctx->loaded_s_dim != n) {
+            DC_AbortWithMessage("Transformed overlap is not loaded in DCCol_GpuSolver_SolveHamiltonian.");
+        }
+        d_S_use = ctx->d_S;
+    } else if (!DC_GpuSolver_EnsureMatrixCapacity(n)) {
+        return 0;
     }
     if (num1 <= 0 || num1 > n) {
-        DC_AbortWithMessage("Invalid active subspace size in DCCol_CuSolver_SolveHamiltonian.");
+        DC_AbortWithMessage("Invalid active subspace size in DCCol_GpuSolver_SolveHamiltonian.");
     }
 
     matrix_bytes = DC_CheckedArrayBytes(DC_CheckedMulCount((size_t)n, (size_t)n, "DC Hamiltonian matrix"),
                                         sizeof(double), "DC Hamiltonian matrix");
 
-    DCCol_CuSolver_PackMatrix(n, H_DC_spin, ctx->h_matrix);
-    wait_cudafunc(cudaMemcpyAsync(ctx->d_H, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream));
+    DCCol_GpuSolver_PackRows(n, H_DC_spin, ctx->h_matrix);
+    cuda_status = cudaMemcpyAsync(ctx->d_tmp, ctx->h_matrix, matrix_bytes, cudaMemcpyHostToDevice, ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemcpyAsync(H)", cuda_status);
+        return 0;
+    }
+    if (!DC_GpuSolver_DeviceTranspose(n, n, ctx->d_tmp, n, ctx->d_H, n, "Hamiltonian staging")) {
+        return 0;
+    }
 
-    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_H, n, ctx->d_S,
-                                     n, &beta, ctx->d_tmp, n));
-    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_S, n,
-                                     ctx->d_tmp, n, &beta, ctx->d_H, n));
+    if (!DC_GpuSolver_TryGpuDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, n, n, &alpha, ctx->d_H, n, d_S_use,
+                                 n, &beta, ctx->d_tmp, n, "H*S")) {
+        return 0;
+    }
+    if (!DC_GpuSolver_TryGpuDgemm(ctx->cublas, CUBLAS_OP_T, CUBLAS_OP_N, n, n, n, &alpha, d_S_use, n,
+                                 ctx->d_tmp, n, &beta, ctx->d_H, n, "S^T*H*S")) {
+        return 0;
+    }
 
-    wait_cudafunc(cudaMemcpy2DAsync(ctx->d_A, sizeof(double) * (size_t)num1,
+    cuda_status = cudaMemcpy2DAsync(ctx->d_A, sizeof(double) * (size_t)num1,
                                     ctx->d_H + (size_t)(p_min - 1) * (size_t)n + (size_t)(p_min - 1),
                                     sizeof(double) * (size_t)n, sizeof(double) * (size_t)num1, (size_t)num1,
-                                    cudaMemcpyDeviceToDevice, ctx->stream));
-
-    DC_CuSolver_Eigen(ctx->d_A, num1, num1, ko + 1);
-
-    wait_cudafunc(openmx_gemmul8Dgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, num1, num1, &alpha,
-                                     ctx->d_S + (size_t)(p_min - 1) * (size_t)n, n, ctx->d_A, num1, &beta,
-                                     ctx->d_C, n));
-
-    wait_cudafunc(cudaMemcpyAsync(ctx->h_matrix, ctx->d_C, sizeof(double) * (size_t)n * (size_t)num1,
-                                  cudaMemcpyDeviceToHost, ctx->stream));
-    wait_cudafunc(cudaStreamSynchronize(ctx->stream));
-
-    for (j = 1; j <= num1; j++) {
-        for (i = 1; i <= n; i++) {
-            C[i][j] = ctx->h_matrix[(size_t)(j - 1) * (size_t)n + (size_t)(i - 1)];
-        }
+                                    cudaMemcpyDeviceToDevice, ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemcpy2DAsync(active Hamiltonian)", cuda_status);
+        return 0;
     }
+
+    if (!DC_GpuSolver_Eigen(ctx->d_A, num1, num1, ko + 1, "Hamiltonian diagonalization")) {
+        return 0;
+    }
+
+    if (!DC_GpuSolver_TryGpuDgemm(ctx->cublas, CUBLAS_OP_N, CUBLAS_OP_N, n, num1, num1, &alpha,
+                                 d_S_use + (size_t)(p_min - 1) * (size_t)n, n, ctx->d_A, num1, &beta,
+                                 ctx->d_C, n, "S*C")) {
+        return 0;
+    }
+
+    if (!DC_GpuSolver_DeviceTranspose(num1, n, ctx->d_C, n, ctx->d_tmp, num1, "eigenvector readback")) {
+        return 0;
+    }
+    cuda_status = cudaMemcpyAsync(ctx->h_matrix, ctx->d_tmp, sizeof(double) * (size_t)n * (size_t)num1,
+                                  cudaMemcpyDeviceToHost, ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaMemcpyAsync(C)", cuda_status);
+        return 0;
+    }
+
+    cuda_status = cudaStreamSynchronize(ctx->stream);
+    if (cuda_status != cudaSuccess) {
+        DC_GpuSolver_DisableGemmPathCuda("cudaStreamSynchronize(C)", cuda_status);
+        return 0;
+    }
+
+    DCCol_GpuSolver_UnpackRows(n, num1, ctx->h_matrix, C);
+
+    return 1;
+}
+
+/* Host copy of the transformed overlap, needed only by the CPU solve; the
+   GPU path with an S-cache hit skips it until a fallback actually happens. */
+static void DCCol_FillSDCFromS12(int Mc_AN, int n, double **S_DC)
+{
+    int i, j;
+    for (i = 1; i <= n; i++)
+        for (j = 1; j <= n; j++)
+            S_DC[i][j] = S12[Mc_AN][i][j];
 }
 
 double Divide_Conquer(char * mode, int SCF_iter, double ***** Hks, double ***** ImNL, double **** OLP0,
@@ -558,6 +1518,56 @@ double Divide_Conquer(char * mode, int SCF_iter, double ***** Hks, double ***** 
     }
 
     return time0;
+}
+
+extern int gpusolver_Syevdx_Complex_openacc_cached(dcomplex *A, double *W, int m, int MaxN);
+
+/* Flat-store analogue of Eigen_gpusolver_x_complex_openacc: C_store (leading
+   dimension ld) is already present on the device; the eigen driver reuses a
+   cached cusolver context instead of recreating one per atom. */
+static void DCNonCol_EigenGpuSolverFlat(dcomplex *C_store, int ld, double *ko, int n)
+{
+    int       info;
+    dcomplex *A = (dcomplex *)DC_MallocArray((size_t)n * (size_t)n, sizeof(dcomplex), "DC NonCol eigen buffer");
+
+#pragma acc data present(C_store[0 : (size_t)ld * (size_t)ld], ko[0 : n + 1])
+#pragma acc data create(A[0 : (size_t)n * (size_t)n])
+    {
+#pragma acc kernels
+#pragma acc loop independent
+        for (int i = 0; i < n; i++) {
+#pragma acc loop independent
+            for (int j = 0; j < n; j++) {
+                A[(size_t)i * (size_t)n + (size_t)j].r = C_store[(size_t)(i + 1) * (size_t)ld + (size_t)(j + 1)].r;
+                A[(size_t)i * (size_t)n + (size_t)j].i = C_store[(size_t)(i + 1) * (size_t)ld + (size_t)(j + 1)].i;
+            }
+        }
+
+        info = gpusolver_Syevdx_Complex_openacc_cached(A, ko, n, n);
+
+#pragma acc kernels
+#pragma acc loop independent
+        for (int i = 0; i < n; i++) {
+#pragma acc loop independent
+            for (int j = 0; j < n; j++) {
+                C_store[(size_t)(j + 1) * (size_t)ld + (size_t)(i + 1)].r = A[(size_t)i * (size_t)n + (size_t)j].r;
+                C_store[(size_t)(j + 1) * (size_t)ld + (size_t)(i + 1)].i = A[(size_t)i * (size_t)n + (size_t)j].i;
+            }
+        }
+
+#pragma acc kernels
+#pragma acc loop seq
+        for (int i = n; i >= 1; i--) {
+            ko[i] = ko[i - 1];
+        }
+    }
+
+    if (info < 0) {
+        printf("cusolverDnXsyevdx: info=%d\n", info);
+        exit(10);
+    }
+
+    free(A);
 }
 
 #pragma optimization_level 2
@@ -609,12 +1619,14 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
     int is_scf_mode = (strcasecmp(mode, "scf") == 0);
 
     // Set the device to be used by CUDA and OpenACC
-    if (scf_eigen_lib_flag == CuSOLVER) {
+    if (scf_eigen_lib_flag == GPUSOLVER) {
         // CUDA
         set_cuda_default_device_from_local_rank();
 
         // OpenACC
         set_openacc_nvidia_device_from_local_rank();
+
+        DCCol_SCache_Prepare(Matomnum, Msize, SCF_iter, DC_GPU_Threshold());
     }
 
     dtime(&TStime);
@@ -1101,7 +2113,7 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
 
     MPI_Allreduce(&My_TZ, &TZ, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
-    if (scf_eigen_lib_flag == CuSOLVER) {
+    if (scf_eigen_lib_flag == GPUSOLVER) {
         // CUDA
         set_cuda_default_device_from_local_rank();
 
@@ -1202,7 +2214,11 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                 C[i] = C_store + (size_t)i * (size_t)n2;
             }
 
-            int use_dc_gpu = (scf_eigen_lib_flag == CuSOLVER && DC_GPU_Threshold() <= NUM);
+            int use_dc_gpu =
+                (scf_eigen_lib_flag == GPUSOLVER && !DC_GpuSolver_GemmDisabled() && !DC_GpuSolver_EigenDisabled() &&
+                 DC_GPU_Threshold() <= NUM);
+            int scache_hit       = 0;
+            int s_dc_host_filled = 1;
             if (SCF_iter <= 2) {
                 memset(S_DC_store, 0, sizeof(double) * (size_t)n2 * (size_t)n2);
             }
@@ -1261,7 +2277,10 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
                     dtime(&stime);
 
                 if (use_dc_gpu) {
-                    DCCol_CuSolver_DiagonalizeOverlap(NUM, S_DC, ko);
+                    if (!DCCol_GpuSolver_DiagonalizeOverlap(NUM, S_DC, ko)) {
+                        use_dc_gpu = 0;
+                        Eigen_lapack(S_DC, ko, NUM, NUM);
+                    }
                 } else {
                     Eigen_lapack(S_DC, ko, NUM, NUM);
                 }
@@ -1306,10 +2325,13 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
 
                 P_min = (int)S12[Mc_AN][0][0];
 
-                for (i1 = 1; i1 <= NUM; i1++) {
-                    for (j1 = 1; j1 <= NUM; j1++) {
-                        S_DC[i1][j1] = S12[Mc_AN][i1][j1];
-                    }
+                if (use_dc_gpu && DC_scache.state == 1 &&
+                    DC_scache.dim[Mc_AN] == NUM && DC_scache.valid[Mc_AN]) {
+                    scache_hit       = 1;
+                    s_dc_host_filled = 0; /* filled lazily only if the GPU path falls back */
+                }
+                else {
+                    DCCol_FillSDCFromS12(Mc_AN, NUM, S_DC);
                 }
             }
 
@@ -1327,8 +2349,23 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
             }
             NUM = Anum - 1;
 
-            if (use_dc_gpu) {
-                DCCol_CuSolver_LoadTransformedOverlap(NUM, S_DC);
+            if (use_dc_gpu && !scache_hit) {
+                if (!DCCol_GpuSolver_LoadTransformedOverlap(NUM, S_DC)) {
+                    use_dc_gpu = 0;
+                } else if (DC_scache.state == 1 && DC_scache.dim[Mc_AN] == NUM) {
+                    /* refresh the resident copy of this atom's transformed overlap */
+                    cudaError_t cache_status =
+                        cudaMemcpyAsync(DC_scache.d_arena + DC_scache.off[Mc_AN], DC_gpusolver_ctx.d_S,
+                                        sizeof(double) * (size_t)NUM * (size_t)NUM, cudaMemcpyDeviceToDevice,
+                                        DC_gpusolver_ctx.stream);
+                    if (cache_status == cudaSuccess) {
+                        DC_scache.valid[Mc_AN] = 1;
+                    } else {
+                        DC_scache.valid[Mc_AN] = 0;
+                        DC_GpuSolver_DisableGemmPathCuda("cudaMemcpyAsync(S-cache refresh)", cache_status);
+                        use_dc_gpu = 0;
+                    }
+                }
             }
 
             int use_dc_openacc = 0;
@@ -1365,7 +2402,23 @@ static double DC_Col(char * mode, int SCF_iter, double ***** Hks, double **** OL
 
                 if (use_dc_gpu) {
                     NUM1 = NUM - (P_min - 1);
-                    DCCol_CuSolver_SolveHamiltonian(NUM, P_min, H_DC[spin], ko, C);
+                    if (!DC_GpuSolver_PrepareGemmBackendForSolve(NUM, NUM1)) {
+                        use_dc_gpu = 0;
+                        if (!s_dc_host_filled) {
+                            DCCol_FillSDCFromS12(Mc_AN, NUM, S_DC);
+                            s_dc_host_filled = 1;
+                        }
+                        NUM1 = DCCol_CPU_SolveHamiltonian(NUM, P_min, S_DC, H_DC[spin], ko, C);
+                    } else if (!DCCol_GpuSolver_SolveHamiltonian(
+                                   NUM, P_min, scache_hit ? DC_scache.d_arena + DC_scache.off[Mc_AN] : NULL,
+                                   H_DC[spin], ko, C)) {
+                        use_dc_gpu = 0;
+                        if (!s_dc_host_filled) {
+                            DCCol_FillSDCFromS12(Mc_AN, NUM, S_DC);
+                            s_dc_host_filled = 1;
+                        }
+                        NUM1 = DCCol_CPU_SolveHamiltonian(NUM, P_min, S_DC, H_DC[spin], ko, C);
+                    }
 
                 } else if (use_dc_openacc) {
                     // OpenACC
@@ -2193,7 +3246,7 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
     int is_scf_mode = (strcasecmp(mode, "scf") == 0);
 
     // Set the device to be used by CUDA and OpenACC
-    if (scf_eigen_lib_flag == CuSOLVER) {
+    if (scf_eigen_lib_flag == GPUSOLVER) {
         // CUDA
         set_cuda_default_device_from_local_rank();
 
@@ -2915,32 +3968,41 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
              dcomplex C[n2][n2];
             ***********************************************/
 
-            S_DC = (double **)malloc(sizeof(double *) * (NUM + 2));
+            double *S_DC_store = (double *)DC_MallocArray(
+                (size_t)(NUM + 2) * (size_t)(NUM + 2), sizeof(double),
+                "DC NonCol overlap matrix");
+            S_DC = (double **)DC_MallocArray((size_t)(NUM + 2), sizeof(double *),
+                                             "DC NonCol overlap rows");
             for (i = 0; i < (NUM + 2); i++) {
-                S_DC[i] = (double *)malloc(sizeof(double) * (NUM + 2));
+                S_DC[i] = S_DC_store + (size_t)i * (size_t)(NUM + 2);
             }
 
-            H_DC = (dcomplex **)malloc(sizeof(dcomplex *) * n2);
+            dcomplex *H_DC_store = (dcomplex *)DC_MallocArray(
+                (size_t)n2 * (size_t)n2, sizeof(dcomplex),
+                "DC NonCol Hamiltonian matrix");
+            H_DC = (dcomplex **)DC_MallocArray((size_t)n2, sizeof(dcomplex *),
+                                               "DC NonCol Hamiltonian rows");
             for (i = 0; i < n2; i++) {
-                H_DC[i] = (dcomplex *)malloc(sizeof(dcomplex) * n2);
+                H_DC[i] = H_DC_store + (size_t)i * (size_t)n2;
             }
 
             ko = (double *)malloc(sizeof(double) * n2);
             M1 = (double *)malloc(sizeof(double) * n2);
 
-            C = (dcomplex **)malloc(sizeof(dcomplex *) * n2);
+            dcomplex *C_store = (dcomplex *)DC_MallocArray(
+                (size_t)n2 * (size_t)n2, sizeof(dcomplex),
+                "DC NonCol eigenvector matrix");
+            C = (dcomplex **)DC_MallocArray((size_t)n2, sizeof(dcomplex *),
+                                            "DC NonCol eigenvector rows");
             for (i = 0; i < n2; i++) {
-                C[i] = (dcomplex *)malloc(sizeof(dcomplex) * n2);
+                C[i] = C_store + (size_t)i * (size_t)n2;
             }
 
             if (SCF_iter <= 2) {
-                for (i = 0; i < (NUM + 2); i++) {
-                    memset(S_DC[i], 0, sizeof(double) * (size_t)(NUM + 2));
-                }
+                memset(S_DC_store, 0,
+                       sizeof(double) * (size_t)(NUM + 2) * (size_t)(NUM + 2));
             }
-            for (i = 0; i < n2; i++) {
-                memset(H_DC[i], 0, sizeof(dcomplex) * (size_t)n2);
-            }
+            memset(H_DC_store, 0, sizeof(dcomplex) * (size_t)n2 * (size_t)n2);
 
             /***********************************************
              construct cluster full matrices of Hamiltonian
@@ -3116,7 +4178,12 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                    transform Hamiltonian matrix
             ************************************************/
 
-            int use_dc_openacc = (scf_eigen_lib_flag == CuSOLVER && GPU_CPU_SWITCH_NUM <= 2*NUM);
+            int use_dc_openacc =
+                (scf_eigen_lib_flag == GPUSOLVER && DC_NonCol_GPU_Threshold() <= 2 * NUM);
+
+#define DCNC_S(a, b) S_DC_store[(size_t)(a) * (size_t)(NUM + 2) + (size_t)(b)]
+#define DCNC_H(a, b) H_DC_store[(size_t)(a) * (size_t)n2 + (size_t)(b)]
+#define DCNC_C(a, b) C_store[(size_t)(a) * (size_t)n2 + (size_t)(b)]
 
             if (use_dc_openacc) {
                 // compiler's bug
@@ -3134,19 +4201,19 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
                 /* transpose S */
 
-#pragma acc data copyin(H_DC[ : n2][ : n2])
-#pragma acc data copyin(S_DC[ : NUM + 1][ : NUM + 1])
-#pragma acc data copy(C[ : n2][ : n2], ko[ : n2])
+#pragma acc data copyin(H_DC_store[0 : (size_t)n2 * (size_t)n2])
+#pragma acc data copyin(S_DC_store[0 : (size_t)(NUM + 2) * (size_t)(NUM + 2)])
+#pragma acc data copy(C_store[0 : (size_t)n2 * (size_t)n2], ko[0 : n2])
                 {
 #pragma acc kernels
 #pragma acc loop independent
                     for (i1 = 1; i1 <= NUM; i1++) {
 #pragma acc loop independent
                         for (j1 = i1 + 1; j1 <= NUM; j1++) {
-                            double tmp1  = S_DC[i1][j1];
-                            double tmp2  = S_DC[j1][i1];
-                            S_DC[i1][j1] = tmp2;
-                            S_DC[j1][i1] = tmp1;
+                            double tmp1    = DCNC_S(i1, j1);
+                            double tmp2    = DCNC_S(j1, i1);
+                            DCNC_S(i1, j1) = tmp2;
+                            DCNC_S(j1, i1) = tmp1;
                         }
                     }
 
@@ -3165,12 +4232,12 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 #pragma acc loop independent reduction(+ : sum_r) reduction(+ : sum_i)
                                 for (l = 1; l <= NUM; l++) {
                                     l1 = k1 + l;
-                                    sum_r += H_DC[i1][l1].r * S_DC[j1][l];
-                                    sum_i += H_DC[i1][l1].i * S_DC[j1][l];
+                                    sum_r += DCNC_H(i1, l1).r * DCNC_S(j1, l);
+                                    sum_i += DCNC_H(i1, l1).i * DCNC_S(j1, l);
                                 }
 
-                                C[jj1][i1].r = sum_r;
-                                C[jj1][i1].i = sum_i;
+                                DCNC_C(jj1, i1).r = sum_r;
+                                DCNC_C(jj1, i1).i = sum_i;
                             }
                         }
                     }
@@ -3207,24 +4274,24 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
 #pragma acc loop independent reduction(+ : sum1_r) reduction(+ : sum1_i)
                             for (l = 1; l <= NUM; l++) {
-                                sum1_r += S_DC[i1][l] * C[j1][l].r;
-                                sum1_i += S_DC[i1][l] * C[j1][l].i;
+                                sum1_r += DCNC_S(i1, l) * DCNC_C(j1, l).r;
+                                sum1_i += DCNC_S(i1, l) * DCNC_C(j1, l).i;
                             }
 
 #pragma acc loop independent reduction(+ : sum2_r) reduction(+ : sum2_i)
                             for (l = NUM + 1; l <= 2 * NUM; l++) {
                                 l1 = l - NUM;
-                                sum2_r += S_DC[i1][l1] * C[j1][l].r;
-                                sum2_i += S_DC[i1][l1] * C[j1][l].i;
+                                sum2_r += DCNC_S(i1, l1) * DCNC_C(j1, l).r;
+                                sum2_i += DCNC_S(i1, l1) * DCNC_C(j1, l).i;
                             }
 
-                            int ii1         = 2 * i1 - P_min;
-                            H_DC[j1][ii1].r = sum1_r;
-                            H_DC[j1][ii1].i = sum1_i;
+                            int ii1           = 2 * i1 - P_min;
+                            DCNC_H(j1, ii1).r = sum1_r;
+                            DCNC_H(j1, ii1).i = sum1_i;
 
-                            ii1             = 2 * i1 - P_min + 1;
-                            H_DC[j1][ii1].r = sum2_r;
-                            H_DC[j1][ii1].i = sum2_i;
+                            ii1               = 2 * i1 - P_min + 1;
+                            DCNC_H(j1, ii1).r = sum2_r;
+                            DCNC_H(j1, ii1).i = sum2_i;
                         }
                     }
 
@@ -3234,8 +4301,8 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 #pragma acc loop independent collapse(2)
                     for (i1 = P_min; i1 <= 2 * NUM; i1++) {
                         for (j1 = P_min; j1 <= 2 * NUM; j1++) {
-                            C[j1 - (P_min - 1)][i1 - (P_min - 1)].r = H_DC[i1][j1].r;
-                            C[j1 - (P_min - 1)][i1 - (P_min - 1)].i = H_DC[i1][j1].i;
+                            DCNC_C(j1 - (P_min - 1), i1 - (P_min - 1)).r = DCNC_H(i1, j1).r;
+                            DCNC_C(j1 - (P_min - 1), i1 - (P_min - 1)).i = DCNC_H(i1, j1).i;
                         }
                     }
 
@@ -3285,7 +4352,7 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
                     NUM1 = 2 * NUM - (P_min - 1);
 
-                    Eigen_cusolver_x_complex_openacc(C, ko, NUM1, NUM1);
+                    DCNonCol_EigenGpuSolverFlat(C_store, n2, ko, NUM1);
 
                     // dtime(&timeE);
                     // printf("timeD = %.3f\n", timeE - timeD);
@@ -3307,8 +4374,8 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 #pragma acc loop independent collapse(2)
                     for (i1 = 1; i1 <= NUM1; i1++) {
                         for (j1 = 1; j1 <= NUM1; j1++) {
-                            H_DC[j1][i1].r = C[i1][j1].r;
-                            H_DC[j1][i1].i = C[i1][j1].i;
+                            DCNC_H(j1, i1).r = DCNC_C(i1, j1).r;
+                            DCNC_H(j1, i1).i = DCNC_C(i1, j1).i;
                         }
                     }
 
@@ -3323,10 +4390,10 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                     for (i1 = 1; i1 <= NUM; i1++) {
 #pragma acc loop independent
                         for (j1 = i1 + 1; j1 <= NUM; j1++) {
-                            double tmp1  = S_DC[i1][j1];
-                            double tmp2  = S_DC[j1][i1];
-                            S_DC[i1][j1] = tmp2;
-                            S_DC[j1][i1] = tmp1;
+                            double tmp1    = DCNC_S(i1, j1);
+                            double tmp2    = DCNC_S(j1, i1);
+                            DCNC_S(i1, j1) = tmp2;
+                            DCNC_S(j1, i1) = tmp1;
                         }
                     }
 
@@ -3340,11 +4407,11 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
 
 #pragma acc loop independent reduction(+ : sum_r) reduction(+ : sum_i)
                                 for (int l = P_min; l <= NUM; l++) {
-                                    sum_r += S_DC[i1][l] * H_DC[j1][2 * (l - P_min) + 1 + k].r;
-                                    sum_i += S_DC[i1][l] * H_DC[j1][2 * (l - P_min) + 1 + k].i;
+                                    sum_r += DCNC_S(i1, l) * DCNC_H(j1, 2 * (l - P_min) + 1 + k).r;
+                                    sum_i += DCNC_S(i1, l) * DCNC_H(j1, 2 * (l - P_min) + 1 + k).i;
                                 }
-                                C[i1 + k * NUM][j1].r = sum_r;
-                                C[i1 + k * NUM][j1].i = sum_i;
+                                DCNC_C(i1 + k * NUM, j1).r = sum_r;
+                                DCNC_C(i1 + k * NUM, j1).i = sum_i;
                             }
                         }
                     }
@@ -3545,6 +4612,10 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                 }
             }
 
+#undef DCNC_S
+#undef DCNC_H
+#undef DCNC_C
+
             // dtime(&timeF);
             // printf("timeE = %.3f\n", timeF - timeE);
 
@@ -3630,22 +4701,16 @@ static double DC_NonCol(char * mode, int SCF_iter, double ***** Hks, double ****
                               free arrays
             ****************************************************/
 
-            for (i = 0; i < (NUM + 2); i++) {
-                free(S_DC[i]);
-            }
+            free(S_DC_store);
             free(S_DC);
 
-            for (i = 0; i < n2; i++) {
-                free(H_DC[i]);
-            }
+            free(H_DC_store);
             free(H_DC);
 
             free(ko);
             free(M1);
 
-            for (i = 0; i < n2; i++) {
-                free(C[i]);
-            }
+            free(C_store);
             free(C);
 
             dtime(&Etime_atom);

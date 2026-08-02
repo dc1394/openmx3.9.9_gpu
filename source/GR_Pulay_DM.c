@@ -18,6 +18,29 @@
 #include <math.h>
 #include "openmx_common.h"
 #include "mpi.h"
+#include <omp.h>
+
+/* Fast path (active under scf.eigen.lib gpusolver, disabled with
+   OPENMX_MIX_FAST=0): batch the residual Gram matrix into ONE structure
+   sweep + ONE MPI_Allreduce, fuse the optimized-residual and mixing
+   sweeps, and turn the ResidualDM history shift into a slot-pointer
+   rotation.  Same construction as in DIIS_Mixing_DM.c. */
+
+static int MixGR_Fast_Enabled(void)
+{
+  const char *env = getenv("OPENMX_MIX_FAST");
+  if (scf_eigen_lib_flag != GPUSOLVER) return 0;
+  return (env == NULL) ? 1 : (atoi(env) != 0);
+}
+
+/* rotate the slot pointers 1..nslot-1; slot 0 is left untouched */
+static void MixGR_RotateSlots1(double ******arr, int nslot)
+{
+  double *****tmp = arr[nslot-1];
+  int m;
+  for (m=nslot-1; 2<=m; m--) arr[m] = arr[m-1];
+  arr[1] = tmp;
+}
 
 
 static void Inverse(int n, double **a, double **ia);
@@ -262,6 +285,91 @@ void GR_Pulay_DM(int SCF_iter, double ******ResidualDM)
                           alpha from RDM
       ****************************************************/
       
+      if (MixGR_Fast_Enabled()){
+
+        /* every Gram pair in ONE sweep + ONE Allreduce (per-pair order
+           identical to the legacy loops with one thread) */
+
+        int npair = (NumMix+1)*(NumMix+2)/2;
+        int nth = omp_get_max_threads();
+        double *part = (double*)calloc((size_t)nth*(size_t)npair, sizeof(double));
+        double *my_tri = (double*)malloc(sizeof(double)*(size_t)npair);
+        double *tri = (double*)malloc(sizeof(double)*(size_t)npair);
+
+        if (part==NULL || my_tri==NULL || tri==NULL){
+          printf("GR_Pulay_DM: failed to allocate the Gram buffers.\n");
+          MPI_Abort(mpi_comm_level1,1);
+        }
+
+        for (spin=0; spin<=SpinP_switch; spin++){
+
+#pragma omp parallel private(Mc_AN,Gc_AN,wan1,TNO1,h_AN,Gh_AN,wan2,TNO2,i,j)
+          {
+            int tid = omp_get_thread_num();
+            double *acc = &part[(size_t)tid*(size_t)npair];
+            const double *rows[List_YOUSO[16]];
+            double vals[List_YOUSO[16]];
+
+#pragma omp for schedule(static)
+            for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+              Gc_AN = M2G[Mc_AN];
+              wan1 = WhatSpecies[Gc_AN];
+              TNO1 = Spe_Total_CNO[wan1];
+              for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+                Gh_AN = natn[Gc_AN][h_AN];
+                wan2 = WhatSpecies[Gh_AN];
+                TNO2 = Spe_Total_CNO[wan2];
+
+                for (i=0; i<TNO1; i++){
+                  int m,a,b,p;
+                  for (m=0; m<=NumMix; m++) rows[m] = ResidualDM[m][spin][Mc_AN][h_AN][i];
+                  for (j=0; j<TNO2; j++){
+                    for (m=0; m<=NumMix; m++) vals[m] = rows[m][j];
+                    p = 0;
+                    for (a=0; a<=NumMix; a++){
+                      double va = vals[a];
+                      for (b=a; b<=NumMix; b++){
+                        acc[p] += va*vals[b];
+                        p++;
+                      }
+                    }
+                  }
+                }
+
+              }
+            }
+          }
+        }
+
+        {
+          int p,t;
+          for (p=0; p<npair; p++){
+            double s = 0.0;
+            for (t=0; t<nth; t++) s += part[(size_t)t*(size_t)npair+p];
+            my_tri[p] = s;
+          }
+        }
+
+        MPI_Allreduce(my_tri, tri, npair, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+        {
+          int p = 0;
+          for (SCFi=0; SCFi<=NumMix; SCFi++){
+            for (SCFj=SCFi; SCFj<=NumMix; SCFj++){
+              A[SCFi][SCFj] = tri[p];
+              A[SCFj][SCFi] = tri[p];
+              p++;
+            }
+          }
+        }
+
+        free(tri);
+        free(my_tri);
+        free(part);
+      }
+
+      else{
+
       for (SCFi=0; SCFi<=NumMix; SCFi++){
 	for (SCFj=SCFi; SCFj<=NumMix; SCFj++){
 
@@ -290,9 +398,11 @@ void GR_Pulay_DM(int SCF_iter, double ******ResidualDM)
           /* MPI My_A */
           MPI_Allreduce(&My_A, &A[SCFi][SCFj], 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
 
-          A[SCFj][SCFi] = A[SCFi][SCFj];  
+          A[SCFj][SCFi] = A[SCFi][SCFj];
 	}
       }
+
+      } /* else (legacy Gram) */
 
       Av_dia = A[0][0];
       NormRD[0] = A[0][0];
@@ -323,8 +433,90 @@ void GR_Pulay_DM(int SCF_iter, double ******ResidualDM)
       }
 
       /****************************************************
-                Calculate optimized residual DM 
+                Calculate optimized residual DM
       ****************************************************/
+
+      if (MixGR_Fast_Enabled()){
+
+        /* fused optimized-residual + mixing sweep (slot 0 of the mixing
+           reads PDM as in the legacy code) */
+
+        int nth = omp_get_max_threads();
+        double *norm_part = (double*)calloc((size_t)nth, sizeof(double));
+
+        if (norm_part==NULL){
+          printf("GR_Pulay_DM: failed to allocate the norm buffer.\n");
+          MPI_Abort(mpi_comm_level1,1);
+        }
+
+        if (1.0e-2<=NormRD[0])
+          coef_OptRDM = 0.2;
+        else if (1.0e-4<=NormRD[0] && NormRD[0]<1.0e-2)
+          coef_OptRDM = 0.3;
+        else if (1.0e-6<=NormRD[0] && NormRD[0]<1.0e-4)
+          coef_OptRDM = 0.4;
+        else if (1.0e-8<=NormRD[0] && NormRD[0]<1.0e-6)
+          coef_OptRDM = 0.5;
+        else
+          coef_OptRDM = 1.0;
+
+        for (spin=0; spin<=SpinP_switch; spin++){
+
+#pragma omp parallel private(Mc_AN,Gc_AN,wan1,TNO1,h_AN,Gh_AN,wan2,TNO2,i,j)
+          {
+            int tid = omp_get_thread_num();
+            double my_norm = 0.0;
+            const double *rrows[List_YOUSO[16]];
+            const double *drows[List_YOUSO[16]];
+
+#pragma omp for schedule(static)
+            for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+              Gc_AN = M2G[Mc_AN];
+              wan1 = WhatSpecies[Gc_AN];
+              TNO1 = Spe_Total_CNO[wan1];
+              for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+                Gh_AN = natn[Gc_AN][h_AN];
+                wan2 = WhatSpecies[Gh_AN];
+                TNO2 = Spe_Total_CNO[wan2];
+
+                for (i=0; i<TNO1; i++){
+                  int m;
+                  for (m=0; m<=NumMix; m++){
+                    rrows[m] = ResidualDM[m][spin][Mc_AN][h_AN][i];
+                    drows[m] = (m==0) ? PDM[spin][Mc_AN][h_AN][i]
+                                      : DM[m][spin][Mc_AN][h_AN][i];
+                  }
+                  for (j=0; j<TNO2; j++){
+                    double sum_r = 0.0;
+                    double sum_d = 0.0;
+                    for (m=0; m<=NumMix; m++){
+                      sum_r += alden[m]*rrows[m][j];
+                      sum_d += alden[m]*drows[m][j];
+                    }
+                    my_norm += sum_r*sum_r;
+                    DM[0][spin][Mc_AN][h_AN][i][j] = sum_d + coef_OptRDM*sum_r;
+                  }
+                }
+
+              }
+            }
+
+            norm_part[tid] += my_norm;
+          }
+        }
+
+        {
+          int t;
+          My_OptNorm_RDM = 0.0;
+          for (t=0; t<nth; t++) My_OptNorm_RDM += norm_part[t];
+        }
+        free(norm_part);
+
+        /* MPI My_OptNorm_RDM */
+        MPI_Allreduce(&My_OptNorm_RDM, &OptNorm_RDM, 1, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+      }
+
+      else{
 
       My_OptNorm_RDM = 0.0;
 
@@ -408,6 +600,8 @@ void GR_Pulay_DM(int SCF_iter, double ******ResidualDM)
 	}
       }
 
+      } /* else (legacy Opt+Mix) */
+
       /****************************************************
                            Shift of DM
       ****************************************************/
@@ -439,6 +633,14 @@ void GR_Pulay_DM(int SCF_iter, double ******ResidualDM)
                            Shift of RDM
       ****************************************************/
 
+      if (MixGR_Fast_Enabled()){
+
+        /* pointer rotation of the slots 1..List_YOUSO[16]-1; slots 0 and 1
+           are always rewritten before their next read */
+
+        MixGR_RotateSlots1(ResidualDM, List_YOUSO[16]);
+      }
+      else
       for (pSCF_iter=NumSlide; 1<pSCF_iter; pSCF_iter--){
 	for (spin=0; spin<=SpinP_switch; spin++){
           for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
@@ -644,4 +846,3 @@ void Inverse(int n, double **a, double **ia)
   free(da);
 
 }
-

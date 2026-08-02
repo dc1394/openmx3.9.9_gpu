@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 #include "openmx_common.h"
 #include "tran_prototypes.h"
 #include "tran_variables.h"
@@ -21,6 +22,29 @@
 
 
 #define  maxima_step  1000000.0
+
+/* Fast history shifts (active under scf.eigen.lib gpusolver, disabled with
+   OPENMX_MIX_FAST=0): under RMM-DIISK/RMM-DIISV the Rhok history is
+   List_YOUSO[38] = History+2 slots deep and Kerker mixing runs for every
+   iteration below scf.Mixing.StartPulay, so the O(List38*Ngrid) content
+   shifts matter.  Replace them by a slot-pointer rotation (plus one slot
+   copy: the legacy shift leaves slot 0 in place and the tail reads it)
+   and one memmove per spin — both bitwise-identical to the legacy loops. */
+
+static int MixKK_Fast_Enabled(void)
+{
+  const char *env = getenv("OPENMX_MIX_FAST");
+  if (scf_eigen_lib_flag != GPUSOLVER) return 0;
+  return (env == NULL) ? 1 : (atoi(env) != 0);
+}
+
+static void MixKK_RotateSlots(double ***arr, int nslot)
+{
+  double **tmp = arr[nslot-1];
+  int m;
+  for (m=nslot-1; 0<m; m--) arr[m] = arr[m-1];
+  arr[0] = tmp;
+}
 
 static void Kerker_Mixing_Rhok_Normal(
                                int Change_switch,
@@ -381,11 +405,25 @@ void Kerker_Mixing_Rhok_Normal(int Change_switch,
                          shift of rho
   ****************************************************/
 
-  for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+  if (MixKK_Fast_Enabled()){
+
+    MixKK_RotateSlots(ReRhok, List_YOUSO[38]);
+    MixKK_RotateSlots(ImRhok, List_YOUSO[38]);
     for (spin=0; spin<spinmax; spin++){
-      for (k=0; k<My_NumGridB_CB; k++){
-	ReRhok[pSCF_iter][spin][k] = ReRhok[pSCF_iter-1][spin][k]; 
-	ImRhok[pSCF_iter][spin][k] = ImRhok[pSCF_iter-1][spin][k]; 
+      memcpy(ReRhok[0][spin], ReRhok[1][spin],
+             sizeof(double)*(size_t)My_NumGridB_CB);
+      memcpy(ImRhok[0][spin], ImRhok[1][spin],
+             sizeof(double)*(size_t)My_NumGridB_CB);
+    }
+  }
+  else{
+
+    for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+      for (spin=0; spin<spinmax; spin++){
+        for (k=0; k<My_NumGridB_CB; k++){
+          ReRhok[pSCF_iter][spin][k] = ReRhok[pSCF_iter-1][spin][k];
+          ImRhok[pSCF_iter][spin][k] = ImRhok[pSCF_iter-1][spin][k];
+        }
       }
     }
   }
@@ -394,15 +432,29 @@ void Kerker_Mixing_Rhok_Normal(int Change_switch,
                     shift of residual rho
   ****************************************************/
 
-  for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+  if (MixKK_Fast_Enabled()){
 
-    p0 = pSCF_iter*My_NumGridB_CB;
-    p1 = (pSCF_iter-1)*My_NumGridB_CB; 
+    size_t nb = sizeof(double)*(size_t)My_NumGridB_CB;
 
     for (spin=0; spin<spinmax; spin++){
-      for (k=0; k<My_NumGridB_CB; k++){
-	Residual_ReRhok[spin][p0+k] = Residual_ReRhok[spin][p1+k];
-	Residual_ImRhok[spin][p0+k] = Residual_ImRhok[spin][p1+k]; 
+      memmove(&Residual_ReRhok[spin][My_NumGridB_CB], &Residual_ReRhok[spin][0],
+              nb*(size_t)(List_YOUSO[38]-1));
+      memmove(&Residual_ImRhok[spin][My_NumGridB_CB], &Residual_ImRhok[spin][0],
+              nb*(size_t)(List_YOUSO[38]-1));
+    }
+  }
+  else{
+
+    for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+
+      p0 = pSCF_iter*My_NumGridB_CB;
+      p1 = (pSCF_iter-1)*My_NumGridB_CB;
+
+      for (spin=0; spin<spinmax; spin++){
+        for (k=0; k<My_NumGridB_CB; k++){
+          Residual_ReRhok[spin][p0+k] = Residual_ReRhok[spin][p1+k];
+          Residual_ImRhok[spin][p0+k] = Residual_ImRhok[spin][p1+k];
+        }
       }
     }
   }

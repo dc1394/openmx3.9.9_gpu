@@ -56,10 +56,13 @@
 # FC = mpif90 -O2 -mtune=native -march=native -fopenmp -I${MKLROOT}/include
 # -L/home/x10402/nvpl-linux-sbsa-24.7/lib -lnvpl_scalapack_lp64 -lnvpl_blacs_lp64_openmpi4 -lnvpl_lapack_lp64_gomp -lnvpl_blas_lp64_gomp -pgf90libs -lmpi_mpifh -lfftw3 -lpthread -lgfortran -lm -ldl -L/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/cuda/13.1/lib64 -L/work/opt/local/aarch64/cores/nvidia/24.9/Linux_aarch64/24.9/math_libs/13.1/targets/sbsa-linux/lib -lcudart -lcusolver -lcublas -cuda
 
-NVHPC_ROOT          ?= /opt/nvidia/hpc_sdk/Linux_x86_64/26.3
-NVHPC_CUDA_VERSION  ?= 13.1
+NVHPC_ROOT          ?= /opt/nvidia/hpc_sdk/Linux_x86_64/26.5
+NVHPC_CUDA_VERSION  ?= 13.2
 NVHPC_MPI_BIN       ?= $(NVHPC_ROOT)/comm_libs/mpi/bin
-NVHPC_MPI_LIBDIR    ?= $(NVHPC_ROOT)/comm_libs/$(NVHPC_CUDA_VERSION)/hpcx/hpcx-2.25.1/ompi/lib
+# The HPC-X directory is named after its release (hpcx-2.25.1 in 26.3,
+# hpcx-2.50 in 26.5), so follow the "latest" symlink; "ompi" inside it
+# selects the Open MPI generation the mpicc/mpif90 wrappers use.
+NVHPC_MPI_LIBDIR    ?= $(NVHPC_ROOT)/comm_libs/$(NVHPC_CUDA_VERSION)/hpcx/latest/ompi/lib
 NVHPC_COMPILER_BIN  ?= $(NVHPC_ROOT)/compilers/bin
 NVHPC_COMPILER_LIB  ?= $(NVHPC_ROOT)/compilers/lib
 NVHPC_MATH_DIR      ?= $(NVHPC_ROOT)/math_libs/$(NVHPC_CUDA_VERSION)/targets/x86_64-linux
@@ -112,8 +115,8 @@ FFTW3_VERSION  := $(patsubst fftw-%,%,$(FFTW3_TAG))
 FFTW3_RELEASE_URL ?= https://fftw.org/fftw-$(FFTW3_VERSION).tar.gz
 FFTW3_RELEASE_TARBALL ?= $(CURDIR)/third_party/fftw-$(FFTW3_VERSION).tar.gz
 FFTW3_SRC_DIR  ?= third_party/fftw3
-FFTW3_BUILD_DIR ?= build/fftw3
-FFTW3_PREFIX   ?= $(CURDIR)/third_party/fftw3-install
+FFTW3_BUILD_DIR ?= build/fftw3-openmx
+FFTW3_PREFIX   ?= $(CURDIR)/build/fftw3-install
 FFTW3_CC       ?= $(NVHPC_COMPILER_BIN)/nvc
 FFTW3_CXX      ?= $(NVHPC_COMPILER_BIN)/nvc++
 FFTW3_FC       ?= $(NVHPC_COMPILER_BIN)/nvfortran
@@ -135,6 +138,7 @@ CC  = $(MPICC) $(COMMON_CFLAGS) -O3
 CC2 = $(MPICC) $(COMMON_CFLAGS) -O1
 CC3 = $(MPICC) $(COMMON_CFLAGS) -O2
 CC_NOACC = $(filter-out -Minfo=accel -acc,$(CC2))
+CC_NOACC_O3 = $(filter-out -Minfo=accel -acc,$(CC))
 CC_DFTD3 = $(MPICC) -w -O0 -std=c11 -fopenmp $(COMMON_INCLUDES)
 FC = $(MPIF90) -O2 -mtune=native -march=native -fopenmp $(FFTW3_INCLUDE) -I$(NVHPC_MATH_DIR)/include
 
@@ -150,7 +154,11 @@ LIB= $(FFTW3_LIBS) $(NVPL_LIBS) $(MPI_FORTRAN_LIBS) -pgf90libs -mp -lpthread -lm
 
 GEMMUL8_REPO_URL ?= https://github.com/RIKEN-RCCS/GEMMul8.git
 GEMMUL8_REPO_DIR ?= third_party/GEMMul8
-GEMMUL8_DIR      ?= $(GEMMUL8_REPO_DIR)/GEMMul8
+# gemmul8_openmx.cu instantiates GEMMul8 internals directly, so the
+# checkout must stay pinned to a commit whose internal layout it matches.
+# 6bf409b is the v3.1.1 release.
+GEMMUL8_COMMIT   ?= 6bf409bdc69a638970ad5f91948a8b3e44c5378b
+GEMMUL8_DIR      ?= $(GEMMUL8_REPO_DIR)
 GEMMUL8_LIB      ?= $(GEMMUL8_DIR)/lib/libgemmul8.a
 GEMMUL8_OPENMX_OBJ ?= $(GEMMUL8_DIR)/src/gemmul8_openmx.o
 GEMMUL8_CUDA_PATH ?= $(NVHPC_CUDA_HOME)
@@ -164,8 +172,16 @@ endif
 NVCC ?= $(GEMMUL8_CUDA_PATH)/bin/nvcc
 NVCC_HOST ?= $(NVHPC_COMPILER_BIN)/nvc++
 NVCC_GEMMUL8_ENV = PATH="$(PATH)" CUDA_HOME="$(NVHPC_CUDA_HOME)" CPATH= C_INCLUDE_PATH= CPLUS_INCLUDE_PATH= LIBRARY_PATH= LD_LIBRARY_PATH= NVCC_PREPEND_FLAGS= NVCC_APPEND_FLAGS=
-NVCC_GEMMUL8_FLAGS = -ccbin $(NVCC_HOST) -std=c++20 -O3 -I$(GEMMUL8_DIR)/include -I$(GEMMUL8_DIR)/src -I$(GEMMUL8_CUDA_PATH)/include -I$(NVHPC_CUDA_TARGET)/include -I$(NVHPC_MATH_DIR)/include -gencode arch=compute_$(GEMMUL8_BUILD_GPU_ARCH),code=sm_$(GEMMUL8_BUILD_GPU_ARCH)
-LIB += -lcublasLt -lcuda -lnvidia-ml -lstdc++
+NVCC_GEMMUL8_FLAGS = -ccbin $(NVCC_HOST) -std=c++20 -O3 -diag-suppress 177 -DGPU_ARCH=$(GEMMUL8_BUILD_GPU_ARCH) -I$(GEMMUL8_DIR)/include -I$(GEMMUL8_DIR)/src -I$(GEMMUL8_CUDA_PATH)/include -I$(NVHPC_CUDA_TARGET)/include -I$(NVHPC_MATH_DIR)/include -gencode arch=compute_$(GEMMUL8_BUILD_GPU_ARCH),code=sm_$(GEMMUL8_BUILD_GPU_ARCH)
+# -lcusparse is not called directly but is a private dependency of
+# libcusolver; naming it here (shielded from --as-needed) makes it a
+# direct dependency of openmx, so the RPATH of the binary resolves it
+# (a dependency loaded through libcusolver would follow
+# LD_LIBRARY_PATH instead, which can mix CUDA library generations).
+LIB += -lcublasLt -Wl,--no-as-needed -lcusparse -Wl,--as-needed -lcuda -lnvidia-ml -lstdc++
+
+# Host compiler for the small build-time helper tools (force_rpath).
+HOST_CC ?= gcc
 
 CFLAGS  = -g 
 CPPFLAGS =
@@ -180,22 +196,22 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o init.o LU_inverse.o 
           Cluster_DFT_Col.o Cluster_DFT_NonCol.o Cluster_DFT_Dosout.o Cluster_DFT_ON2.o Cluster_DFT_LNO.o \
           Band_DFT_Col.o Band_DFT_NonCol.o Band_DFT_NonCol_GB.o \
           Band_DFT_kpath.o Band_DFT_kpath_LNO.o Band_DFT_MO.o \
-          Unfolding_Bands.o Band_DFT_Dosout.o Set_Density_Grid.o Set_Orbitals_Grid.o Set_Aden_Grid.o \
+          Unfolding_Bands.o Band_DFT_Dosout.o Set_Density_Grid.o Set_Density_Grid_GPU.o Set_Orbitals_Grid.o Set_Aden_Grid.o \
           Gauss_Legendre.o zero_cfrac.o xyz2spherical.o AngularF.o RadialF.o Dr_RadialF.o PhiF.o \
           VNAF.o Dr_VNAF.o VH_AtomF.o Dr_VH_AtomF.o RF_BesselF.o QuickSort.o Nonlocal_RadialF.o \
           KumoF.o Dr_KumoF.o Mulliken_Charge.o Occupation_Number_LDA_U.o Eff_Hub_Pot.o Coulomb_Interaction.o \
           EulerAngle_Spin.o Smoothing_Func.o Orbital_Moment.o Pot_NeutralAtom.o Simple_Mixing_DM.o \
           DIIS_Mixing_DM.o ADIIS_Mixing_DM.o GR_Pulay_DM.o Kerker_Mixing_Rhok.o DIIS_Mixing_Rhok.o \
-          Total_Energy.o Contract_Hamiltonian.o Contract_iHNL.o Cont_Matrix0.o Cont_Matrix1.o Cont_Matrix2.o \
+          Total_Energy.o Total_Energy_GPU.o Contract_Hamiltonian.o Contract_iHNL.o Cont_Matrix0.o Cont_Matrix1.o Cont_Matrix2.o \
           Cont_Matrix3.o Cont_Matrix4.o Opt_Contraction.o Initial_CntCoes.o Initial_CntCoes2.o \
           Set_XC_Grid.o Set_XC_NL1_Grid.o \
           Get_Orbitals.o Get_dOrbitals.o Get_Cnt_Orbitals.o \
           Get_Cnt_dOrbitals.o Gaunt.o Find_CGrids.o MD_pac.o \
           RestartFileDFT.o Output_CompTime.o Merge_LogFile.o Make_FracCoord.o \
           Make_InputFile_with_FinalCoord.o Output_Energy_Decomposition.o \
-          Divide_Conquer.o Divide_Conquer_LNO.o my_cublasDgemm.o my_cublasZgemm.o gemmul8_bridge.o Krylov.o \
+          Divide_Conquer.o Divide_Conquer_LNO.o gemmul8_bridge.o Krylov.o \
           Divide_Conquer_Dosout.o EGAC_DFT.o LNO.o \
-          Eigen_lapack.o cusolver_Syevd.o cusolver_Syevdx.o set_cuda_default_device_from_local_rank.o set_openacc_device_from_local_rank.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
+          Eigen_lapack.o gpusolver_Syevd.o gpusolver_Syevdx.o set_cuda_default_device_from_local_rank.o set_openacc_device_from_local_rank.o Eigen_lapack2.o Eigen_lapack3.o EigenBand_lapack.o \
           Eigen_PReHH.o BroadCast_ReMatrix.o \
           Eigen_PHH.o BroadCast_ComplexMatrix.o \
           lapack_dstedc1.o lapack_dstedc2.o lapack_dstedc3.o\
@@ -203,7 +219,7 @@ OBJS    = openmx.o openmx_common.o Input_std.o Inputtools.o init.o LU_inverse.o 
           lapack_dstevx1.o lapack_dstevx2.o lapack_dstevx3.o \
           lapack_dstevx4.o lapack_dstevx5.o lapack_dsteqr1.o \
           Nonlocal_Basis.o Set_OLP_Kin.o Set_Nonlocal.o Set_ProExpn_VNA.o \
-          Set_CoreHoleMatrix.o Set_OLP_p.o Set_Hamiltonian.o Set_Vpot.o \
+          Set_CoreHoleMatrix.o Set_OLP_p.o Set_Hamiltonian.o set_hamiltonian_gpu.o Set_Vpot.o \
           Voronoi_Charge.o Voronoi_Orbital_Moment.o Fuzzy_Weight.o \
           dampingF.o deri_dampingF.o Spherical_Bessel.o \
           iterout.o iterout_md.o Allocate_Arrays.o Free_Arrays.o \
@@ -277,9 +293,8 @@ UTIL 	= DosMain jx analysis_example esp polB calB Z2FH bandgnu13 bin2txt cube2xs
 fftw3: $(FFTW3_LIB)
 
 $(FFTW3_SRC_ABS):
-	@echo "FFTW3 source directory was not found: $(FFTW3_SRC_ABS)"
-	@echo "Clone $(FFTW3_REPO_URL), check out $(FFTW3_TAG), or override FFTW3_SRC_DIR."
-	@false
+	@echo "FFTW3 source directory was not found; cloning $(FFTW3_REPO_URL) at $(FFTW3_TAG)."
+	git clone --branch $(FFTW3_TAG) --depth 1 $(FFTW3_REPO_URL) "$(FFTW3_SRC_ABS)"
 
 $(FFTW3_CODELET_SENTINEL): | $(FFTW3_SRC_ABS)
 	@echo "FFTW3 git source lacks generated codelets; overlaying $(FFTW3_RELEASE_URL)."
@@ -317,7 +332,7 @@ fftw3-clean:
 gemmul8-clean:
 	rm -f "$(GEMMUL8_OPENMX_OBJ)" "$(GEMMUL8_LIB)"
 
-FFTW3_USERS = Poisson.o Stress.o Poisson_ESM.o TRAN_Poisson.o TRAN_CDen_Main.o TRAN_Set_Electrode_Grid.o
+FFTW3_USERS = Poisson.o Stress.o Poisson_ESM.o TRAN_Poisson.o TRAN_CDen_Main.o TRAN_Set_Electrode_Grid.o Cluster_DFT_Col.o
 $(FFTW3_USERS): | $(FFTW3_LIB)
 
 #
@@ -326,9 +341,17 @@ $(FFTW3_USERS): | $(FFTW3_LIB)
 
 .DEFAULT_GOAL := openmx
 
-openmx:	$(FFTW3_LIB) $(GEMMUL8_LIB) $(OBJS)
+openmx:	$(FFTW3_LIB) $(GEMMUL8_LIB) $(OBJS) force_rpath
 	$(CC) $(OBJS) $(STACK) $(GEMMUL8_LIB) $(LIB) -lm -o openmx
-	
+	./force_rpath openmx
+
+# The nvc link driver forces --enable-new-dtags, so the recorded
+# library search path is DT_RUNPATH, which LD_LIBRARY_PATH overrides;
+# a stray CUDA installation there (e.g. /usr/local/cuda/lib64) mixes
+# cuBLAS/cuSOLVER generations and corrupts the GPU solvers. Flip the
+# tag to DT_RPATH after linking so the build-time libraries win.
+force_rpath: force_rpath.c
+	$(HOST_CC) -O2 -o force_rpath force_rpath.c
 #
 #
 # all
@@ -504,6 +527,8 @@ Set_Orbitals_Grid.o: Set_Orbitals_Grid.c openmx_common.h
 	$(CC) -c Set_Orbitals_Grid.c
 Set_Density_Grid.o: Set_Density_Grid.c openmx_common.h
 	$(CC) -c Set_Density_Grid.c
+Set_Density_Grid_GPU.o: Set_Density_Grid_GPU.c openmx_common.h
+	$(CC) -c Set_Density_Grid_GPU.c
 Set_Aden_Grid.o: Set_Aden_Grid.c openmx_common.h
 	$(CC) -c Set_Aden_Grid.c
 
@@ -528,6 +553,8 @@ DIIS_Mixing_Rhok.o: DIIS_Mixing_Rhok.c openmx_common.h
 # Same LDA+U Type2/cFLL workaround as above.
 Total_Energy.o: Total_Energy.c openmx_common.h
 	$(CC_NOACC) -c Total_Energy.c
+Total_Energy_GPU.o: Total_Energy_GPU.c openmx_common.h
+	$(CC) -c Total_Energy_GPU.c
 Contract_Hamiltonian.o: Contract_Hamiltonian.c openmx_common.h
 	$(CC) -c Contract_Hamiltonian.c
 Contract_iHNL.o: Contract_iHNL.c openmx_common.h
@@ -566,7 +593,7 @@ Get_Cnt_dOrbitals.o: Get_Cnt_dOrbitals.c openmx_common.h
 Gaunt.o: Gaunt.c openmx_common.h
 	$(CC) -c Gaunt.c
 RestartFileDFT.o: RestartFileDFT.c openmx_common.h
-	$(CC) -c RestartFileDFT.c
+	$(CC_NOACC) -c RestartFileDFT.c
 Output_CompTime.o: Output_CompTime.c openmx_common.h
 	$(CC) -c Output_CompTime.c
 Output_Energy_Decomposition.o: Output_Energy_Decomposition.c openmx_common.h
@@ -584,10 +611,10 @@ QuickSort.o: QuickSort.c openmx_common.h
 	$(CC) -c QuickSort.c
 Eigen_lapack.o: Eigen_lapack.c openmx_common.h lapack_prototypes.h
 	$(CC) -c Eigen_lapack.c
-cusolver_Syevd.o: cusolver_Syevd.c openmx_common.h
-	$(CC) -c cusolver_Syevd.c
-cusolver_Syevdx.o: cusolver_Syevdx.c openmx_common.h
-	$(CC) -c cusolver_Syevdx.c
+gpusolver_Syevd.o: gpusolver_Syevd.c openmx_common.h
+	$(CC) -c gpusolver_Syevd.c
+gpusolver_Syevdx.o: gpusolver_Syevdx.c openmx_common.h
+	$(CC) -c gpusolver_Syevdx.c
 set_cuda_default_device_from_local_rank.o: set_cuda_default_device_from_local_rank.c openmx_common.h
 	$(CC) -c set_cuda_default_device_from_local_rank.c
 set_openacc_device_from_local_rank.o: set_openacc_device_from_local_rank.c openmx_common.h
@@ -644,6 +671,8 @@ Set_OLP_p.o: Set_OLP_p.c openmx_common.h
 	$(CC) -c Set_OLP_p.c
 Set_Hamiltonian.o: Set_Hamiltonian.c openmx_common.h
 	$(CC) -c Set_Hamiltonian.c
+set_hamiltonian_gpu.o: set_hamiltonian_gpu.cu
+	$(NVCC_GEMMUL8_ENV) $(NVCC) $(NVCC_GEMMUL8_FLAGS) -c set_hamiltonian_gpu.cu -o set_hamiltonian_gpu.o
 Set_Vpot.o: Set_Vpot.c openmx_common.h
 	$(CC) -c Set_Vpot.c
 #
@@ -666,15 +695,20 @@ Divide_Conquer.o: Divide_Conquer.c openmx_common.h
 	$(CC3) -c Divide_Conquer.c
 Divide_Conquer_LNO.o: Divide_Conquer_LNO.c openmx_common.h
 	$(CC) -c Divide_Conquer_LNO.c
-my_cublasDgemm.o: my_cublasDgemm.c openmx_common.h
-	$(CC) -c my_cublasDgemm.c
-my_cublasZgemm.o: my_cublasZgemm.c openmx_common.h
-	$(CC) -c my_cublasZgemm.c
 gemmul8_bridge.o: gemmul8_bridge.cu openmx_common.h $(GEMMUL8_DIR)/include/gemmul8.hpp $(GEMMUL8_LIB)
 	$(NVCC_GEMMUL8_ENV) $(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_bridge.cu -o gemmul8_bridge.o
 $(GEMMUL8_DIR)/Makefile:
-	mkdir -p $(dir $(GEMMUL8_REPO_DIR))
-	git clone --depth 1 $(GEMMUL8_REPO_URL) $(GEMMUL8_REPO_DIR)
+	mkdir -p $(GEMMUL8_REPO_DIR)
+	cd $(GEMMUL8_REPO_DIR) && \
+	  { [ -d .git ] || git init -q .; } && \
+	  { git remote get-url origin >/dev/null 2>&1 || git remote add origin $(GEMMUL8_REPO_URL); } && \
+	  git fetch --depth 1 origin $(GEMMUL8_COMMIT) && \
+	  git checkout -q $(GEMMUL8_COMMIT)
+# The header comes from the checkout above; the empty recipe gives it a rule
+# so a fresh clone of this repository builds with a single make invocation.
+# Order-only: an existing header is always up to date regardless of mtimes.
+$(GEMMUL8_DIR)/include/gemmul8.hpp: | $(GEMMUL8_DIR)/Makefile
+	@:
 $(GEMMUL8_OPENMX_OBJ): gemmul8_openmx.cu $(GEMMUL8_DIR)/Makefile
 	$(NVCC_GEMMUL8_ENV) $(NVCC) $(NVCC_GEMMUL8_FLAGS) -c gemmul8_openmx.cu -o $(GEMMUL8_OPENMX_OBJ)
 $(GEMMUL8_LIB): $(GEMMUL8_OPENMX_OBJ)
@@ -683,7 +717,7 @@ $(GEMMUL8_LIB): $(GEMMUL8_OPENMX_OBJ)
 Divide_Conquer_Dosout.o: Divide_Conquer_Dosout.c openmx_common.h
 	$(CC) -c Divide_Conquer_Dosout.c
 Krylov.o: Krylov.c openmx_common.h
-	$(CC_NOACC) -c Krylov.c
+	$(CC_NOACC_O3) -c Krylov.c
 EGAC_DFT.o: EGAC_DFT.c openmx_common.h
 	$(CC) -c EGAC_DFT.c
 LNO.o: LNO.c openmx_common.h
@@ -692,7 +726,7 @@ LNO.o: LNO.c openmx_common.h
 #
 #
 MD_pac.o: MD_pac.c openmx_common.h lapack_prototypes.h
-	$(CC) -c MD_pac.c
+	$(CC_NOACC) -c MD_pac.c
 #
 #
 #
@@ -827,7 +861,7 @@ install: $(PROG)
 #
 
 clean: fftw3-clean gemmul8-clean
-	rm -f $(PROG) $(OBJS) $(OBJS_jx) $(UTIL) *.o *.mod *.dbg
+	rm -f $(PROG) $(OBJS) $(OBJS_jx) $(UTIL) force_rpath *.o *.mod *.dbg
 
 #
 #
@@ -1136,9 +1170,9 @@ mod_precision.o: $(LIBELPADIR)/mod_precision.F90
 	$(FC) -c $(LIBELPADIR)/mod_precision.F90
 elpa_utilities.o: $(LIBELPADIR)/elpa_utilities.F90
 	$(FC) -c $(LIBELPADIR)/elpa_utilities.F90
-elpa1_compute_real.o: $(LIBELPADIR)/elpa1_compute_real.F90 elpa_utilities.o
+elpa1_compute_real.o: $(LIBELPADIR)/elpa1_compute_real.F90 elpa_utilities.o mod_precision.o
 	$(FC) -c $(LIBELPADIR)/elpa1_compute_real.F90
-elpa1_compute_complex.o: $(LIBELPADIR)/elpa1_compute_complex.F90 elpa_utilities.o
+elpa1_compute_complex.o: $(LIBELPADIR)/elpa1_compute_complex.F90 elpa_utilities.o mod_precision.o
 	$(FC) -c $(LIBELPADIR)/elpa1_compute_complex.F90
 aligned_mem.o: $(LIBELPADIR)/aligned_mem.F90
 	$(FC) -c $(LIBELPADIR)/aligned_mem.F90
@@ -1158,13 +1192,13 @@ complex.o: $(LIBELPADIR)/complex.F90 mod_precision.o
 	$(FC) -c $(LIBELPADIR)/complex.F90
 mod_single_hh_trafo_real.o: $(LIBELPADIR)/mod_single_hh_trafo_real.F90 mod_precision.o
 	$(FC) -c $(LIBELPADIR)/mod_single_hh_trafo_real.F90
-mod_compute_hh_trafo_real.o: $(LIBELPADIR)/mod_compute_hh_trafo_real.F90 mod_precision.o mod_single_hh_trafo_real.o real.o
+mod_compute_hh_trafo_real.o: $(LIBELPADIR)/mod_compute_hh_trafo_real.F90 mod_precision.o mod_single_hh_trafo_real.o real.o complex.o
 	$(FC) -c $(LIBELPADIR)/mod_compute_hh_trafo_real.F90
-mod_compute_hh_trafo_complex.o: $(LIBELPADIR)/mod_compute_hh_trafo_complex.F90 mod_precision.o complex.o
+mod_compute_hh_trafo_complex.o: $(LIBELPADIR)/mod_compute_hh_trafo_complex.F90 mod_precision.o complex.o real.o mod_single_hh_trafo_real.o
 	$(FC) -c $(LIBELPADIR)/mod_compute_hh_trafo_complex.F90
 elpa2_compute_real.o: $(LIBELPADIR)/elpa2_compute_real.F90 elpa_utilities.o elpa1_compute_real.o mod_precision.o aligned_mem.o elpa2_determine_workload.o mod_redist_band_real.o mod_pack_unpack_cpu_real.o mod_compute_hh_trafo_real.o
 	$(FC) -c $(LIBELPADIR)/elpa2_compute_real.F90
-elpa2_compute_complex.o: $(LIBELPADIR)/elpa2_compute_complex.F90 elpa_utilities.o elpa1_compute_complex.o mod_precision.o aligned_mem.o mod_redist_band_complex.o mod_pack_unpack_cpu_complex.o mod_compute_hh_trafo_complex.o
+elpa2_compute_complex.o: $(LIBELPADIR)/elpa2_compute_complex.F90 elpa_utilities.o elpa1_compute_complex.o elpa1_compute_real.o mod_precision.o aligned_mem.o elpa2_determine_workload.o mod_redist_band_complex.o mod_redist_band_real.o mod_pack_unpack_cpu_complex.o mod_pack_unpack_cpu_real.o mod_compute_hh_trafo_complex.o mod_compute_hh_trafo_real.o
 	$(FC) -c $(LIBELPADIR)/elpa2_compute_complex.F90
 elpa_solve_evp_real_2stage_double_impl.o: $(LIBELPADIR)/elpa_solve_evp_real_2stage_double_impl.F90 elpa2_compute_real.o elpa1_compute_real.o mod_precision.o
 	$(FC) -c $(LIBELPADIR)/elpa_solve_evp_real_2stage_double_impl.F90

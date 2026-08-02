@@ -6,5 +6,7 @@
 
 int set_openacc_device_from_local_rank(acc_device_t devtype);
 int set_openacc_nvidia_device_from_local_rank(void);
+int set_openacc_device_from_local_rank_noncollective(acc_device_t devtype);
+int set_openacc_nvidia_device_from_local_rank_noncollective(void);
 
 #endif // _SET_OPENACC_FROM_LOCAL_RANK_H_

@@ -26,8 +26,8 @@ void        Eigen_lapack_d(double ** a, double * ko, int n, int EVmax);
 static void Eigen_lapack_r(double ** a, double * ko, int n, int EVmax);
 static void Eigen_HHQR(double ** ac, double * ko, int n, int EVmax);
 static void Eigen_HH(double ** ac, double * ko, int n, int EVmax);
-static void Eigen_cusolver_x(double ** a, double * ko, int n, int EVmax);
-static void Eigen_cusolver_x_openacc(double ** a, double * ko, int n, int EVmax);
+static void Eigen_gpusolver_x(double ** a, double * ko, int n, int EVmax);
+static void Eigen_gpusolver_x_openacc(double ** a, double * ko, int n, int EVmax);
 
 void Eigen_lapack(double ** a, double * ko, int n, int EVmax)
 {
@@ -70,9 +70,9 @@ void Eigen_lapack(double ** a, double * ko, int n, int EVmax)
         else if (solver_flag == 2)
             Eigen_lapack_d(a, ko, n, EVmax);
         else if (solver_flag == 3)
-            Eigen_cusolver_x(a, ko, n, EVmax);
+            Eigen_gpusolver_x(a, ko, n, EVmax);
         else if (solver_flag == 4)
-            Eigen_cusolver_d(a, ko, n, EVmax);
+            Eigen_gpusolver_d(a, ko, n, EVmax);
 
         po = 0;
 
@@ -158,7 +158,7 @@ void Eigen_lapack_openacc(double ** a, double * ko, int n, int EVmax)
                 }
             }
 
-            Eigen_cusolver_x_openacc(a, ko, n, EVmax);
+            Eigen_gpusolver_x_openacc(a, ko, n, EVmax);
 
             po = 0;
 
@@ -1613,7 +1613,7 @@ void Eigen_HHQR(double ** ac, double * ko, int n, int EVmax)
     free(ko1);
 }
 
-static void Eigen_cusolver_x(double ** a, double * ko, int n0, int EVmax)
+static void Eigen_gpusolver_x(double ** a, double * ko, int n0, int EVmax)
 {
     /*
       F77_NAME(dsyevx,DSYEVX)()
@@ -1645,7 +1645,7 @@ static void Eigen_cusolver_x(double ** a, double * ko, int n0, int EVmax)
   fflush(stdout);
 #endif
 
-    int const info = cusolver_Syevdx(A, ko, n, EVmax);
+    int const info = gpusolver_Syevdx(A, ko, n, EVmax);
 
     /* store eigenvectors */
     for (int i = 0; i < EVmax; i++) {
@@ -1674,7 +1674,7 @@ static void Eigen_cusolver_x(double ** a, double * ko, int n0, int EVmax)
     free(A);
 }
 
-void Eigen_cusolver_x_openacc(double ** a, double * ko, int n0, int EVmax)
+void Eigen_gpusolver_x_openacc(double ** a, double * ko, int n0, int EVmax)
 {
     /*
       F77_NAME(dsyevx,DSYEVX)()
@@ -1713,7 +1713,7 @@ void Eigen_cusolver_x_openacc(double ** a, double * ko, int n0, int EVmax)
   fflush(stdout);
 #endif
 
-        info = cusolver_Syevdx_openacc(A, ko, n, EVmax);
+        info = gpusolver_Syevdx_openacc(A, ko, n, EVmax);
 
         /* store eigenvectors */
 #pragma acc kernels
@@ -1752,9 +1752,9 @@ void Eigen_cusolver_x_openacc(double ** a, double * ko, int n0, int EVmax)
     free(A);
 }
 
-void Eigen_cusolver_x_openacc2(double * a, double * ko, int n0, int EVmax)
+void Eigen_gpusolver_x_openacc2(double * a, double * ko, int n0, int EVmax)
 {
-    cusolver_Syevdx_openacc(a, ko, n0, EVmax);
+    gpusolver_Syevdx_openacc(a, ko, n0, EVmax);
 
 #pragma acc data present(ko[0 : n0 + 1])
     {
@@ -1766,7 +1766,7 @@ void Eigen_cusolver_x_openacc2(double * a, double * ko, int n0, int EVmax)
     }
 }
 
-void Eigen_cusolver_d(double ** a, double * ko, int n, int EVmax)
+void Eigen_gpusolver_d(double ** a, double * ko, int n, int EVmax)
 {
     // printf("N = %d\n", n);
     double * A = (double *)malloc(sizeof(double) * n * n);
@@ -1777,7 +1777,7 @@ void Eigen_cusolver_d(double ** a, double * ko, int n, int EVmax)
         }
     }
 
-    int const info = cusolver_Syevdx(A, ko, n, EVmax);
+    int const info = gpusolver_Syevdx(A, ko, n, EVmax);
 
     /* store eigenvectors */
     for (int i = 0; i < EVmax; i++) {

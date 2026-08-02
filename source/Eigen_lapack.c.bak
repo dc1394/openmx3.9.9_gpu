@@ -24,7 +24,7 @@ void Eigen_lapack_d(double** a, double* ko, int n, int EVmax);
 static void Eigen_lapack_r(double** a, double* ko, int n, int EVmax);
 static void Eigen_HHQR(double** ac, double* ko, int n, int EVmax);
 static void Eigen_HH(double** ac, double* ko, int n, int EVmax);
-static void Eigen_cusolver_d(double** a, double* ko, int n, int EVmax);
+void Eigen_gpusolver_d(double** a, double* ko, int n, int EVmax);
 
 void Eigen_lapack(double** a, double* ko, int n, int EVmax)
 {
@@ -63,7 +63,7 @@ void Eigen_lapack(double** a, double* ko, int n, int EVmax)
         else if (solver_flag == 2)
             Eigen_lapack_d(a, ko, n, EVmax);
         else if (solver_flag == 3)
-            Eigen_cusolver_d(a, ko, n, EVmax);
+            Eigen_gpusolver_d(a, ko, n, EVmax);
 
         po = 0;
 
@@ -1535,7 +1535,7 @@ void Eigen_HHQR(double** ac, double* ko, int n, int EVmax)
     free(ko1);
 }
 
-static void Eigen_cusolver_d(double** a, double* ko, int n, int EVmax)
+void Eigen_gpusolver_d(double** a, double* ko, int n, int EVmax)
 {
 //    printf("N = %d\n", n);
     double * A = (double*)malloc(sizeof(double) * n * n);
@@ -1546,7 +1546,7 @@ static void Eigen_cusolver_d(double** a, double* ko, int n, int EVmax)
         }
     }
 
-    cusolver_Syevd(n, A, ko);
+    gpusolver_Syevd(A, ko, n);
 
     /* store eigenvectors */
     for (int i = 0; i < EVmax; i++) {

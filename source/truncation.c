@@ -18,6 +18,8 @@
 #include "openmx_common.h" 
 #include "mpi.h"
 #include "omp.h"
+#include <openacc.h>
+#include "set_cuda_default_device_from_local_rank.h"
 #include "tran_prototypes.h"
 
 #define  measure_time   0
@@ -108,7 +110,13 @@ double truncation(int MD_iter,int UCell_flag)
      FNAN and SNAN at the previous MD step
   ****************************************************/
 
-  if (measure_time) dtime(&stime); 
+  if (measure_time) dtime(&stime);
+
+  /* The following free invalidates every pointer used by the density GPU
+     service.  Release its host/device cache while the old topology is still
+     well defined. */
+  Set_Density_Grid_GPU_Invalidate();
+  Set_Hamiltonian_Invalidate_OpenACC_MatrixElements_Cache();
 
   for (Gc_AN=1; Gc_AN<=atomnum; Gc_AN++){
     ID = G2ID[Gc_AN];
@@ -4036,6 +4044,339 @@ void Output_Connectivity(FILE *fp)
 
   
 
+/**********************************************************************
+  GPU fast path for the "find overlap grids between two orbitals"
+  phase of UCell_Box (the dominant cost of truncation()).  For every
+  pair (Mc_AN, h_AN) the legacy loop intersects two grid-point lists
+  that are sorted by global grid index; one device thread per
+  neighbour grid point performs the same search (leftmost binary
+  search plus a walk over duplicate grid indices), so NumOLG and
+  GListTAtoms1/2 come out identical to the host loop.  The work is
+  integer only, hence the fast path is bitwise-neutral for the rest
+  of the calculation.
+**********************************************************************/
+
+#define OLG_GPU_ALIGN 512
+
+typedef struct {
+  size_t mh_off;     /* offset of the neighbour's rows in the flat lists */
+  size_t out_off;    /* slot of this pair in the per-atom result buffer  */
+  int    nh;         /* GridN_Atom[Gh_AN]                                */
+  int    l1, l2, l3; /* atv_ijk[Rh][1..3]                                */
+} OLG_GpuPair;
+
+static int OLG_env_flag(const char *name, int fallback)
+{
+  const char *value = getenv(name);
+  if (value == NULL || value[0] == '\0') return fallback;
+  return atoi(value);
+}
+
+static int OLG_gpu_ready(void)
+{
+  static int state = -1;
+
+  if (state < 0) {
+    /* the probe, not a bare device count: a rank whose context or module
+       load cannot complete would abort inside acc_malloc otherwise */
+    state = (OLG_env_flag("OPENMX_UCELL_OLG_GPU", 1) != 0 &&
+             gpu_rank_device_usable());
+  }
+  return state;
+}
+
+static size_t OLG_arena_off(size_t *pos, size_t bytes)
+{
+  size_t off = *pos;
+  *pos = (off + bytes + (size_t)(OLG_GPU_ALIGN - 1)) & ~(size_t)(OLG_GPU_ALIGN - 1);
+  return off;
+}
+
+static void *OLG_arena_try(size_t bytes)
+{
+  void *ptr = acc_malloc(bytes);
+  if (ptr == NULL) {
+    if (cudaDeviceSynchronize() == cudaSuccess) acc_clear_freelists();
+    ptr = acc_malloc(bytes);
+  }
+  return ptr;
+}
+
+static void OLG_gpu_eval(int npair, const OLG_GpuPair *prs, const int *gl, const int *cl,
+                         const int *atvf, const int *ratvf, size_t mc_off, int mc_cnt,
+                         int mc_first, int cpy, int *out)
+{
+  int p;
+
+#pragma acc parallel vector_length(128) deviceptr(prs, gl, cl, atvf, ratvf, out)
+  {
+#pragma acc loop gang
+    for (p = 0; p < npair; p++) {
+      const OLG_GpuPair pr = prs[p];
+      int Nh;
+
+#pragma acc loop vector
+      for (Nh = 0; Nh < pr.nh; Nh++) {
+        const int GNh = gl[pr.mh_off + (size_t)Nh];
+        const int GRh = cl[pr.mh_off + (size_t)Nh];
+        int found = -1;
+
+        if (mc_first <= GNh) {
+          const int lll1 = pr.l1 + atvf[3*GRh + 0];
+          const int lll2 = pr.l2 + atvf[3*GRh + 1];
+          const int lll3 = pr.l3 + atvf[3*GRh + 2];
+          const int a1 = (lll1 < 0) ? -lll1 : lll1;
+          const int a2 = (lll2 < 0) ? -lll2 : lll2;
+          const int a3 = (lll3 < 0) ? -lll3 : lll3;
+
+          if (a1 <= cpy && a2 <= cpy && a3 <= cpy) {
+            const int rdim = 2*cpy + 1;
+            const int GRh1 = ratvf[((size_t)(lll1+cpy)*rdim + (size_t)(lll2+cpy))*rdim
+                                   + (size_t)(lll3+cpy)];
+            int lo = 0, hi = mc_cnt;
+
+            /* leftmost entry of the centre list with grid index >= GNh */
+            while (lo < hi) {
+              const int mid = (lo + hi) >> 1;
+              if (gl[mc_off + (size_t)mid] < GNh) lo = mid + 1;
+              else                                hi = mid;
+            }
+            /* walk the block of equal grid indices for the matching cell */
+            while (lo < mc_cnt && gl[mc_off + (size_t)lo] == GNh) {
+              if (cl[mc_off + (size_t)lo] == GRh1) { found = lo; break; }
+              lo++;
+            }
+          }
+        }
+        out[pr.out_off + (size_t)Nh] = found;
+      }
+    }
+  }
+}
+
+/* Returns 1 when the overlap-grid lists were built on the device; on any
+   ineligibility or allocation failure it returns 0 without side effects
+   and the caller runs the untouched host loop. */
+static int UCellBox_OLG_GPU(int estimate_switch, int CpyCell,
+                            int **Tmp_GridListAtom, int **Tmp_CellListAtom,
+                            int *size_GListTAtoms1)
+{
+  int myid, Mc_AN, Gc_AN, h_AN, Gh_AN, Mh_AN, Rh, Nh, m, k, npair, npair_cap = 0;
+  int mc_total = Matomnum + MatomnumF;
+  int rdim = 2*CpyCell + 1;
+  size_t total_pts = 0, out_cap = 0, arena_bytes = 0, run;
+  size_t o_gl, o_cl, o_atv, o_ratv, o_prs, o_out;
+  size_t *mh_base = NULL;
+  int *atv_flat = NULL, *ratv_flat = NULL, *out_host = NULL;
+  OLG_GpuPair *pair_host = NULL;
+  void *arena = NULL;
+  int *d_gl, *d_cl, *d_atv, *d_ratv, *d_out;
+  OLG_GpuPair *d_prs;
+  double Stime_atom, Etime_atom;
+
+  if (!OLG_gpu_ready()) return 0;
+
+  MPI_Comm_rank(mpi_comm_level1, &myid);
+
+  /* sizes of the flattened grid/cell lists and of the result buffer */
+
+  mh_base = (size_t*)malloc(sizeof(size_t)*(mc_total+1));
+  if (mh_base == NULL) return 0;
+
+  mh_base[0] = 0;
+  for (m = 1; m <= mc_total; m++) {
+    Gc_AN = (m <= Matomnum) ? M2G[m] : F_M2G[m];
+    mh_base[m] = total_pts;
+    total_pts += (size_t)GridN_Atom[Gc_AN];
+  }
+
+  for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+    size_t atom_out = 0;
+    Gc_AN = M2G[Mc_AN];
+    for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+      atom_out += (size_t)GridN_Atom[natn[Gc_AN][h_AN]];
+    }
+    if (out_cap < atom_out) out_cap = atom_out;
+    if (npair_cap < FNAN[Gc_AN]+1) npair_cap = FNAN[Gc_AN]+1;
+  }
+  if (out_cap == 0 || npair_cap == 0 || total_pts == 0) { free(mh_base); return 0; }
+
+  atv_flat  = (int*)malloc(sizeof(int)*3*(size_t)(TCpyCell+1));
+  ratv_flat = (int*)malloc(sizeof(int)*(size_t)rdim*(size_t)rdim*(size_t)rdim);
+  out_host  = (int*)malloc(sizeof(int)*out_cap);
+  pair_host = (OLG_GpuPair*)malloc(sizeof(OLG_GpuPair)*(size_t)npair_cap);
+
+  if (atv_flat == NULL || ratv_flat == NULL || out_host == NULL || pair_host == NULL) {
+    free(pair_host); free(out_host); free(ratv_flat); free(atv_flat); free(mh_base);
+    return 0;
+  }
+
+  for (m = 0; m <= TCpyCell; m++) {
+    atv_flat[3*m+0] = atv_ijk[m][1];
+    atv_flat[3*m+1] = atv_ijk[m][2];
+    atv_flat[3*m+2] = atv_ijk[m][3];
+  }
+  for (m = 0; m < rdim; m++) {
+    for (k = 0; k < rdim; k++) {
+      int l;
+      for (l = 0; l < rdim; l++) {
+        ratv_flat[((size_t)m*rdim + (size_t)k)*rdim + (size_t)l] = ratv[m][k][l];
+      }
+    }
+  }
+
+  /* one transient device arena for the whole phase */
+
+  o_gl   = OLG_arena_off(&arena_bytes, total_pts*sizeof(int));
+  o_cl   = OLG_arena_off(&arena_bytes, total_pts*sizeof(int));
+  o_atv  = OLG_arena_off(&arena_bytes, sizeof(int)*3*(size_t)(TCpyCell+1));
+  o_ratv = OLG_arena_off(&arena_bytes, sizeof(int)*(size_t)rdim*(size_t)rdim*(size_t)rdim);
+  o_prs  = OLG_arena_off(&arena_bytes, sizeof(OLG_GpuPair)*(size_t)npair_cap);
+  o_out  = OLG_arena_off(&arena_bytes, sizeof(int)*out_cap);
+
+  arena = OLG_arena_try(arena_bytes);
+  if (arena == NULL) {
+    static int notice_done = 0;
+    if (!notice_done) {
+      notice_done = 1;
+      fprintf(stderr,
+              "UCell_Box: %.1f MiB of device staging unavailable; using the host path.\n",
+              (double)arena_bytes/(1024.0*1024.0));
+    }
+    free(pair_host); free(out_host); free(ratv_flat); free(atv_flat); free(mh_base);
+    return 0;
+  }
+
+  d_gl   = (int*)((char*)arena + o_gl);
+  d_cl   = (int*)((char*)arena + o_cl);
+  d_atv  = (int*)((char*)arena + o_atv);
+  d_ratv = (int*)((char*)arena + o_ratv);
+  d_prs  = (OLG_GpuPair*)((char*)arena + o_prs);
+  d_out  = (int*)((char*)arena + o_out);
+
+  for (m = 1; m <= mc_total; m++) {
+    Gc_AN = (m <= Matomnum) ? M2G[m] : F_M2G[m];
+    if (0 < GridN_Atom[Gc_AN]) {
+      acc_memcpy_to_device(d_gl + mh_base[m], Tmp_GridListAtom[m],
+                           sizeof(int)*(size_t)GridN_Atom[Gc_AN]);
+      acc_memcpy_to_device(d_cl + mh_base[m], Tmp_CellListAtom[m],
+                           sizeof(int)*(size_t)GridN_Atom[Gc_AN]);
+    }
+  }
+  acc_memcpy_to_device(d_atv, atv_flat, sizeof(int)*3*(size_t)(TCpyCell+1));
+  acc_memcpy_to_device(d_ratv, ratv_flat, sizeof(int)*(size_t)rdim*(size_t)rdim*(size_t)rdim);
+
+  if (OLG_env_flag("OPENMX_UCELL_OLG_GPU_VERBOSE", 0)) {
+    static int active_done = 0;
+    if (!active_done && myid == Host_ID) {
+      active_done = 1;
+      fprintf(stderr, "UCell_Box: GPU overlap-grid path active\n");
+    }
+  }
+
+  /* the Mc_AN==0 bookkeeping of the legacy loop */
+
+  FNAN[0] = 0;
+  if (estimate_switch == 0) {
+    GListTAtoms1[0] = (int**)malloc(sizeof(int*)*1);
+    GListTAtoms2[0] = (int**)malloc(sizeof(int*)*1);
+    GListTAtoms1[0][0] = (int*)malloc(sizeof(int)*1);
+    GListTAtoms2[0][0] = (int*)malloc(sizeof(int)*1);
+  }
+
+  for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+
+    dtime(&Stime_atom);
+
+    Gc_AN = M2G[Mc_AN];
+    npair = FNAN[Gc_AN] + 1;
+
+    run = 0;
+    for (h_AN = 0; h_AN < npair; h_AN++) {
+      Gh_AN = natn[Gc_AN][h_AN];
+      Mh_AN = F_G2M[Gh_AN];
+      Rh    = ncn[Gc_AN][h_AN];
+
+      pair_host[h_AN].mh_off  = mh_base[Mh_AN];
+      pair_host[h_AN].out_off = run;
+      pair_host[h_AN].nh      = GridN_Atom[Gh_AN];
+      pair_host[h_AN].l1      = atv_ijk[Rh][1];
+      pair_host[h_AN].l2      = atv_ijk[Rh][2];
+      pair_host[h_AN].l3      = atv_ijk[Rh][3];
+
+      run += (size_t)GridN_Atom[Gh_AN];
+    }
+
+    acc_memcpy_to_device(d_prs, pair_host, sizeof(OLG_GpuPair)*(size_t)npair);
+
+    OLG_gpu_eval(npair, d_prs, d_gl, d_cl, d_atv, d_ratv, mh_base[Mc_AN],
+                 GridN_Atom[Gc_AN], Tmp_GridListAtom[Mc_AN][0], CpyCell, d_out);
+
+    acc_memcpy_from_device(out_host, d_out, sizeof(int)*run);
+
+    if (estimate_switch == 0) {
+      GListTAtoms1[Mc_AN] = (int**)malloc(sizeof(int*)*(size_t)npair);
+      GListTAtoms2[Mc_AN] = (int**)malloc(sizeof(int*)*(size_t)npair);
+    }
+
+#pragma omp parallel for private(Nh)
+    for (h_AN = 0; h_AN < npair; h_AN++) {
+      const int *row = out_host + pair_host[h_AN].out_off;
+      int cnt = 0;
+      for (Nh = 0; Nh < pair_host[h_AN].nh; Nh++) {
+        if (0 <= row[Nh]) cnt++;
+      }
+      NumOLG[Mc_AN][h_AN] = cnt;
+    }
+
+    for (h_AN = 0; h_AN < npair; h_AN++) {
+
+      if (List_YOUSO[12] < NumOLG[Mc_AN][h_AN] && estimate_switch == 0) {
+        printf("YOUSO12<(Nog+1)\n");
+        MPI_Finalize();
+        exit(1);
+      }
+
+      if (2 <= level_stdout) {
+        printf("Num. of grids overlapping between atoms %2d (G) and %2d (L) = %2d\n",
+               Gc_AN, h_AN, NumOLG[Mc_AN][h_AN]);
+      }
+
+      if (estimate_switch == 0) {
+        *size_GListTAtoms1 += NumOLG[Mc_AN][h_AN];
+        GListTAtoms1[Mc_AN][h_AN] = (int*)malloc(sizeof(int)*NumOLG[Mc_AN][h_AN]);
+        GListTAtoms2[Mc_AN][h_AN] = (int*)malloc(sizeof(int)*NumOLG[Mc_AN][h_AN]);
+      }
+    }
+
+    if (estimate_switch == 0) {
+#pragma omp parallel for private(Nh)
+      for (h_AN = 0; h_AN < npair; h_AN++) {
+        const int *row = out_host + pair_host[h_AN].out_off;
+        int n = 0;
+        for (Nh = 0; Nh < pair_host[h_AN].nh; Nh++) {
+          if (0 <= row[Nh]) {
+            GListTAtoms1[Mc_AN][h_AN][n] = row[Nh];
+            GListTAtoms2[Mc_AN][h_AN][n] = Nh;
+            n++;
+          }
+        }
+      }
+    }
+
+    dtime(&Etime_atom);
+    time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
+  }
+
+  acc_free(arena);
+  /* return the arena to CUDA instead of the process-local freelist, so
+     the other ranks sharing this device can actually use the memory */
+  if (cudaDeviceSynchronize() == cudaSuccess) acc_clear_freelists();
+  free(pair_host); free(out_host); free(ratv_flat); free(atv_flat); free(mh_base);
+
+  return 1;
+}
+
 void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 {
   static int firsttime=1;
@@ -4928,6 +5269,11 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
       alloc_first[0] = 0;
     }
 
+    /* device fast path; on any ineligibility or allocation failure the
+       untouched host loop below produces the same lists */
+    if (!UCellBox_OLG_GPU(estimate_switch, CpyCell, Tmp_GridListAtom, Tmp_CellListAtom,
+                          &size_GListTAtoms1)) {
+
     for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
 
       dtime(&Stime_atom);
@@ -5138,7 +5484,9 @@ void UCell_Box(int MD_iter, int estimate_switch, int CpyCell)
 	time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
       }
 
-    } /* Mc_AN */ 
+    } /* Mc_AN */
+
+    } /* host fallback for UCellBox_OLG_GPU */
 
     if (estimate_switch==0){
 

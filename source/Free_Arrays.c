@@ -14,8 +14,15 @@ void array3();
 void Free_Arrays(int wherefrom)
 {
 
+  if (wherefrom==0) {
+    Set_Density_Grid_GPU_Invalidate();
+    Set_Hamiltonian_Invalidate_OpenACC_MatrixElements_Cache();
+  }
+
   if      (wherefrom==0) array0();
   else if (wherefrom==1) array1();
+
+  if (wherefrom==0) openmx_gemmul8ReleaseWorkspaces();
 
 }
 

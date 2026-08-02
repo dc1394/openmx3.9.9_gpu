@@ -1730,6 +1730,1339 @@ void Pulay_Mixing_H_with_One_Shot_Hessian(int MD_iter, int SCF_iter, int SCF_ite
 
 
 
+/*******************************************************************************
+  GPU acceleration of Pulay_Mixing_H (RMM-DIISH).
+
+  The CPU implementation sweeps the whole sparse Hamiltonian structure
+  dim*dim times per SCF iteration for the residual Gram matrix (with one
+  MPI_Allreduce per matrix element) and another ~4*dim times for the
+  shift/mix/save loops.  With scf.Mixing.History around 50 this dominates
+  the SCF step.  The GPU path keeps the residual history device-resident:
+
+    - ONE cudaMalloc arena per rank holds a ring of Num_Mixing_pDM flat
+      residual slots plus the metric-weight vector, the optimum-residual
+      vector, and the Gram pair buffer.  The per-iteration "shift" is a
+      rotation of a host-side logical-to-physical slot map (zero copies).
+    - The dim*(dim+1)/2 weighted inner products run in one OpenACC kernel;
+      the whole triangle is reduced with a single MPI_Allreduce.
+    - The optimum residual (sum_m coes[m+1]*R[m]) is one device kernel;
+      only that L-vector is downloaded per iteration.
+    - HisH1/HisH2 stay host-resident (they are touched O(dim*L) once per
+      iteration); their shift becomes a rotation of the m-level pointers,
+      which yields bitwise-identical logical contents.
+    - The host jagged ResidualH1/ResidualH2 arrays are ALSO kept logically
+      current (pointer rotation + fresh slot 0 each iteration), so the
+      E_Temp-controller SCF rewind (DFT.c sets SCF_iter_shift mid-cycle,
+      Simple_Mixing_H briefly takes over, then Pulay re-engages with a
+      large dim) can always re-seed the device ring from the host arrays.
+
+  The preflight is MPI-collective over mpi_comm_level1 and accounts for the
+  SUM of the arena sizes of all ranks sharing one device.  On a negative
+  verdict the original CPU code below runs unchanged.  Env knobs:
+  OPENMX_MIXH_GPU (=0 never / =1 force), OPENMX_MIXH_GPU_RESERVE_MB
+  (default max(total/10, 1536 MiB)), OPENMX_MIXH_GPU_VERBOSE.
+*******************************************************************************/
+
+#include <openacc.h>
+#include <stdint.h>
+
+typedef struct {
+  int      verdict;          /* -1 unknown, 0 CPU fallback, 1 GPU; sticky per fingerprint */
+  int      valid;            /* device ring mirrors the host residual history */
+  int      announced;
+  int      fp_md_iter;       /* fingerprint of the sticky verdict/layout */
+  int      fp_matomnum;
+  int      fp_spinp;
+  int      fp_nslot;
+  size_t   fp_L;
+  int      last_scf_iter;
+  int      nslot;            /* ring slots == Num_Mixing_pDM */
+  size_t   L;                /* flat doubles per history slot on this rank */
+  size_t   L_plane;          /* collinear: doubles per spin plane; NC: == L */
+  unsigned char *base;       /* single cudaMalloc arena */
+  size_t   total_bytes;
+  size_t   o_ring, o_w, o_r, o_pair;
+  int     *perm;             /* logical slot -> physical ring slot */
+  size_t  *atom_off;         /* [Matomnum+1] flat offset of each atom block within a plane */
+  double  *h_flat;           /* host staging buffer (L doubles) */
+  double  *h_r;              /* downloaded optimum residual (L doubles) */
+} MixH_GpuState;
+
+static MixH_GpuState MixH_gpu = {
+  -1, 0, 0, -1, -1, -1, -1, 0U, -1, 0, 0U, 0U,
+  NULL, 0U, 0U, 0U, 0U, 0U, NULL, NULL, NULL, NULL
+};
+
+static void MixH_AbortWithMessage(const char *message)
+{
+  fprintf(stderr, "%s\n", message);
+  fflush(stderr);
+  MPI_Abort(mpi_comm_level1, 1);
+}
+
+/* Bounded device allocation (same policy as the cluster/band GPU paths):
+   absorb short allocation races with a few retries, report persistent
+   failure to the caller instead of retrying forever. */
+static cudaError_t MixH_TryDeviceMalloc(void **ptr, size_t bytes)
+{
+  cudaError_t err = cudaErrorMemoryAllocation;
+
+  for (int attempt = 0; attempt < 8; attempt++) {
+    err = cudaMalloc(ptr, bytes);
+    if (err == cudaSuccess) return cudaSuccess;
+    (void)cudaGetLastError();
+
+    double wait_time = drand48() * WAITTIME;
+    double start_time = MPI_Wtime();
+    double current_time = start_time;
+    while ((current_time - start_time) < wait_time) {
+      current_time = MPI_Wtime();
+    }
+  }
+
+  *ptr = NULL;
+  return err;
+}
+
+static size_t MixH_Align512(size_t bytes)
+{
+  return (bytes + (size_t)511) & ~((size_t)511);
+}
+
+/* Release everything and force a fresh preflight on the next Pulay call.
+   Called before the force/energy phase of every SCF cycle (DFT.c) so the
+   history ring never competes with the force-path device transients. */
+static void MixH_IncFree(void);
+static void MixH_IncBuild(int nslot);
+
+void Mixing_H_Release_GPU(void)
+{
+  MixH_IncFree();
+  if (MixH_gpu.base != NULL) cudaFree(MixH_gpu.base);
+  free(MixH_gpu.perm);
+  free(MixH_gpu.atom_off);
+  free(MixH_gpu.h_flat);
+  free(MixH_gpu.h_r);
+  MixH_gpu.base = NULL;
+  MixH_gpu.perm = NULL;
+  MixH_gpu.atom_off = NULL;
+  MixH_gpu.h_flat = NULL;
+  MixH_gpu.h_r = NULL;
+  MixH_gpu.total_bytes = 0U;
+  MixH_gpu.L = 0U;
+  MixH_gpu.L_plane = 0U;
+  MixH_gpu.nslot = 0;
+  MixH_gpu.valid = 0;
+  MixH_gpu.verdict = -1;
+  MixH_gpu.announced = 0;
+  MixH_gpu.fp_md_iter = -1;
+  MixH_gpu.fp_matomnum = -1;
+  MixH_gpu.fp_spinp = -1;
+  MixH_gpu.fp_nslot = -1;
+  MixH_gpu.fp_L = 0U;
+  MixH_gpu.last_scf_iter = -1;
+}
+
+/* Flat layout of one history slot: collinear packs the planes
+   spin-major with the CPU loop order (Mc_AN, h_AN, i, j) inside each
+   plane; the noncollinear case packs the seven components (four of
+   H/HisH1/ResidualH1, three of iHNL/HisH2/ResidualH2) consecutively per
+   (Mc_AN,h_AN,i,j) element. */
+static void MixH_ComputeLayout(void)
+{
+  int Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan;
+  int ncomp = (SpinP_switch==3) ? 7 : 1;
+  size_t acc = 0U;
+
+  free(MixH_gpu.atom_off);
+  MixH_gpu.atom_off = (size_t*)malloc(sizeof(size_t)*(size_t)(Matomnum+1));
+  if (MixH_gpu.atom_off == NULL) {
+    MixH_AbortWithMessage("Mixing_H.c: failed to allocate the GPU atom offset table.");
+  }
+  MixH_gpu.atom_off[0] = 0U;
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    size_t blk = 0U;
+    Gc_AN = M2G[Mc_AN];
+    Cwan = WhatSpecies[Gc_AN];
+    for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+      Gh_AN = natn[Gc_AN][h_AN];
+      Hwan = WhatSpecies[Gh_AN];
+      blk += (size_t)Spe_Total_NO[Cwan]*(size_t)Spe_Total_NO[Hwan];
+    }
+    MixH_gpu.atom_off[Mc_AN] = acc;
+    acc += blk*(size_t)ncomp;
+  }
+
+  MixH_gpu.L_plane = acc;
+  MixH_gpu.L = (SpinP_switch==3) ? acc : acc*(size_t)(SpinP_switch+1);
+}
+
+/* rotate the top-level (history) pointers of a six-star array over
+   m = 0..hi; logically identical to the CPU content shift
+   arr[m] = arr[m-1] (m = hi..1) followed by an overwrite of arr[0]. */
+static void MixH_RotatePtr6(double ******arr, int hi)
+{
+  double *****tmp = arr[hi];
+  int m;
+  for (m=hi; 0<m; m--) arr[m] = arr[m-1];
+  arr[0] = tmp;
+}
+
+/* Compute the fresh residual into the (already rotated) host slot 0 and,
+   when dst is non-NULL, the packed flat image of that slot. */
+static void MixH_Residual0Fused(double *dst)
+{
+  int Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,spin;
+
+  if (SpinP_switch==3){
+
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j) schedule(static)
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      size_t k = MixH_gpu.atom_off[Mc_AN];
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+        Gh_AN = natn[Gc_AN][h_AN];
+        Hwan = WhatSpecies[Gh_AN];
+        for (i=0; i<Spe_Total_NO[Cwan]; i++){
+          for (j=0; j<Spe_Total_NO[Hwan]; j++){
+
+            double r0 = H[0][Mc_AN][h_AN][i][j]    - HisH1[0][0][Mc_AN][h_AN][i][j];
+            double r1 = H[1][Mc_AN][h_AN][i][j]    - HisH1[0][1][Mc_AN][h_AN][i][j];
+            double r2 = H[2][Mc_AN][h_AN][i][j]    - HisH1[0][2][Mc_AN][h_AN][i][j];
+            double r3 = H[3][Mc_AN][h_AN][i][j]    - HisH1[0][3][Mc_AN][h_AN][i][j];
+            double s0 = iHNL[0][Mc_AN][h_AN][i][j] - HisH2[0][0][Mc_AN][h_AN][i][j];
+            double s1 = iHNL[1][Mc_AN][h_AN][i][j] - HisH2[0][1][Mc_AN][h_AN][i][j];
+            double s2 = iHNL[2][Mc_AN][h_AN][i][j] - HisH2[0][2][Mc_AN][h_AN][i][j];
+
+            ResidualH1[0][0][Mc_AN][h_AN][i][j] = r0;
+            ResidualH1[0][1][Mc_AN][h_AN][i][j] = r1;
+            ResidualH1[0][2][Mc_AN][h_AN][i][j] = r2;
+            ResidualH1[0][3][Mc_AN][h_AN][i][j] = r3;
+            ResidualH2[0][0][Mc_AN][h_AN][i][j] = s0;
+            ResidualH2[0][1][Mc_AN][h_AN][i][j] = s1;
+            ResidualH2[0][2][Mc_AN][h_AN][i][j] = s2;
+
+            if (dst != NULL){
+              dst[k  ] = r0;
+              dst[k+1] = r1;
+              dst[k+2] = r2;
+              dst[k+3] = r3;
+              dst[k+4] = s0;
+              dst[k+5] = s1;
+              dst[k+6] = s2;
+            }
+            k += 7;
+          }
+        }
+      }
+    }
+
+  }
+  else{
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+      size_t plane = (size_t)spin*MixH_gpu.L_plane;
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j) schedule(static)
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+        size_t k = plane + MixH_gpu.atom_off[Mc_AN];
+        Gc_AN = M2G[Mc_AN];
+        Cwan = WhatSpecies[Gc_AN];
+        for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+          Gh_AN = natn[Gc_AN][h_AN];
+          Hwan = WhatSpecies[Gh_AN];
+          for (i=0; i<Spe_Total_NO[Cwan]; i++){
+            for (j=0; j<Spe_Total_NO[Hwan]; j++){
+              double r = H[spin][Mc_AN][h_AN][i][j] - HisH1[0][spin][Mc_AN][h_AN][i][j];
+              ResidualH1[0][spin][Mc_AN][h_AN][i][j] = r;
+              if (dst != NULL) dst[k] = r;
+              k++;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/* pack the host jagged residual slot m into a flat buffer (seeding) */
+static void MixH_PackResidualSlot(int m, double *dst)
+{
+  int Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,spin;
+
+  if (SpinP_switch==3){
+
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j) schedule(static)
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      size_t k = MixH_gpu.atom_off[Mc_AN];
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+        Gh_AN = natn[Gc_AN][h_AN];
+        Hwan = WhatSpecies[Gh_AN];
+        for (i=0; i<Spe_Total_NO[Cwan]; i++){
+          for (j=0; j<Spe_Total_NO[Hwan]; j++){
+            dst[k  ] = ResidualH1[m][0][Mc_AN][h_AN][i][j];
+            dst[k+1] = ResidualH1[m][1][Mc_AN][h_AN][i][j];
+            dst[k+2] = ResidualH1[m][2][Mc_AN][h_AN][i][j];
+            dst[k+3] = ResidualH1[m][3][Mc_AN][h_AN][i][j];
+            dst[k+4] = ResidualH2[m][0][Mc_AN][h_AN][i][j];
+            dst[k+5] = ResidualH2[m][1][Mc_AN][h_AN][i][j];
+            dst[k+6] = ResidualH2[m][2][Mc_AN][h_AN][i][j];
+            k += 7;
+          }
+        }
+      }
+    }
+
+  }
+  else{
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+      size_t plane = (size_t)spin*MixH_gpu.L_plane;
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j) schedule(static)
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+        size_t k = plane + MixH_gpu.atom_off[Mc_AN];
+        Gc_AN = M2G[Mc_AN];
+        Cwan = WhatSpecies[Gc_AN];
+        for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+          Gh_AN = natn[Gc_AN][h_AN];
+          Hwan = WhatSpecies[Gh_AN];
+          for (i=0; i<Spe_Total_NO[Cwan]; i++){
+            for (j=0; j<Spe_Total_NO[Hwan]; j++){
+              dst[k] = ResidualH1[m][spin][Mc_AN][h_AN][i][j];
+              k++;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/* pack the metric weights (metric[Mc_AN][i], identical for every spin
+   plane / component) into the flat layout */
+static void MixH_PackMetricW(double **metric, double *dst)
+{
+  int Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,spin;
+  int ncomp = (SpinP_switch==3) ? 7 : 1;
+  int nsp = (SpinP_switch==3) ? 1 : SpinP_switch+1;
+
+  for (spin=0; spin<nsp; spin++){
+    size_t plane = (size_t)spin*MixH_gpu.L_plane;
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j) schedule(static)
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      size_t k = plane + MixH_gpu.atom_off[Mc_AN];
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+        Gh_AN = natn[Gc_AN][h_AN];
+        Hwan = WhatSpecies[Gh_AN];
+        for (i=0; i<Spe_Total_NO[Cwan]; i++){
+          double w = metric[Mc_AN][i];
+          for (j=0; j<Spe_Total_NO[Hwan]; j++){
+            int c;
+            for (c=0; c<ncomp; c++) dst[k+c] = w;
+            k += ncomp;
+          }
+        }
+      }
+    }
+  }
+}
+
+/* H = sum_m coes[m+1]*HisH1[m] + alpha*r  (and iHNL analogously for NC) */
+static void MixH_MixFromHistory(int dim, double alpha, const double *coes,
+                                const double *r_flat)
+{
+  int Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,spin,m;
+
+  if (SpinP_switch==3){
+
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,m) schedule(static)
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      size_t k = MixH_gpu.atom_off[Mc_AN];
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+        Gh_AN = natn[Gc_AN][h_AN];
+        Hwan = WhatSpecies[Gh_AN];
+        for (i=0; i<Spe_Total_NO[Cwan]; i++){
+          for (j=0; j<Spe_Total_NO[Hwan]; j++){
+
+            double h0=0.0,h1=0.0,h2=0.0,h3=0.0,g0=0.0,g1=0.0,g2=0.0;
+            for (m=0; m<dim; m++){
+              double c = coes[m+1];
+              h0 += HisH1[m][0][Mc_AN][h_AN][i][j]*c;
+              h1 += HisH1[m][1][Mc_AN][h_AN][i][j]*c;
+              h2 += HisH1[m][2][Mc_AN][h_AN][i][j]*c;
+              h3 += HisH1[m][3][Mc_AN][h_AN][i][j]*c;
+              g0 += HisH2[m][0][Mc_AN][h_AN][i][j]*c;
+              g1 += HisH2[m][1][Mc_AN][h_AN][i][j]*c;
+              g2 += HisH2[m][2][Mc_AN][h_AN][i][j]*c;
+            }
+
+            H[0][Mc_AN][h_AN][i][j] = h0 + alpha*r_flat[k  ];
+            H[1][Mc_AN][h_AN][i][j] = h1 + alpha*r_flat[k+1];
+            H[2][Mc_AN][h_AN][i][j] = h2 + alpha*r_flat[k+2];
+            H[3][Mc_AN][h_AN][i][j] = h3 + alpha*r_flat[k+3];
+            iHNL[0][Mc_AN][h_AN][i][j] = g0 + alpha*r_flat[k+4];
+            iHNL[1][Mc_AN][h_AN][i][j] = g1 + alpha*r_flat[k+5];
+            iHNL[2][Mc_AN][h_AN][i][j] = g2 + alpha*r_flat[k+6];
+            k += 7;
+          }
+        }
+      }
+    }
+
+  }
+  else{
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+      size_t plane = (size_t)spin*MixH_gpu.L_plane;
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,m) schedule(static)
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+        size_t k = plane + MixH_gpu.atom_off[Mc_AN];
+        Gc_AN = M2G[Mc_AN];
+        Cwan = WhatSpecies[Gc_AN];
+        for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+          Gh_AN = natn[Gc_AN][h_AN];
+          Hwan = WhatSpecies[Gh_AN];
+          for (i=0; i<Spe_Total_NO[Cwan]; i++){
+            for (j=0; j<Spe_Total_NO[Hwan]; j++){
+              double h = 0.0;
+              for (m=0; m<dim; m++){
+                h += HisH1[m][spin][Mc_AN][h_AN][i][j]*coes[m+1];
+              }
+              H[spin][Mc_AN][h_AN][i][j] = h + alpha*r_flat[k];
+              k++;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/* save the mixed Hamiltonian into the (already rotated) history slot 0 */
+static void MixH_SaveHistory0(void)
+{
+  int Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,spin;
+
+  if (SpinP_switch==3){
+
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j) schedule(static)
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+        Gh_AN = natn[Gc_AN][h_AN];
+        Hwan = WhatSpecies[Gh_AN];
+        for (i=0; i<Spe_Total_NO[Cwan]; i++){
+          for (j=0; j<Spe_Total_NO[Hwan]; j++){
+            HisH1[0][0][Mc_AN][h_AN][i][j] = H[0][Mc_AN][h_AN][i][j];
+            HisH1[0][1][Mc_AN][h_AN][i][j] = H[1][Mc_AN][h_AN][i][j];
+            HisH1[0][2][Mc_AN][h_AN][i][j] = H[2][Mc_AN][h_AN][i][j];
+            HisH1[0][3][Mc_AN][h_AN][i][j] = H[3][Mc_AN][h_AN][i][j];
+            HisH2[0][0][Mc_AN][h_AN][i][j] = iHNL[0][Mc_AN][h_AN][i][j];
+            HisH2[0][1][Mc_AN][h_AN][i][j] = iHNL[1][Mc_AN][h_AN][i][j];
+            HisH2[0][2][Mc_AN][h_AN][i][j] = iHNL[2][Mc_AN][h_AN][i][j];
+          }
+        }
+      }
+    }
+
+  }
+  else{
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j) schedule(static)
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+        Gc_AN = M2G[Mc_AN];
+        Cwan = WhatSpecies[Gc_AN];
+        for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+          Gh_AN = natn[Gc_AN][h_AN];
+          Hwan = WhatSpecies[Gh_AN];
+          for (i=0; i<Spe_Total_NO[Cwan]; i++){
+            for (j=0; j<Spe_Total_NO[Hwan]; j++){
+              HisH1[0][spin][Mc_AN][h_AN][i][j] = H[spin][Mc_AN][h_AN][i][j];
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/* Collective preflight: rebuild the layout and the device arena when the
+   fingerprint changed, account for every rank sharing this device, and
+   agree on one verdict over mpi_comm_level1. */
+static int MixH_GpuPreflight(int MD_iter, int myid)
+{
+  const char *force_env = getenv("OPENMX_MIXH_GPU");
+  int forced_on = (force_env != NULL && atoi(force_env) == 1);
+  int forced_off = (force_env != NULL && atoi(force_env) == 0);
+  int forced_inc = (force_env != NULL && atoi(force_env) == 2);
+  int nslot = Num_Mixing_pDM;
+  int fit, my_fit;
+  size_t free_b = 0U, total_b = 0U;
+
+  if (MixH_gpu.verdict != -1 &&
+      MixH_gpu.fp_md_iter == MD_iter &&
+      MixH_gpu.fp_matomnum == Matomnum &&
+      MixH_gpu.fp_spinp == SpinP_switch &&
+      MixH_gpu.fp_nslot == nslot){
+    return MixH_gpu.verdict;
+  }
+
+  Mixing_H_Release_GPU();
+  MixH_ComputeLayout();
+  MixH_gpu.nslot = nslot;
+  MixH_gpu.fp_md_iter = MD_iter;
+  MixH_gpu.fp_matomnum = Matomnum;
+  MixH_gpu.fp_spinp = SpinP_switch;
+  MixH_gpu.fp_nslot = nslot;
+  MixH_gpu.fp_L = MixH_gpu.L;
+
+  if (forced_off){
+    MixH_gpu.verdict = 0;
+    return 0;
+  }
+
+  if (forced_inc){
+    MixH_IncBuild(nslot);
+    if (getenv("OPENMX_MIXH_GPU_VERBOSE") != NULL && myid == Host_ID){
+      printf("<Mixing_H> incremental CPU RMM-DIISH mixing forced by OPENMX_MIXH_GPU=2.\n");
+      fflush(stdout);
+    }
+    MixH_gpu.verdict = 2;
+    return 2;
+  }
+
+  {
+    size_t Lb = MixH_gpu.L*sizeof(double);
+    size_t npair_cap = (size_t)nslot*((size_t)nslot+1)/2;
+    MixH_gpu.o_ring = 0U;
+    MixH_gpu.o_w    = MixH_Align512((size_t)nslot*Lb);
+    MixH_gpu.o_r    = MixH_Align512(MixH_gpu.o_w + Lb);
+    MixH_gpu.o_pair = MixH_Align512(MixH_gpu.o_r + Lb);
+    MixH_gpu.total_bytes = MixH_Align512(MixH_gpu.o_pair + npair_cap*sizeof(double));
+  }
+
+  /* Quiesce and measure, then account per shared device.  Deliberately NO
+     acc_clear_freelists() here: this preflight runs mid-cycle (first Pulay
+     iteration) and draining the OpenACC pool at that point changes the
+     allocation dynamics of the other resident GPU modules on a nearly full
+     device.  Pool blocks therefore show up as "used", which only makes the
+     estimate conservative. */
+  acc_wait_all();
+  cudaDeviceSynchronize();
+  MPI_Barrier(mpi_comm_level1);
+  cudaMemGetInfo(&free_b, &total_b);
+
+  {
+    MPI_Comm node_comm = MPI_COMM_NULL, device_comm = MPI_COMM_NULL;
+    int cuda_device = -1;
+    unsigned long long my_bytes = (unsigned long long)MixH_gpu.total_bytes;
+    unsigned long long group_bytes = my_bytes;
+    unsigned long long my_free = (unsigned long long)free_b;
+    unsigned long long group_free = my_free;
+    unsigned long long reserve;
+
+    {
+      const char *rsv = getenv("OPENMX_MIXH_GPU_RESERVE_MB");
+      if (rsv != NULL && 0 < atoi(rsv)) {
+        reserve = (unsigned long long)atoi(rsv)*1024ULL*1024ULL;
+      }
+      else {
+        reserve = (unsigned long long)(total_b/10U);
+        if (reserve < 1536ULL*1024ULL*1024ULL) reserve = 1536ULL*1024ULL*1024ULL;
+      }
+    }
+
+    MPI_Comm_split_type(mpi_comm_level1, MPI_COMM_TYPE_SHARED, 0,
+                        MPI_INFO_NULL, &node_comm);
+    if (cudaGetDevice(&cuda_device) != cudaSuccess) cuda_device = -1;
+    MPI_Comm_split(node_comm, cuda_device, 0, &device_comm);
+    MPI_Comm_free(&node_comm);
+    if (device_comm != MPI_COMM_NULL){
+      MPI_Allreduce(&my_bytes, &group_bytes, 1, MPI_UNSIGNED_LONG_LONG, MPI_SUM, device_comm);
+      MPI_Allreduce(&my_free, &group_free, 1, MPI_UNSIGNED_LONG_LONG, MPI_MIN, device_comm);
+      MPI_Comm_free(&device_comm);
+    }
+
+    my_fit = (cuda_device >= 0 &&
+              group_bytes + reserve <= group_free);
+    if (forced_on) my_fit = (cuda_device >= 0);
+
+    MPI_Allreduce(&my_fit, &fit, 1, MPI_INT, MPI_MIN, mpi_comm_level1);
+
+    if (fit){
+      int ok_local, ok;
+      cudaError_t err = MixH_TryDeviceMalloc((void**)&MixH_gpu.base, MixH_gpu.total_bytes);
+      ok_local = (err == cudaSuccess);
+      MPI_Allreduce(&ok_local, &ok, 1, MPI_INT, MPI_MIN, mpi_comm_level1);
+      if (!ok){
+        if (forced_on){
+          char msg[512];
+          snprintf(msg, sizeof(msg),
+                   "Mixing_H.c: OPENMX_MIXH_GPU=1 was set but the %.1f MiB mixing-history arena could not be allocated on the GPU.",
+                   (double)MixH_gpu.total_bytes/(1024.0*1024.0));
+          MixH_AbortWithMessage(msg);
+        }
+        if (MixH_gpu.base != NULL) cudaFree(MixH_gpu.base);
+        MixH_gpu.base = NULL;
+        fit = 0;
+      }
+    }
+
+    if (!fit && !MixH_gpu.announced){
+      unsigned long long diag_bytes = group_bytes, diag_free = group_free;
+      MPI_Allreduce(&group_bytes, &diag_bytes, 1, MPI_UNSIGNED_LONG_LONG, MPI_MAX, mpi_comm_level1);
+      MPI_Allreduce(&group_free, &diag_free, 1, MPI_UNSIGNED_LONG_LONG, MPI_MIN, mpi_comm_level1);
+      if (myid == Host_ID){
+        printf("<Mixing_H> The RMM-DIISH residual history (%.1f MiB per device) does not fit on the GPU (%.1f MiB free); using the incremental CPU Pulay mixing instead. OPENMX_MIXH_GPU=0 restores the legacy CPU mixing, OPENMX_MIXH_GPU=1 forces the GPU path.\n",
+               (double)diag_bytes/(1024.0*1024.0),
+               (double)diag_free/(1024.0*1024.0));
+        fflush(stdout);
+      }
+      MixH_gpu.announced = 1;
+    }
+  }
+
+  if (fit){
+    MixH_gpu.perm = (int*)malloc(sizeof(int)*(size_t)nslot);
+    MixH_gpu.h_flat = (double*)malloc(sizeof(double)*((MixH_gpu.L==0U)?1U:MixH_gpu.L));
+    MixH_gpu.h_r = (double*)malloc(sizeof(double)*((MixH_gpu.L==0U)?1U:MixH_gpu.L));
+    if (MixH_gpu.perm == NULL || MixH_gpu.h_flat == NULL || MixH_gpu.h_r == NULL){
+      MixH_AbortWithMessage("Mixing_H.c: failed to allocate the GPU staging buffers.");
+    }
+    if (getenv("OPENMX_MIXH_GPU_VERBOSE") != NULL && myid == Host_ID){
+      printf("<Mixing_H> GPU RMM-DIISH mixing engaged (%d slots x %.1f MiB per rank).\n",
+             nslot, (double)MixH_gpu.L*sizeof(double)/(1024.0*1024.0));
+      fflush(stdout);
+    }
+    MixH_gpu.verdict = 1;
+    return 1;
+  }
+
+  MixH_IncBuild(nslot);
+  MixH_gpu.verdict = 2;
+  return 2;
+}
+
+/* weighted Gram triangle of the logical residual slots 0..dim-1 */
+static void MixH_GramDevice(int dim, int npair, const int *pm, const int *pn,
+                            const int *pslot, double *tri_out)
+{
+  double *ring = (double*)(MixH_gpu.base + MixH_gpu.o_ring);
+  double *w    = (double*)(MixH_gpu.base + MixH_gpu.o_w);
+  double *ap   = (double*)(MixH_gpu.base + MixH_gpu.o_pair);
+  const long Lk = (long)MixH_gpu.L;
+  const size_t Ls = MixH_gpu.L;
+  int p;
+
+  if (0 < Lk){
+#pragma acc parallel loop gang deviceptr(ring,w,ap) copyin(pm[0:npair],pn[0:npair],pslot[0:dim])
+    for (p=0; p<npair; p++){
+      const double *Rm = ring + (size_t)pslot[pm[p]]*Ls;
+      const double *Rn = ring + (size_t)pslot[pn[p]]*Ls;
+      double s = 0.0;
+      long k;
+#pragma acc loop vector reduction(+:s)
+      for (k=0; k<Lk; k++) s += w[k]*Rm[k]*Rn[k];
+      ap[p] = s;
+    }
+    acc_memcpy_from_device(tri_out, ap, sizeof(double)*(size_t)npair);
+  }
+  else{
+    for (p=0; p<npair; p++) tri_out[p] = 0.0;
+  }
+}
+
+/* optimum residual r = sum_m coes[m+1]*R[m] on the device */
+static void MixH_OptResidualDevice(int dim, const int *pslot, const double *cshift)
+{
+  double *ring = (double*)(MixH_gpu.base + MixH_gpu.o_ring);
+  double *r    = (double*)(MixH_gpu.base + MixH_gpu.o_r);
+  const long Lk = (long)MixH_gpu.L;
+  const size_t Ls = MixH_gpu.L;
+  long k;
+
+  if (Lk <= 0) return;
+
+#pragma acc parallel loop gang vector deviceptr(ring,r) copyin(pslot[0:dim],cshift[0:dim])
+  for (k=0; k<Lk; k++){
+    double s = 0.0;
+    int m;
+    for (m=0; m<dim; m++) s += cshift[m]*ring[(size_t)pslot[m]*Ls + (size_t)k];
+    r[k] = s;
+  }
+  acc_memcpy_from_device(MixH_gpu.h_r, r, sizeof(double)*(size_t)Lk);
+}
+
+/*******************************************************************************
+  Tier-B fallback: incremental block-Gram Pulay mixing on the CPU.
+
+  When the device-resident history does not fit (or OPENMX_MIXH_GPU=2), the
+  residual Gram matrix is decomposed exactly as
+
+      A[m][n] = sum_blk  w_blk * S_blk[m][n],     blk = (Mc_AN, i)
+
+  where S_blk[m][n] is the metric-independent partial Gram of the (Mc_AN,i)
+  row block.  Because the history "shift" is a pointer rotation, the old
+  S_blk entries stay bitwise valid across iterations and only the new row
+  S_blk[0][n] (n = 0..dim-1) has to be computed: O(dim*L) work instead of
+  the legacy O(dim^2*L), while the changing metric is re-applied exactly
+  every iteration.  A broken continuity (SCF rewind, new cycle) triggers a
+  full O(dim^2*L) re-seed of S.
+*******************************************************************************/
+
+typedef struct {
+  int      valid;
+  int      last_scf_iter;
+  int      nslot;
+  int      nblk;         /* sum over local atoms of Spe_Total_NO */
+  int     *blk_base;     /* [Matomnum+1]: first block id of each atom */
+  int     *perm;         /* logical slot -> physical slot */
+  double  *S;            /* [nslot][nslot][nblk], physical slot indexing */
+  double  *wblk;         /* [nblk] metric weights of this iteration */
+} MixH_IncState;
+
+static MixH_IncState MixH_inc = { 0, -1, 0, 0, NULL, NULL, NULL, NULL };
+
+static void MixH_IncFree(void)
+{
+  free(MixH_inc.blk_base);
+  free(MixH_inc.perm);
+  free(MixH_inc.S);
+  free(MixH_inc.wblk);
+  MixH_inc.blk_base = NULL;
+  MixH_inc.perm = NULL;
+  MixH_inc.S = NULL;
+  MixH_inc.wblk = NULL;
+  MixH_inc.valid = 0;
+  MixH_inc.last_scf_iter = -1;
+  MixH_inc.nslot = 0;
+  MixH_inc.nblk = 0;
+}
+
+static void MixH_IncBuild(int nslot)
+{
+  int Mc_AN,Gc_AN,Cwan,nblk;
+
+  MixH_IncFree();
+
+  nblk = 0;
+  MixH_inc.blk_base = (int*)malloc(sizeof(int)*(size_t)(Matomnum+1));
+  if (MixH_inc.blk_base == NULL){
+    MixH_AbortWithMessage("Mixing_H.c: failed to allocate the block base table.");
+  }
+  MixH_inc.blk_base[0] = 0;
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = M2G[Mc_AN];
+    Cwan = WhatSpecies[Gc_AN];
+    MixH_inc.blk_base[Mc_AN] = nblk;
+    nblk += Spe_Total_NO[Cwan];
+  }
+  MixH_inc.nblk = nblk;
+  MixH_inc.nslot = nslot;
+
+  MixH_inc.perm = (int*)malloc(sizeof(int)*(size_t)nslot);
+  MixH_inc.S = (double*)malloc(sizeof(double)*
+               ((size_t)nslot*(size_t)nslot*(size_t)((nblk==0)?1:nblk)));
+  MixH_inc.wblk = (double*)malloc(sizeof(double)*(size_t)((nblk==0)?1:nblk));
+  if (MixH_inc.perm == NULL || MixH_inc.S == NULL || MixH_inc.wblk == NULL){
+    MixH_AbortWithMessage("Mixing_H.c: failed to allocate the block Gram cache.");
+  }
+}
+
+/* compute the block Gram row of logical slot mlog against logical slots
+   0..nmax and store it (symmetrically) under physical indexing */
+static void MixH_IncComputeRow(int mlog, int nmax)
+{
+  int Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,n,spin;
+  const int nslot = MixH_inc.nslot;
+  const int nblk = MixH_inc.nblk;
+  const int pm = MixH_inc.perm[mlog];
+
+#pragma omp parallel private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,n,spin)
+  {
+    double *acc = (double*)malloc(sizeof(double)*(size_t)(nmax+1));
+
+#pragma omp for schedule(static)
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      int blk0 = MixH_inc.blk_base[Mc_AN];
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+
+      for (i=0; i<Spe_Total_NO[Cwan]; i++){
+        int blk = blk0 + i;
+
+        for (n=0; n<=nmax; n++) acc[n] = 0.0;
+
+        if (SpinP_switch==3){
+
+          for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+            int jan;
+            Gh_AN = natn[Gc_AN][h_AN];
+            Hwan = WhatSpecies[Gh_AN];
+            jan = Spe_Total_NO[Hwan];
+
+            {
+              const double *p10 = ResidualH1[mlog][0][Mc_AN][h_AN][i];
+              const double *p11 = ResidualH1[mlog][1][Mc_AN][h_AN][i];
+              const double *p12 = ResidualH1[mlog][2][Mc_AN][h_AN][i];
+              const double *p13 = ResidualH1[mlog][3][Mc_AN][h_AN][i];
+              const double *p20 = ResidualH2[mlog][0][Mc_AN][h_AN][i];
+              const double *p21 = ResidualH2[mlog][1][Mc_AN][h_AN][i];
+              const double *p22 = ResidualH2[mlog][2][Mc_AN][h_AN][i];
+
+              for (n=0; n<=nmax; n++){
+                const double *q10 = ResidualH1[n][0][Mc_AN][h_AN][i];
+                const double *q11 = ResidualH1[n][1][Mc_AN][h_AN][i];
+                const double *q12 = ResidualH1[n][2][Mc_AN][h_AN][i];
+                const double *q13 = ResidualH1[n][3][Mc_AN][h_AN][i];
+                const double *q20 = ResidualH2[n][0][Mc_AN][h_AN][i];
+                const double *q21 = ResidualH2[n][1][Mc_AN][h_AN][i];
+                const double *q22 = ResidualH2[n][2][Mc_AN][h_AN][i];
+                double s = 0.0;
+                for (j=0; j<jan; j++){
+                  s += p10[j]*q10[j] + p11[j]*q11[j] + p12[j]*q12[j] + p13[j]*q13[j]
+                     + p20[j]*q20[j] + p21[j]*q21[j] + p22[j]*q22[j];
+                }
+                acc[n] += s;
+              }
+            }
+          }
+
+        }
+        else{
+
+          for (spin=0; spin<=SpinP_switch; spin++){
+            for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+              int jan;
+              Gh_AN = natn[Gc_AN][h_AN];
+              Hwan = WhatSpecies[Gh_AN];
+              jan = Spe_Total_NO[Hwan];
+
+              {
+                const double *p = ResidualH1[mlog][spin][Mc_AN][h_AN][i];
+                for (n=0; n<=nmax; n++){
+                  const double *q = ResidualH1[n][spin][Mc_AN][h_AN][i];
+                  double s = 0.0;
+                  for (j=0; j<jan; j++) s += p[j]*q[j];
+                  acc[n] += s;
+                }
+              }
+            }
+          }
+        }
+
+        for (n=0; n<=nmax; n++){
+          int pn = MixH_inc.perm[n];
+          MixH_inc.S[((size_t)pm*(size_t)nslot + (size_t)pn)*(size_t)nblk + (size_t)blk] = acc[n];
+          MixH_inc.S[((size_t)pn*(size_t)nslot + (size_t)pm)*(size_t)nblk + (size_t)blk] = acc[n];
+        }
+      }
+    }
+
+    free(acc);
+  }
+}
+
+/* fused optimum-residual + Hamiltonian mixing sweep:
+   H = sum_m coes[m+1]*HisH1[m] + alpha * sum_m coes[m+1]*ResidualH1[m] */
+static void MixH_IncMixSweep(int dim, double alpha, const double *coes)
+{
+  int Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,m,spin;
+
+  if (SpinP_switch==3){
+
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,m) schedule(static)
+    for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+        Gh_AN = natn[Gc_AN][h_AN];
+        Hwan = WhatSpecies[Gh_AN];
+        for (i=0; i<Spe_Total_NO[Cwan]; i++){
+          for (j=0; j<Spe_Total_NO[Hwan]; j++){
+
+            double r10=0.0,r11=0.0,r12=0.0,r13=0.0,r20=0.0,r21=0.0,r22=0.0;
+            double h10=0.0,h11=0.0,h12=0.0,h13=0.0,h20=0.0,h21=0.0,h22=0.0;
+
+            for (m=0; m<dim; m++){
+              double c = coes[m+1];
+              r10 += ResidualH1[m][0][Mc_AN][h_AN][i][j]*c;
+              r11 += ResidualH1[m][1][Mc_AN][h_AN][i][j]*c;
+              r12 += ResidualH1[m][2][Mc_AN][h_AN][i][j]*c;
+              r13 += ResidualH1[m][3][Mc_AN][h_AN][i][j]*c;
+              r20 += ResidualH2[m][0][Mc_AN][h_AN][i][j]*c;
+              r21 += ResidualH2[m][1][Mc_AN][h_AN][i][j]*c;
+              r22 += ResidualH2[m][2][Mc_AN][h_AN][i][j]*c;
+              h10 += HisH1[m][0][Mc_AN][h_AN][i][j]*c;
+              h11 += HisH1[m][1][Mc_AN][h_AN][i][j]*c;
+              h12 += HisH1[m][2][Mc_AN][h_AN][i][j]*c;
+              h13 += HisH1[m][3][Mc_AN][h_AN][i][j]*c;
+              h20 += HisH2[m][0][Mc_AN][h_AN][i][j]*c;
+              h21 += HisH2[m][1][Mc_AN][h_AN][i][j]*c;
+              h22 += HisH2[m][2][Mc_AN][h_AN][i][j]*c;
+            }
+
+            H[0][Mc_AN][h_AN][i][j] = h10 + alpha*r10;
+            H[1][Mc_AN][h_AN][i][j] = h11 + alpha*r11;
+            H[2][Mc_AN][h_AN][i][j] = h12 + alpha*r12;
+            H[3][Mc_AN][h_AN][i][j] = h13 + alpha*r13;
+            iHNL[0][Mc_AN][h_AN][i][j] = h20 + alpha*r20;
+            iHNL[1][Mc_AN][h_AN][i][j] = h21 + alpha*r21;
+            iHNL[2][Mc_AN][h_AN][i][j] = h22 + alpha*r22;
+          }
+        }
+      }
+    }
+
+  }
+  else{
+
+    for (spin=0; spin<=SpinP_switch; spin++){
+#pragma omp parallel for private(Mc_AN,Gc_AN,Cwan,h_AN,Gh_AN,Hwan,i,j,m) schedule(static)
+      for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+        Gc_AN = M2G[Mc_AN];
+        Cwan = WhatSpecies[Gc_AN];
+        for (h_AN=0; h_AN<=FNAN[Gc_AN]; h_AN++){
+          Gh_AN = natn[Gc_AN][h_AN];
+          Hwan = WhatSpecies[Gh_AN];
+          for (i=0; i<Spe_Total_NO[Cwan]; i++){
+            for (j=0; j<Spe_Total_NO[Hwan]; j++){
+              double r = 0.0;
+              double h = 0.0;
+              for (m=0; m<dim; m++){
+                double c = coes[m+1];
+                r += ResidualH1[m][spin][Mc_AN][h_AN][i][j]*c;
+                h += HisH1[m][spin][Mc_AN][h_AN][i][j]*c;
+              }
+              H[spin][Mc_AN][h_AN][i][j] = h + alpha*r;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+static void Pulay_Mixing_H_Inc(int MD_iter, int SCF_iter, int SCF_iter0, int dim)
+{
+  int Mc_AN,Gc_AN,Cwan,i,m,n,flag_nan;
+  int seed;
+  double alpha,d;
+  double **A,**IA,*coes,**metric;
+  char nanchar[300];
+
+  /* small host work arrays (same shapes as the legacy path) */
+
+  coes = (double*)malloc(sizeof(double)*List_YOUSO[39]);
+
+  A = (double**)malloc(sizeof(double*)*List_YOUSO[39]);
+  for (i=0; i<List_YOUSO[39]; i++){
+    A[i] = (double*)malloc(sizeof(double)*List_YOUSO[39]);
+  }
+
+  IA = (double**)malloc(sizeof(double*)*List_YOUSO[39]);
+  for (i=0; i<List_YOUSO[39]; i++){
+    IA[i] = (double*)malloc(sizeof(double)*List_YOUSO[39]);
+  }
+
+  metric = (double**)malloc(sizeof(double*)*(Matomnum+1));
+  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+    int tno;
+    if (Mc_AN==0){
+      tno = 1;
+    }
+    else{
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      tno = Spe_Total_NO[Cwan];
+    }
+    metric[Mc_AN] = (double*)malloc(sizeof(double)*tno);
+  }
+
+  /* metric used for the norm calculations (identical to the legacy path) */
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = M2G[Mc_AN];
+    Cwan = WhatSpecies[Gc_AN];
+    for (i=0; i<Spe_Total_NO[Cwan]; i++){
+      d = fabs(HisH1[0][0][Mc_AN][0][i][i]-ChemP);
+      metric[Mc_AN][i] = 5.0/(d*d+5.0);
+      MixH_inc.wblk[MixH_inc.blk_base[Mc_AN]+i] = metric[Mc_AN][i];
+    }
+  }
+
+  /* residual shift (pointer rotation) + fresh slot 0, then the block-Gram
+     ring update: only the new row on continuity, everything on a seed */
+
+  seed = !(MixH_inc.valid && MixH_inc.last_scf_iter+1 == SCF_iter);
+
+  MixH_RotatePtr6(ResidualH1, dim);
+  if (SpinP_switch==3) MixH_RotatePtr6(ResidualH2, dim);
+  MixH_Residual0Fused(NULL);
+
+  if (seed){
+    for (m=0; m<MixH_inc.nslot; m++) MixH_inc.perm[m] = m;
+    for (m=0; m<dim; m++) MixH_IncComputeRow(m, m);
+    MixH_inc.valid = 1;
+  }
+  else{
+    int last = MixH_inc.perm[MixH_inc.nslot-1];
+    for (m=MixH_inc.nslot-1; 0<m; m--) MixH_inc.perm[m] = MixH_inc.perm[m-1];
+    MixH_inc.perm[0] = last;
+    MixH_IncComputeRow(0, dim-1);
+  }
+  MixH_inc.last_scf_iter = SCF_iter;
+
+  /* assemble the metric-weighted Gram triangle and reduce it once */
+
+  {
+    int npair = dim*(dim+1)/2;
+    int *pmv = (int*)malloc(sizeof(int)*(size_t)npair);
+    int *pnv = (int*)malloc(sizeof(int)*(size_t)npair);
+    double *tri_my = (double*)malloc(sizeof(double)*(size_t)npair);
+    double *tri = (double*)malloc(sizeof(double)*(size_t)npair);
+    int p = 0;
+
+    if (pmv==NULL || pnv==NULL || tri_my==NULL || tri==NULL){
+      MixH_AbortWithMessage("Mixing_H.c: failed to allocate the Gram pair tables.");
+    }
+
+    for (m=0; m<dim; m++){
+      for (n=0; n<=m; n++){
+        pmv[p] = m;
+        pnv[p] = n;
+        p++;
+      }
+    }
+
+#pragma omp parallel for schedule(static)
+    for (p=0; p<npair; p++){
+      const int nblk = MixH_inc.nblk;
+      const double *Sv = MixH_inc.S
+        + ((size_t)MixH_inc.perm[pmv[p]]*(size_t)MixH_inc.nslot
+           + (size_t)MixH_inc.perm[pnv[p]])*(size_t)nblk;
+      double s = 0.0;
+      int blk;
+      for (blk=0; blk<nblk; blk++) s += MixH_inc.wblk[blk]*Sv[blk];
+      tri_my[p] = s;
+    }
+
+    MPI_Allreduce(tri_my, tri, npair, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+    for (p=0; p<npair; p++){
+      A[pmv[p]][pnv[p]] = tri[p];
+      A[pnv[p]][pmv[p]] = tri[p];
+    }
+
+    free(tri);
+    free(tri_my);
+    free(pnv);
+    free(pmv);
+  }
+
+  NormRD[0] = A[0][0]/(double)atomnum;
+
+  for (m=1; m<=dim; m++){
+    A[m-1][dim] = -1.0;
+    A[dim][m-1] = -1.0;
+  }
+  A[dim][dim] = 0.0;
+
+  Inverse(dim,A,IA);
+
+  for (m=1; m<=dim; m++){
+    coes[m] = -IA[m-1][dim];
+  }
+
+  /* check "nan", "NaN", "inf" or "Inf" (identical to the legacy path) */
+
+  flag_nan = 0;
+  for (m=1; m<=dim; m++){
+
+    sprintf(nanchar,"%8.4f",coes[m]);
+    if (   strstr(nanchar,"nan")!=NULL || strstr(nanchar,"NaN")!=NULL
+	|| strstr(nanchar,"inf")!=NULL || strstr(nanchar,"Inf")!=NULL){
+
+      flag_nan = 1;
+    }
+  }
+
+  if (flag_nan==1){
+    for (m=1; m<=dim; m++){
+      coes[m] = 0.0;
+    }
+    coes[1] = 0.05;
+    coes[2] = 0.95;
+  }
+
+  if (1.0e-1<=NormRD[0])
+    alpha = 0.5;
+  else if (1.0e-2<=NormRD[0] && NormRD[0]<1.0e-1)
+    alpha = 0.6;
+  else if (1.0e-3<=NormRD[0] && NormRD[0]<1.0e-2)
+    alpha = 0.7;
+  else if (1.0e-4<=NormRD[0] && NormRD[0]<1.0e-3)
+    alpha = 0.8;
+  else
+    alpha = 1.0;
+
+  MixH_IncMixSweep(dim, alpha, coes);
+
+  /* Hamiltonian history shift (pointer rotation) and save of the mixed H */
+
+  MixH_RotatePtr6(HisH1, dim);
+  if (SpinP_switch==3) MixH_RotatePtr6(HisH2, dim);
+  MixH_SaveHistory0();
+
+  /* freeing of the host work arrays */
+
+  free(coes);
+
+  for (i=0; i<List_YOUSO[39]; i++){
+    free(A[i]);
+  }
+  free(A);
+
+  for (i=0; i<List_YOUSO[39]; i++){
+    free(IA[i]);
+  }
+  free(IA);
+
+  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+    free(metric[Mc_AN]);
+  }
+  free(metric);
+
+  (void)MD_iter;
+  (void)SCF_iter0;
+}
+
+static void Pulay_Mixing_H_GPU(int MD_iter, int SCF_iter, int SCF_iter0, int dim)
+{
+  int Mc_AN,Gc_AN,Cwan,i,m,n,flag_nan;
+  int seed;
+  double alpha,d;
+  double **A,**IA,*coes,**metric;
+  char nanchar[300];
+
+  /* allocation of the small host work arrays (same shapes as the CPU path) */
+
+  coes = (double*)malloc(sizeof(double)*List_YOUSO[39]);
+
+  A = (double**)malloc(sizeof(double*)*List_YOUSO[39]);
+  for (i=0; i<List_YOUSO[39]; i++){
+    A[i] = (double*)malloc(sizeof(double)*List_YOUSO[39]);
+  }
+
+  IA = (double**)malloc(sizeof(double*)*List_YOUSO[39]);
+  for (i=0; i<List_YOUSO[39]; i++){
+    IA[i] = (double*)malloc(sizeof(double)*List_YOUSO[39]);
+  }
+
+  metric = (double**)malloc(sizeof(double*)*(Matomnum+1));
+  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+    int tno;
+    if (Mc_AN==0){
+      tno = 1;
+    }
+    else{
+      Gc_AN = M2G[Mc_AN];
+      Cwan = WhatSpecies[Gc_AN];
+      tno = Spe_Total_NO[Cwan];
+    }
+    metric[Mc_AN] = (double*)malloc(sizeof(double)*tno);
+  }
+
+  /* metric used for the norm calculations (identical to the CPU path) */
+
+  for (Mc_AN=1; Mc_AN<=Matomnum; Mc_AN++){
+    Gc_AN = M2G[Mc_AN];
+    Cwan = WhatSpecies[Gc_AN];
+    for (i=0; i<Spe_Total_NO[Cwan]; i++){
+      d = fabs(HisH1[0][0][Mc_AN][0][i][i]-ChemP);
+      metric[Mc_AN][i] = 5.0/(d*d+5.0);
+    }
+  }
+
+  /* shift the residual history (pointer rotation == the CPU content shift)
+     and compute the fresh residual slot 0 on the host */
+
+  seed = !(MixH_gpu.valid && MixH_gpu.last_scf_iter+1 == SCF_iter);
+
+  MixH_RotatePtr6(ResidualH1, dim);
+  if (SpinP_switch==3) MixH_RotatePtr6(ResidualH2, dim);
+  MixH_Residual0Fused(MixH_gpu.h_flat);
+
+  /* bring the device ring up to date */
+
+  if (seed){
+    for (m=0; m<MixH_gpu.nslot; m++) MixH_gpu.perm[m] = m;
+    if (0U < MixH_gpu.L){
+      acc_memcpy_to_device(MixH_gpu.base + MixH_gpu.o_ring,
+                           MixH_gpu.h_flat, MixH_gpu.L*sizeof(double));
+      for (m=1; m<dim; m++){
+        MixH_PackResidualSlot(m, MixH_gpu.h_flat);
+        acc_memcpy_to_device(MixH_gpu.base + MixH_gpu.o_ring
+                             + (size_t)m*MixH_gpu.L*sizeof(double),
+                             MixH_gpu.h_flat, MixH_gpu.L*sizeof(double));
+      }
+    }
+    MixH_gpu.valid = 1;
+  }
+  else{
+    int last = MixH_gpu.perm[MixH_gpu.nslot-1];
+    for (m=MixH_gpu.nslot-1; 0<m; m--) MixH_gpu.perm[m] = MixH_gpu.perm[m-1];
+    MixH_gpu.perm[0] = last;
+    if (0U < MixH_gpu.L){
+      acc_memcpy_to_device(MixH_gpu.base + MixH_gpu.o_ring
+                           + (size_t)MixH_gpu.perm[0]*MixH_gpu.L*sizeof(double),
+                           MixH_gpu.h_flat, MixH_gpu.L*sizeof(double));
+    }
+  }
+  MixH_gpu.last_scf_iter = SCF_iter;
+
+  /* metric weights */
+
+  if (0U < MixH_gpu.L){
+    MixH_PackMetricW(metric, MixH_gpu.h_flat);
+    acc_memcpy_to_device(MixH_gpu.base + MixH_gpu.o_w,
+                         MixH_gpu.h_flat, MixH_gpu.L*sizeof(double));
+  }
+
+  /* residual Gram matrix: one device kernel + one Allreduce */
+
+  {
+    int npair = dim*(dim+1)/2;
+    int *pm = (int*)malloc(sizeof(int)*(size_t)npair);
+    int *pn = (int*)malloc(sizeof(int)*(size_t)npair);
+    double *tri_my = (double*)malloc(sizeof(double)*(size_t)npair);
+    double *tri = (double*)malloc(sizeof(double)*(size_t)npair);
+    int p = 0;
+
+    if (pm==NULL || pn==NULL || tri_my==NULL || tri==NULL){
+      MixH_AbortWithMessage("Mixing_H.c: failed to allocate the Gram pair tables.");
+    }
+
+    for (m=0; m<dim; m++){
+      for (n=0; n<=m; n++){
+        pm[p] = m;
+        pn[p] = n;
+        p++;
+      }
+    }
+
+    MixH_GramDevice(dim, npair, pm, pn, MixH_gpu.perm, tri_my);
+    MPI_Allreduce(tri_my, tri, npair, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+    for (p=0; p<npair; p++){
+      A[pm[p]][pn[p]] = tri[p];
+      A[pn[p]][pm[p]] = tri[p];
+    }
+
+    free(tri);
+    free(tri_my);
+    free(pn);
+    free(pm);
+  }
+
+  NormRD[0] = A[0][0]/(double)atomnum;
+
+  for (m=1; m<=dim; m++){
+    A[m-1][dim] = -1.0;
+    A[dim][m-1] = -1.0;
+  }
+  A[dim][dim] = 0.0;
+
+  Inverse(dim,A,IA);
+
+  for (m=1; m<=dim; m++){
+    coes[m] = -IA[m-1][dim];
+  }
+
+  /* check "nan", "NaN", "inf" or "Inf" (identical to the CPU path) */
+
+  flag_nan = 0;
+  for (m=1; m<=dim; m++){
+
+    sprintf(nanchar,"%8.4f",coes[m]);
+    if (   strstr(nanchar,"nan")!=NULL || strstr(nanchar,"NaN")!=NULL
+	|| strstr(nanchar,"inf")!=NULL || strstr(nanchar,"Inf")!=NULL){
+
+      flag_nan = 1;
+    }
+  }
+
+  if (flag_nan==1){
+    for (m=1; m<=dim; m++){
+      coes[m] = 0.0;
+    }
+    coes[1] = 0.05;
+    coes[2] = 0.95;
+  }
+
+  /* optimum residual on the device, then the mixing on the host */
+
+  {
+    double *cshift = (double*)malloc(sizeof(double)*(size_t)dim);
+    if (cshift==NULL){
+      MixH_AbortWithMessage("Mixing_H.c: failed to allocate the coefficient buffer.");
+    }
+    for (m=0; m<dim; m++) cshift[m] = coes[m+1];
+    MixH_OptResidualDevice(dim, MixH_gpu.perm, cshift);
+    free(cshift);
+  }
+
+  if (1.0e-1<=NormRD[0])
+    alpha = 0.5;
+  else if (1.0e-2<=NormRD[0] && NormRD[0]<1.0e-1)
+    alpha = 0.6;
+  else if (1.0e-3<=NormRD[0] && NormRD[0]<1.0e-2)
+    alpha = 0.7;
+  else if (1.0e-4<=NormRD[0] && NormRD[0]<1.0e-3)
+    alpha = 0.8;
+  else
+    alpha = 1.0;
+
+  MixH_MixFromHistory(dim, alpha, coes, MixH_gpu.h_r);
+
+  /* shift the Hamiltonian history (pointer rotation) and save the mixed H */
+
+  MixH_RotatePtr6(HisH1, dim);
+  if (SpinP_switch==3) MixH_RotatePtr6(HisH2, dim);
+  MixH_SaveHistory0();
+
+  /* freeing of the host work arrays */
+
+  free(coes);
+
+  for (i=0; i<List_YOUSO[39]; i++){
+    free(A[i]);
+  }
+  free(A);
+
+  for (i=0; i<List_YOUSO[39]; i++){
+    free(IA[i]);
+  }
+  free(IA);
+
+  for (Mc_AN=0; Mc_AN<=Matomnum; Mc_AN++){
+    free(metric[Mc_AN]);
+  }
+  free(metric);
+
+  (void)MD_iter;
+  (void)SCF_iter0;
+}
+
 void Pulay_Mixing_H(int MD_iter, int SCF_iter, int SCF_iter0 )
 {
   int Mc_AN,Gc_AN,Cwan,Hwan,h_AN,Gh_AN,i,j,spin;
@@ -1746,6 +3079,23 @@ void Pulay_Mixing_H(int MD_iter, int SCF_iter, int SCF_iter0 )
 
   if (SCF_iter<=Num_Mixing_pDM) dim = SCF_iter-1;
   else                          dim = Num_Mixing_pDM;
+
+  /* GPU fast path; MPI-collective on every rank.  On a negative device
+     preflight the original CPU code below runs unchanged. */
+
+  if (scf_eigen_lib_flag == GPUSOLVER && 1<=dim){
+    int myid_mixh, tier;
+    MPI_Comm_rank(mpi_comm_level1,&myid_mixh);
+    tier = MixH_GpuPreflight(MD_iter, myid_mixh);
+    if (tier == 1){
+      Pulay_Mixing_H_GPU(MD_iter, SCF_iter, SCF_iter0, dim);
+      return;
+    }
+    if (tier == 2){
+      Pulay_Mixing_H_Inc(MD_iter, SCF_iter, SCF_iter0, dim);
+      return;
+    }
+  }
 
   /****************************************************
                 allocation of arrays 

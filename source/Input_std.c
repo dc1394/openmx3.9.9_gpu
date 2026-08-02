@@ -771,12 +771,18 @@ void Input_std(char *file)
   i_vec[0]=2;        i_vec[1]=0;        i_vec[2]=1;        i_vec[3]=3;        
   input_string2int("scf.lapack.dste", &dste_flag, 4, s_vec,i_vec);
 
-  i = 0;
-  s_vec[i]="elpa1";    i_vec[i]=ELPA1;    i++;
-  s_vec[i]="lapack";   i_vec[i]=0;        i++;
-  s_vec[i]="elpa2";    i_vec[i]=ELPA2;    i++;
-  s_vec[i]="cusolver"; i_vec[i]=CuSOLVER; i++;
+  /* Default to gpusolver.  The old cusolver spelling remains a deprecated
+     alias, matching OpenMX 4.0's input compatibility. */
+  s_vec[0]="gpusolver"; s_vec[1]="lapack"; s_vec[2]="elpa1"; s_vec[3]="elpa2"; s_vec[4]="cusolver";
+  i_vec[0]=GPUSOLVER;   i_vec[1]=0;        i_vec[2]=ELPA1;   i_vec[3]=ELPA2;   i_vec[4]=-GPUSOLVER;
+  i = 5;
   input_string2int("scf.eigen.lib", &scf_eigen_lib_flag, i, s_vec, i_vec);
+  if (scf_eigen_lib_flag==-GPUSOLVER){
+    if (myid==Host_ID){
+      printf("Warning: scf.eigen.lib=cusolver is deprecated; use scf.eigen.lib=gpusolver instead.\n");
+    }
+    scf_eigen_lib_flag = GPUSOLVER;
+  }
   scf_eigen_lib_flag_input = scf_eigen_lib_flag;
 
   // use GPU?
@@ -6131,7 +6137,5 @@ void Get_Rotational_Matrix(double alpha, double beta, double gamma, int L, doubl
   }
 
 } /* end of Get_Rotational_Matrix */
-
-
 
 

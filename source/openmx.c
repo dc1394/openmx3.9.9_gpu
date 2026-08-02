@@ -62,6 +62,7 @@
 /*  stat section */
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
 #include <unistd.h>
 /*  end stat section */
 #include "openmx_common.h"
@@ -71,6 +72,19 @@
 #include "tran_prototypes.h"
 #include "tran_variables.h"
 
+static void Raise_Stack_Limit(void)
+{
+#ifdef RLIMIT_STACK
+  struct rlimit limit;
+
+  if (getrlimit(RLIMIT_STACK,&limit)!=0) return;
+  if (limit.rlim_cur==RLIM_INFINITY) return;
+  if (limit.rlim_max==0 || limit.rlim_cur==limit.rlim_max) return;
+
+  limit.rlim_cur = limit.rlim_max;
+  setrlimit(RLIMIT_STACK,&limit);
+#endif
+}
 
 int main(int argc, char *argv[]) 
 { 
@@ -81,6 +95,8 @@ int main(int argc, char *argv[])
   MPI_Comm mpi_comm_parent;
 
   /* MPI initialize */
+
+  Raise_Stack_Limit();
 
   mpi_comm_level1 = MPI_COMM_WORLD; 
   MPI_COMM_WORLD1 = MPI_COMM_WORLD; 

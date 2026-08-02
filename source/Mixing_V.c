@@ -20,6 +20,48 @@ static void DIIS_Mixing_VKSk(int SCF_iter, double Mix_wgt );
 static void Inverse(int n, double **a, double **ia);
 static void Complex_Inverse(int n, double **a, double **ia, double **b, double **ib);
 
+void F77_NAME(dgemv,DGEMV)(const char *trans, const int *m, const int *n,
+                           const double *alpha, const double *a, const int *lda,
+                           const double *x, const int *incx, const double *beta,
+                           double *y, const int *incy);
+
+/* Fast path of the KS-potential DIIS: same construction as in
+   DIIS_Mixing_Rhok.c (incremental Gram row + slot-pointer rotation +
+   memmove residual shift), active under scf.eigen.lib gpusolver and
+   disabled with OPENMX_MIX_FAST=0. */
+
+typedef struct {
+  int valid;
+  int last_scf_iter;
+  int last_nummix;
+  int spinmax;
+  int l38;
+  double *A;        /* [l38*l38] cached Allreduced Gram */
+} MixVKSkFastState;
+
+static MixVKSkFastState MixVKSk_fast = { 0, -1, 0, 0, 0, NULL };
+
+static int MixV_Fast_Enabled(void)
+{
+  const char *env = getenv("OPENMX_MIX_FAST");
+  if (scf_eigen_lib_flag != GPUSOLVER) return 0;
+  return (env == NULL) ? 1 : (atoi(env) != 0);
+}
+
+static void MixVKSk_Fast_Invalidate(void)
+{
+  MixVKSk_fast.valid = 0;
+  MixVKSk_fast.last_scf_iter = -1;
+}
+
+static void MixVKSk_RotateSlots(double ***arr, int nslot)
+{
+  double **tmp = arr[nslot-1];
+  int m;
+  for (m=nslot-1; 0<m; m--) arr[m] = arr[m-1];
+  arr[0] = tmp;
+}
+
 double Mixing_V( int MD_iter,
 		 int SCF_iter,
 		 int SCF_iter0 )
@@ -300,39 +342,130 @@ void DIIS_Mixing_VKSk(int SCF_iter, double Mix_wgt)
 
     /* calculation of the norm matrix for the residual vectors */
 
-    for (i=0; i<List_YOUSO[38]*List_YOUSO[38]; i++) My_NMat[i] = 0.0;
+    {
+      int use_fast = MixV_Fast_Enabled();
+      int incremental = 0;
 
-    for (spin=0; spin<spinmax; spin++){
+      if (use_fast){
+        if (MixVKSk_fast.A == NULL || MixVKSk_fast.l38 != List_YOUSO[38] ||
+            MixVKSk_fast.spinmax != spinmax){
+          free(MixVKSk_fast.A);
+          MixVKSk_fast.A = (double*)malloc(sizeof(double)*
+                             (size_t)List_YOUSO[38]*(size_t)List_YOUSO[38]);
+          if (MixVKSk_fast.A == NULL){
+            printf("Mixing_V: failed to allocate the Gram cache.\n");
+            MPI_Abort(mpi_comm_level1,1);
+          }
+          MixVKSk_fast.l38 = List_YOUSO[38];
+          MixVKSk_fast.spinmax = spinmax;
+          MixVKSk_Fast_Invalidate();
+        }
+        incremental = (MixVKSk_fast.valid &&
+                       MixVKSk_fast.last_scf_iter+1 == SCF_iter &&
+                       (NumMix == MixVKSk_fast.last_nummix ||
+                        NumMix == MixVKSk_fast.last_nummix+1));
+      }
 
-      M = NumMix + 1;
-      N = NumMix + 1;
-      K = My_NumGridB_CB;   
-      alpha = 1.0;
-      beta = 1.0;
+      if (incremental){
 
-      F77_NAME(dgemm,DGEMM)( "T","N", &M, &N, &K, 
-                             &alpha, 
-                             Residual_ReVKSk[spin], &K, 
-                             Residual_ReVKSk[spin], &K, 
-                             &beta, 
-                             My_NMat,
-                             &M);
+        int l38 = MixVKSk_fast.l38;
+        int inc1 = 1;
+        double *C = MixVKSk_fast.A;
+        double *my_row = My_NMat;   /* scratch */
+        double *row = NMat;
 
-      F77_NAME(dgemm,DGEMM)( "T","N", &M, &N, &K, 
-                             &alpha, 
-                             Residual_ImVKSk[spin], &K, 
-                             Residual_ImVKSk[spin], &K, 
-                             &beta, 
-                             My_NMat,
-                             &M);
-    }      
+        for (i=NumMix-1; 1<=i; i--){
+          for (j=NumMix-1; 1<=j; j--){
+            C[i*l38+j] = C[(i-1)*l38+(j-1)];
+          }
+        }
 
-    MPI_Allreduce(My_NMat, NMat, (NumMix+1)*(NumMix+1),
-                  MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+        M = NumMix + 1;
+        K = My_NumGridB_CB;
+        alpha = 1.0;
+        beta = 1.0;
+        for (i=0; i<M; i++) my_row[i] = 0.0;
 
-    for (i=0; i<NumMix; i++){
-      for (j=0; j<NumMix; j++){
-        A[i][j] = NMat[(i+1)*(NumMix+1)+(j+1)];
+        for (spin=0; spin<spinmax; spin++){
+          F77_NAME(dgemv,DGEMV)( "T", &K, &M, &alpha,
+                                 Residual_ReVKSk[spin], &K,
+                                 &Residual_ReVKSk[spin][My_NumGridB_CB], &inc1,
+                                 &beta, my_row, &inc1);
+          F77_NAME(dgemv,DGEMV)( "T", &K, &M, &alpha,
+                                 Residual_ImVKSk[spin], &K,
+                                 &Residual_ImVKSk[spin][My_NumGridB_CB], &inc1,
+                                 &beta, my_row, &inc1);
+        }
+
+        MPI_Allreduce(my_row, row, M, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+        for (j=0; j<NumMix; j++){
+          C[j] = row[j+1];
+          C[j*l38] = row[j+1];
+        }
+
+        for (i=0; i<NumMix; i++){
+          for (j=0; j<NumMix; j++){
+            A[i][j] = C[i*l38+j];
+          }
+        }
+      }
+
+      else{
+
+        for (i=0; i<List_YOUSO[38]*List_YOUSO[38]; i++) My_NMat[i] = 0.0;
+
+        for (spin=0; spin<spinmax; spin++){
+
+          M = NumMix + 1;
+          N = NumMix + 1;
+          K = My_NumGridB_CB;
+          alpha = 1.0;
+          beta = 1.0;
+
+          F77_NAME(dgemm,DGEMM)( "T","N", &M, &N, &K,
+                                 &alpha,
+                                 Residual_ReVKSk[spin], &K,
+                                 Residual_ReVKSk[spin], &K,
+                                 &beta,
+                                 My_NMat,
+                                 &M);
+
+          F77_NAME(dgemm,DGEMM)( "T","N", &M, &N, &K,
+                                 &alpha,
+                                 Residual_ImVKSk[spin], &K,
+                                 Residual_ImVKSk[spin], &K,
+                                 &beta,
+                                 My_NMat,
+                                 &M);
+        }
+
+        MPI_Allreduce(My_NMat, NMat, (NumMix+1)*(NumMix+1),
+                      MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+        for (i=0; i<NumMix; i++){
+          for (j=0; j<NumMix; j++){
+            A[i][j] = NMat[(i+1)*(NumMix+1)+(j+1)];
+          }
+        }
+
+        if (use_fast){
+          int l38 = MixVKSk_fast.l38;
+          for (i=0; i<NumMix; i++){
+            for (j=0; j<NumMix; j++){
+              MixVKSk_fast.A[i*l38+j] = A[i][j];
+            }
+          }
+        }
+      }
+
+      if (use_fast){
+        MixVKSk_fast.valid = 1;
+        MixVKSk_fast.last_scf_iter = SCF_iter;
+        MixVKSk_fast.last_nummix = NumMix;
+      }
+      else{
+        MixVKSk_Fast_Invalidate();
       }
     }
 
@@ -671,13 +804,31 @@ void DIIS_Mixing_VKSk(int SCF_iter, double Mix_wgt)
                          shift of VKS
     ****************************************************/
 
-    for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+    if (MixV_Fast_Enabled()){
 
+      /* pointer rotation == the legacy content shift; the legacy shift
+         leaves slot 0 in place (the tail below reads it), so restore its
+         content from the rotated slot 1 with one slot copy */
+
+      MixVKSk_RotateSlots(ReVKSk, List_YOUSO[38]);
+      MixVKSk_RotateSlots(ImVKSk, List_YOUSO[38]);
       for (spin=0; spin<spinmax; spin++){
-        for (k=0; k<My_NumGridB_CB; k++){
-	  ReVKSk[pSCF_iter][spin][k] = ReVKSk[pSCF_iter-1][spin][k]; 
-	  ImVKSk[pSCF_iter][spin][k] = ImVKSk[pSCF_iter-1][spin][k]; 
-	}
+        memcpy(ReVKSk[0][spin], ReVKSk[1][spin],
+               sizeof(double)*(size_t)My_NumGridB_CB);
+        memcpy(ImVKSk[0][spin], ImVKSk[1][spin],
+               sizeof(double)*(size_t)My_NumGridB_CB);
+      }
+    }
+    else{
+
+      for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+
+        for (spin=0; spin<spinmax; spin++){
+          for (k=0; k<My_NumGridB_CB; k++){
+            ReVKSk[pSCF_iter][spin][k] = ReVKSk[pSCF_iter-1][spin][k];
+            ImVKSk[pSCF_iter][spin][k] = ImVKSk[pSCF_iter-1][spin][k];
+          }
+        }
       }
     }
 
@@ -685,16 +836,30 @@ void DIIS_Mixing_VKSk(int SCF_iter, double Mix_wgt)
                     shift of residual rho
     ****************************************************/
 
-    for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+    if (MixV_Fast_Enabled()){
 
-      p0 = pSCF_iter*My_NumGridB_CB;
-      p1 = (pSCF_iter-1)*My_NumGridB_CB; 
+      size_t nb = sizeof(double)*(size_t)My_NumGridB_CB;
 
       for (spin=0; spin<spinmax; spin++){
-        for (k=0; k<My_NumGridB_CB; k++){
-          Residual_ReVKSk[spin][p0+k] = Residual_ReVKSk[spin][p1+k];
-          Residual_ImVKSk[spin][p0+k] = Residual_ImVKSk[spin][p1+k]; 
-	}
+        memmove(&Residual_ReVKSk[spin][My_NumGridB_CB], &Residual_ReVKSk[spin][0],
+                nb*(size_t)(List_YOUSO[38]-1));
+        memmove(&Residual_ImVKSk[spin][My_NumGridB_CB], &Residual_ImVKSk[spin][0],
+                nb*(size_t)(List_YOUSO[38]-1));
+      }
+    }
+    else{
+
+      for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+
+        p0 = pSCF_iter*My_NumGridB_CB;
+        p1 = (pSCF_iter-1)*My_NumGridB_CB;
+
+        for (spin=0; spin<spinmax; spin++){
+          for (k=0; k<My_NumGridB_CB; k++){
+            Residual_ReVKSk[spin][p0+k] = Residual_ReVKSk[spin][p1+k];
+            Residual_ImVKSk[spin][p0+k] = Residual_ImVKSk[spin][p1+k];
+          }
+        }
       }
     }
 
@@ -1047,11 +1212,25 @@ void Kerker_Mixing_VKSk( int Change_switch, double Mix_wgt )
                   shift of KS potentials
   ****************************************************/
 
-  for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+  if (MixV_Fast_Enabled()){
+
+    MixVKSk_RotateSlots(ReVKSk, List_YOUSO[38]);
+    MixVKSk_RotateSlots(ImVKSk, List_YOUSO[38]);
     for (spin=0; spin<spinmax; spin++){
-      for (k=0; k<My_NumGridB_CB; k++){
-	ReVKSk[pSCF_iter][spin][k] = ReVKSk[pSCF_iter-1][spin][k]; 
-	ImVKSk[pSCF_iter][spin][k] = ImVKSk[pSCF_iter-1][spin][k]; 
+      memcpy(ReVKSk[0][spin], ReVKSk[1][spin],
+             sizeof(double)*(size_t)My_NumGridB_CB);
+      memcpy(ImVKSk[0][spin], ImVKSk[1][spin],
+             sizeof(double)*(size_t)My_NumGridB_CB);
+    }
+  }
+  else{
+
+    for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+      for (spin=0; spin<spinmax; spin++){
+        for (k=0; k<My_NumGridB_CB; k++){
+          ReVKSk[pSCF_iter][spin][k] = ReVKSk[pSCF_iter-1][spin][k];
+          ImVKSk[pSCF_iter][spin][k] = ImVKSk[pSCF_iter-1][spin][k];
+        }
       }
     }
   }
@@ -1060,15 +1239,29 @@ void Kerker_Mixing_VKSk( int Change_switch, double Mix_wgt )
               shift of residual KS potentials
   ****************************************************/
 
-  for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+  if (MixV_Fast_Enabled()){
 
-    p0 = pSCF_iter*My_NumGridB_CB;
-    p1 = (pSCF_iter-1)*My_NumGridB_CB; 
+    size_t nb = sizeof(double)*(size_t)My_NumGridB_CB;
 
     for (spin=0; spin<spinmax; spin++){
-      for (k=0; k<My_NumGridB_CB; k++){
-	Residual_ReVKSk[spin][p0+k] = Residual_ReVKSk[spin][p1+k];
-	Residual_ImVKSk[spin][p0+k] = Residual_ImVKSk[spin][p1+k]; 
+      memmove(&Residual_ReVKSk[spin][My_NumGridB_CB], &Residual_ReVKSk[spin][0],
+              nb*(size_t)(List_YOUSO[38]-1));
+      memmove(&Residual_ImVKSk[spin][My_NumGridB_CB], &Residual_ImVKSk[spin][0],
+              nb*(size_t)(List_YOUSO[38]-1));
+    }
+  }
+  else{
+
+    for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+
+      p0 = pSCF_iter*My_NumGridB_CB;
+      p1 = (pSCF_iter-1)*My_NumGridB_CB;
+
+      for (spin=0; spin<spinmax; spin++){
+        for (k=0; k<My_NumGridB_CB; k++){
+          Residual_ReVKSk[spin][p0+k] = Residual_ReVKSk[spin][p1+k];
+          Residual_ImVKSk[spin][p0+k] = Residual_ImVKSk[spin][p1+k];
+        }
       }
     }
   }

@@ -2657,9 +2657,9 @@ int    MD_OutABC;
 int SCF_Gpu_Num;
 typedef enum
 {
-    ELPA1    = 1,
-    ELPA2    = 2,
-    CuSOLVER = 3
+    ELPA1     = 1,
+    ELPA2     = 2,
+    GPUSOLVER = 3
 } SCF_Eigen_Lib;
 double   X_Center_Coordinate, Y_Center_Coordinate, Z_Center_Coordinate;
 dcomplex Comp2Real[YOUSO36 + 1][2 * (YOUSO36 + 1) + 1][2 * (YOUSO36 + 1) + 1];
@@ -2943,6 +2943,9 @@ double Set_dOrbitals_Grid_xyz(int Cnt_kind, int xyz);
 double Set_Orbitals_Grid(int Cnt_kind);
 double Set_Aden_Grid();
 double Set_Density_Grid(int Cnt_kind, int Calc_CntOrbital_ON, double ***** CDM, double ** Density_Grid_B0);
+int Set_Density_Grid_GPU_Service(int Cnt_kind, int Calc_CntOrbital_ON, double *****CDM,
+                                 double **Density_Grid_B0, double *elapsed);
+void Set_Density_Grid_GPU_Invalidate(void);
 void   diagonalize_nc_density(double ** Density_Grid_B0);
 void   Data_Grid_Copy_B2C_1(double * data_B, double * data_C);
 void   Data_Grid_Copy_B2C_2(double ** data_B, double ** data_C);
@@ -3079,18 +3082,6 @@ double Divide_Conquer_LNO(char * mode, int MD_iter, int SCF_iter, int SucceedRea
 // int  getNodeNum(char ** hostname_array, int size);
 // bool isUnique(char * str, char ** uniqueStrings, int count);
 
-void my_cublasDgemm(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, double const * A,
-                    double const * B, double * C);
-
-void my_cublasDgemm_openacc(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, double const * A,
-                            double const * B, double * C);
-
-void my_cublasZgemm(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, dcomplex const * A,
-                    dcomplex const * B, dcomplex * C);
-
-void my_cublasZgemm_openacc(cublasOperation_t transa, cublasOperation_t transb, int m, int n, int k, dcomplex const * A,
-                            dcomplex const * B, dcomplex * C);
-
 cublasStatus_t openmx_gemmul8Dgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb, int m,
                                    int n, int k, const double *alpha, const double *A, int lda, const double *B,
                                    int ldb, const double *beta, double *C, int ldc);
@@ -3098,6 +3089,8 @@ cublasStatus_t openmx_gemmul8Zgemm(cublasHandle_t handle, cublasOperation_t tran
                                    int n, int k, const cuDoubleComplex *alpha, const cuDoubleComplex *A, int lda,
                                    const cuDoubleComplex *B, int ldb, const cuDoubleComplex *beta, cuDoubleComplex *C,
                                    int ldc);
+size_t openmx_gemmul8ZWorkspaceSize(int m, int n, int k);
+size_t openmx_gemmul8DWorkspaceSize(int m, int n, int k);
 void openmx_gemmul8ReleaseWorkspaces(void);
 
 int getDeviceCount();
@@ -3107,12 +3100,6 @@ int getDeviceCount();
 // void cublasmp_zgemm(cublasOperation_t transA, cublasOperation_t transB, cuDoubleComplex* d_A, cuDoubleComplex* d_B, cuDoubleComplex* d_C, Options* opts, Options2* opts2);
 
 // void destroy_cublasmp(Options2* opts2);
-
-// void init_cusolvermp(int myworld2, MPI_Comm* MPI_CommWD2, Options2* opts2, Options3* opts3, Options4* opts4);
-
-// int cusolvermp_syevd(cuDoubleComplex* d_A, cuDoubleComplex* d_Q, double* d_D, Options2* opts2, Options3* opts3, Options4* opts4);
-
-// void destroy_cusolvermp(Options4* opts4);
 
 double Krylov(char * mode, int SCF_iter, double ***** Hks, double ***** ImNL, double **** OLP0, double ***** CDM,
               double ***** EDM, double Eele0[2], double Eele1[2]);
@@ -3154,6 +3141,63 @@ double Poisson_ESM(int fft_charge_flag, double * ReRhok, double * ImRhok);
 double Set_Hamiltonian(char * mode, int MD_iter, int SCF_iter, int SCF_iter0, int TRAN_Poisson_flag2,
                        int SucceedReadingDMfile, int Cnt_kind, double ***** H0, double ***** HNL, double ***** CDM,
                        double ***** H);
+void Set_Hamiltonian_Set_OpenACC_Rank_Selected(int selected);
+int Set_Hamiltonian_OpenACC_Rank_Is_Selected(void);
+void Set_Hamiltonian_Set_OpenACC_Work_Rank_Selected(int selected);
+int Set_Hamiltonian_OpenACC_Work_Rank_Is_Selected(void);
+void Set_Hamiltonian_Invalidate_OpenACC_MatrixElements_Cache(void);
+void Set_Hamiltonian_Release_OpenACC_DeviceCache(void);
+void Divide_Conquer_Release_GPU_SCache(void);
+void Krylov_Release_GPU_KUCache(void);
+void OpenMX_GpuPhaseNeed_Register(const char *phase, size_t group_bytes);
+size_t OpenMX_GpuPhaseNeed_Max(void);
+size_t OpenMX_GpuPhaseNeed_MaxPrefixed(const char *prefix);
+
+typedef struct {
+    int pair_count;
+    int orbs0_resident;
+    int orbs1_resident;
+    int nolg_resident;
+    int meta_resident;
+    size_t total_h;
+    size_t total_nolg;
+    size_t total_orbs0;
+    size_t total_orbs1;
+    const int *pair_Mc_AN;
+    const int *pair_h_AN;
+    const int *pair_NO0;
+    const int *pair_NO1;
+    const int *pair_NOLG;
+    const int *nolg_MN;
+    const int *nolg_Nc;
+    const size_t *pair_h_offset;
+    const size_t *pair_nolg_offset;
+    const size_t *pair_orbs0_offset;
+    const size_t *pair_orbs1_offset;
+    const Type_Orbs_Grid *orbs0buf;
+    const Type_Orbs_Grid *orbs1buf;
+} SetHamiltonianMETables;
+
+int Set_Hamiltonian_GetMatrixElementsTables(int Cnt_kind, SetHamiltonianMETables *tables);
+int Set_Hamiltonian_MatrixElementsTables_Ready(int Cnt_kind);
+void Cluster_DFT_Col_Release_GPU_Solver(void);
+void Cluster_DFT_NonCol_Release_GPU_Solver(void);
+void Cluster_DFT_NonCol_DemoteGpuSolverCachedEVec(void);
+double Cluster_DFT_NonCol_ScatterGpuSolverCachedEVec(int n2, int *is2, int *ie2, dcomplex *EVec1);
+void Mixing_H_Release_GPU(void);
+int Set_Density_Grid_GPU_Local_Prepare(int Cnt_kind, int Calc_CntOrbital_ON);
+int Set_Density_Grid_GPU_Local_Run(double *****CDM, double ***Tmp_Den_Grid);
+void Set_Hamiltonian_Invalidate_GpuSolver_HS_Cache(void);
+void Set_Hamiltonian_Build_GpuSolver_HS_Cache(int use_contracted);
+void Set_Hamiltonian_GpuSolver_SetMP(int *MP);
+int Set_Hamiltonian_GpuSolver_Packed_CacheReady(void);
+int Set_Hamiltonian_GpuSolver_Packed_OwnsCache(void);
+int Set_Hamiltonian_GpuSolver_Packed_OrderMode(void);
+int Set_Hamiltonian_GpuSolver_Packed_Size(void);
+int *Set_Hamiltonian_GpuSolver_Packed_OrderGA(void);
+double *Set_Hamiltonian_GpuSolver_Packed_Overlap(void);
+double *Set_Hamiltonian_GpuSolver_Packed_H(int spin);
+double *Set_Hamiltonian_GpuSolver_Packed_ImNL(int comp);
 
 double Total_Energy(int MD_iter, double ECE[]);
 double Force(double ***** H0, double ****** DS_NL, double ***** OLP, double ***** CDM, double ***** EDM);
@@ -3341,14 +3385,15 @@ void   Merge_LogFile(char * file);
 void   Make_InputFile_with_FinalCoord(char * file, int MD_iter);
 void   Eigen_lapack(double ** a, double * ko, int n, int EVmax);
 void   Eigen_lapack_openacc(double ** a, double * ko, int n, int EVmax);
-void   Eigen_cusolver_d(double ** a, double * ko, int n, int EVmax);
-void   Eigen_cusolver_x_openacc2(double * a, double * ko, int n0, int EVmax);
-void   Eigen_cusolver_x_complex_openacc(dcomplex ** a, double * ko, int n0, int EVmax);
-int    cusolver_Syevd(double * A, double * W, int m);
-int    cusolver_Syevdx(double * A, double * W, int m, int MaxN);
-int    cusolver_Syevdx_openacc(double * A, double * W, int m, int MaxN);
-int    cusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN);
-int    cusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN);
+void   Eigen_gpusolver_d(double ** a, double * ko, int n, int EVmax);
+void   Eigen_gpusolver_x_openacc2(double * a, double * ko, int n0, int EVmax);
+void   Eigen_gpusolver_x_complex_openacc(dcomplex ** a, double * ko, int n0, int EVmax);
+int    gpusolver_Syevd(double * A, double * W, int m);
+int    gpusolver_Syevdx(double * A, double * W, int m, int MaxN);
+int    gpusolver_Syevdx_openacc(double * A, double * W, int m, int MaxN);
+int    gpusolver_Syevdx_Complex(dcomplex * A, double * W, int m, int MaxN);
+int    gpusolver_Syevdx_Complex_openacc(dcomplex * A, double * W, int m, int MaxN);
+int    gpusolver_Syevdx_Complex_openacc_cached(dcomplex * A, double * W, int m, int MaxN);
 void   Eigen_lapack2(double * a, int csize, double * ko, int n, int EVmax);
 void   Eigen_lapack3(double * a, double * ko, int n, int EVmax);
 void   EigenBand_lapack(dcomplex ** A, double * W, int N0, int MaxN, int ev_flag);

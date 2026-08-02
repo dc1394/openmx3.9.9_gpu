@@ -34,6 +34,63 @@
 static void Inverse(int n, double **a, double **ia);
 static void Complex_Inverse(int n, double **a, double **ia, double **b, double **ib);
 
+void F77_NAME(dgemv,DGEMV)(const char *trans, const int *m, const int *n,
+                           const double *alpha, const double *a, const int *lda,
+                           const double *x, const int *incx, const double *beta,
+                           double *y, const int *incy);
+
+/*******************************************************************************
+  Fast path of the k-space DIIS (active under scf.eigen.lib gpusolver,
+  disabled with OPENMX_MIX_FAST=0):
+
+  - The stored residual columns are pre-weighted and only slide between
+    iterations, so the Gram matrix entries of the older pairs stay valid.
+    On a continuity iteration only the new row (fresh residual against all
+    live columns) is computed with dgemv and reduced with one short
+    MPI_Allreduce; the rest of A comes from the host cache of the previous
+    (already Allreduced, hence rank-uniform) matrix.  Any break in the
+    SCF-iteration continuity falls back to the legacy dgemm+harvest.
+  - The O(List_YOUSO[38]*Ngrid) shifts become a pointer rotation of the
+    top-level Rhok slots (plus one slot copy: the legacy shift leaves
+    slot 0 in place and the tail reads it) and a single memmove per spin
+    for the flat residual matrix.  Both are bitwise-identical to the
+    legacy shifts.
+*******************************************************************************/
+
+typedef struct {
+  int valid;
+  int last_scf_iter;
+  int last_nummix;
+  int spinmax;
+  int l38;
+  double *A;        /* [l38*l38] cached Allreduced Gram (index [i*l38+j]) */
+} MixRhokFastState;
+
+static MixRhokFastState MixRhok_fast = { 0, -1, 0, 0, 0, NULL };
+
+static int Mix_Fast_Enabled(void)
+{
+  const char *env = getenv("OPENMX_MIX_FAST");
+  if (scf_eigen_lib_flag != GPUSOLVER) return 0;
+  return (env == NULL) ? 1 : (atoi(env) != 0);
+}
+
+static void MixRhok_Fast_Invalidate(void)
+{
+  MixRhok_fast.valid = 0;
+  MixRhok_fast.last_scf_iter = -1;
+}
+
+/* rotate the top slot pointers: afterwards slot m holds the former slot m-1
+   (m=1..nslot-1) and slot 0 is a recycled buffer overwritten by the caller */
+static void MixRhok_RotateSlots(double ***arr, int nslot)
+{
+  double **tmp = arr[nslot-1];
+  int m;
+  for (m=nslot-1; 0<m; m--) arr[m] = arr[m-1];
+  arr[0] = tmp;
+}
+
 
 static void DIIS_Mixing_Rhok_Normal(int SCF_iter,
 			      double Mix_wgt,
@@ -342,39 +399,134 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
 
     /* calculation of the norm matrix for the residual vectors */
 
-    for (i=0; i<List_YOUSO[38]*List_YOUSO[38]; i++) My_NMat[i] = 0.0;
+    {
+      int use_fast = Mix_Fast_Enabled();
+      int incremental = 0;
 
-    for (spin=0; spin<spinmax; spin++){
+      if (use_fast){
+        if (MixRhok_fast.A == NULL || MixRhok_fast.l38 != List_YOUSO[38] ||
+            MixRhok_fast.spinmax != spinmax){
+          free(MixRhok_fast.A);
+          MixRhok_fast.A = (double*)malloc(sizeof(double)*
+                             (size_t)List_YOUSO[38]*(size_t)List_YOUSO[38]);
+          if (MixRhok_fast.A == NULL){
+            printf("DIIS_Mixing_Rhok: failed to allocate the Gram cache.\n");
+            MPI_Abort(mpi_comm_level1,1);
+          }
+          MixRhok_fast.l38 = List_YOUSO[38];
+          MixRhok_fast.spinmax = spinmax;
+          MixRhok_Fast_Invalidate();
+        }
+        incremental = (MixRhok_fast.valid &&
+                       MixRhok_fast.last_scf_iter+1 == SCF_iter &&
+                       (NumMix == MixRhok_fast.last_nummix ||
+                        NumMix == MixRhok_fast.last_nummix+1));
+      }
 
-      M = NumMix + 1;
-      N = NumMix + 1;
-      K = My_NumGridB_CB;   
-      alpha = 1.0;
-      beta = 1.0;
+      if (incremental){
 
-      F77_NAME(dgemm,DGEMM)( "T","N", &M, &N, &K, 
-                             &alpha, 
-                             Residual_ReRhok[spin], &K, 
-                             Residual_ReRhok[spin], &K, 
-                             &beta, 
-                             My_NMat,
-                             &M);
+        /* the stored residual columns only slid since the last call, so the
+           older pairs of the (rank-uniform, Allreduced) Gram matrix stay
+           valid; only the fresh-residual row is computed and reduced */
 
-      F77_NAME(dgemm,DGEMM)( "T","N", &M, &N, &K, 
-                             &alpha, 
-                             Residual_ImRhok[spin], &K, 
-                             Residual_ImRhok[spin], &K, 
-                             &beta, 
-                             My_NMat,
-                             &M);
-    }      
+        int l38 = MixRhok_fast.l38;
+        int inc1 = 1;
+        double *C = MixRhok_fast.A;
+        double *my_row = My_NMat;   /* scratch */
+        double *row = NMat;
 
-    MPI_Allreduce(My_NMat, NMat, (NumMix+1)*(NumMix+1),
-                  MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+        for (i=NumMix-1; 1<=i; i--){
+          for (j=NumMix-1; 1<=j; j--){
+            C[i*l38+j] = C[(i-1)*l38+(j-1)];
+          }
+        }
 
-    for (i=0; i<NumMix; i++){
-      for (j=0; j<NumMix; j++){
-        A[i][j] = NMat[(i+1)*(NumMix+1)+(j+1)];
+        M = NumMix + 1;
+        K = My_NumGridB_CB;
+        alpha = 1.0;
+        beta = 1.0;
+        for (i=0; i<M; i++) my_row[i] = 0.0;
+
+        for (spin=0; spin<spinmax; spin++){
+          F77_NAME(dgemv,DGEMV)( "T", &K, &M, &alpha,
+                                 Residual_ReRhok[spin], &K,
+                                 &Residual_ReRhok[spin][My_NumGridB_CB], &inc1,
+                                 &beta, my_row, &inc1);
+          F77_NAME(dgemv,DGEMV)( "T", &K, &M, &alpha,
+                                 Residual_ImRhok[spin], &K,
+                                 &Residual_ImRhok[spin][My_NumGridB_CB], &inc1,
+                                 &beta, my_row, &inc1);
+        }
+
+        MPI_Allreduce(my_row, row, M, MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+        for (j=0; j<NumMix; j++){
+          C[j] = row[j+1];
+          C[j*l38] = row[j+1];
+        }
+
+        for (i=0; i<NumMix; i++){
+          for (j=0; j<NumMix; j++){
+            A[i][j] = C[i*l38+j];
+          }
+        }
+      }
+
+      else{
+
+        for (i=0; i<List_YOUSO[38]*List_YOUSO[38]; i++) My_NMat[i] = 0.0;
+
+        for (spin=0; spin<spinmax; spin++){
+
+          M = NumMix + 1;
+          N = NumMix + 1;
+          K = My_NumGridB_CB;
+          alpha = 1.0;
+          beta = 1.0;
+
+          F77_NAME(dgemm,DGEMM)( "T","N", &M, &N, &K,
+                                 &alpha,
+                                 Residual_ReRhok[spin], &K,
+                                 Residual_ReRhok[spin], &K,
+                                 &beta,
+                                 My_NMat,
+                                 &M);
+
+          F77_NAME(dgemm,DGEMM)( "T","N", &M, &N, &K,
+                                 &alpha,
+                                 Residual_ImRhok[spin], &K,
+                                 Residual_ImRhok[spin], &K,
+                                 &beta,
+                                 My_NMat,
+                                 &M);
+        }
+
+        MPI_Allreduce(My_NMat, NMat, (NumMix+1)*(NumMix+1),
+                      MPI_DOUBLE, MPI_SUM, mpi_comm_level1);
+
+        for (i=0; i<NumMix; i++){
+          for (j=0; j<NumMix; j++){
+            A[i][j] = NMat[(i+1)*(NumMix+1)+(j+1)];
+          }
+        }
+
+        if (use_fast){
+          int l38 = MixRhok_fast.l38;
+          for (i=0; i<NumMix; i++){
+            for (j=0; j<NumMix; j++){
+              MixRhok_fast.A[i*l38+j] = A[i][j];
+            }
+          }
+        }
+      }
+
+      if (use_fast){
+        MixRhok_fast.valid = 1;
+        MixRhok_fast.last_scf_iter = SCF_iter;
+        MixRhok_fast.last_nummix = NumMix;
+      }
+      else{
+        MixRhok_Fast_Invalidate();
       }
     }
 
@@ -713,13 +865,31 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
                          shift of rho
     ****************************************************/
 
-    for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+    if (Mix_Fast_Enabled()){
 
+      /* pointer rotation == the legacy content shift; the legacy shift
+         leaves slot 0 in place (the tail below reads it), so restore its
+         content from the rotated slot 1 with one slot copy */
+
+      MixRhok_RotateSlots(ReRhok, List_YOUSO[38]);
+      MixRhok_RotateSlots(ImRhok, List_YOUSO[38]);
       for (spin=0; spin<spinmax; spin++){
-        for (k=0; k<My_NumGridB_CB; k++){
-	  ReRhok[pSCF_iter][spin][k] = ReRhok[pSCF_iter-1][spin][k]; 
-	  ImRhok[pSCF_iter][spin][k] = ImRhok[pSCF_iter-1][spin][k]; 
-	}
+        memcpy(ReRhok[0][spin], ReRhok[1][spin],
+               sizeof(double)*(size_t)My_NumGridB_CB);
+        memcpy(ImRhok[0][spin], ImRhok[1][spin],
+               sizeof(double)*(size_t)My_NumGridB_CB);
+      }
+    }
+    else{
+
+      for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+
+        for (spin=0; spin<spinmax; spin++){
+          for (k=0; k<My_NumGridB_CB; k++){
+            ReRhok[pSCF_iter][spin][k] = ReRhok[pSCF_iter-1][spin][k];
+            ImRhok[pSCF_iter][spin][k] = ImRhok[pSCF_iter-1][spin][k];
+          }
+        }
       }
     }
 
@@ -727,22 +897,36 @@ void DIIS_Mixing_Rhok_Normal(int SCF_iter,
                     shift of residual rho
     ****************************************************/
 
-    for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+    if (Mix_Fast_Enabled()){
 
-      p0 = pSCF_iter*My_NumGridB_CB;
-      p1 = (pSCF_iter-1)*My_NumGridB_CB; 
+      size_t nb = sizeof(double)*(size_t)My_NumGridB_CB;
 
       for (spin=0; spin<spinmax; spin++){
-        for (k=0; k<My_NumGridB_CB; k++){
-          Residual_ReRhok[spin][p0+k] = Residual_ReRhok[spin][p1+k];
-          Residual_ImRhok[spin][p0+k] = Residual_ImRhok[spin][p1+k]; 
-	}
+        memmove(&Residual_ReRhok[spin][My_NumGridB_CB], &Residual_ReRhok[spin][0],
+                nb*(size_t)(List_YOUSO[38]-1));
+        memmove(&Residual_ImRhok[spin][My_NumGridB_CB], &Residual_ImRhok[spin][0],
+                nb*(size_t)(List_YOUSO[38]-1));
+      }
+    }
+    else{
+
+      for (pSCF_iter=(List_YOUSO[38]-1); 0<pSCF_iter; pSCF_iter--){
+
+        p0 = pSCF_iter*My_NumGridB_CB;
+        p1 = (pSCF_iter-1)*My_NumGridB_CB;
+
+        for (spin=0; spin<spinmax; spin++){
+          for (k=0; k<My_NumGridB_CB; k++){
+            Residual_ReRhok[spin][p0+k] = Residual_ReRhok[spin][p1+k];
+            Residual_ImRhok[spin][p0+k] = Residual_ImRhok[spin][p1+k];
+          }
+        }
       }
     }
   } /* else */
 
   /****************************************************
-        find the charge density in real space 
+        find the charge density in real space
   ****************************************************/
 
   tmp0 = 1.0/(double)Ngrid1/(double)Ngrid2/(double)Ngrid3;

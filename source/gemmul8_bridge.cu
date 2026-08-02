@@ -15,7 +15,7 @@ namespace {
 constexpr unsigned kDefaultNumModuli = 15u;
 constexpr unsigned kMaxNumModuli     = 20u;
 constexpr unsigned kDefaultMinFreeAfterMiB = 1536u;
-constexpr unsigned kDefaultMaxWorkspacePercent = 50u;
+constexpr unsigned kDefaultMaxWorkspacePercent = 30u;
 constexpr size_t   kMiB = 1024u * 1024u;
 
 struct WorkspaceKey {
@@ -267,21 +267,6 @@ void log_workspace_fallback_once(const WorkspaceReport &report)
 
 } // namespace
 
-extern "C" void openmx_gemmul8ReleaseWorkspaces(void)
-{
-    std::lock_guard<std::mutex> lock(g_workspace_mutex);
-
-    for (auto it = g_workspaces.begin(); it != g_workspaces.end();) {
-        cudaError_t status = release_workspace(it->second);
-        if (status == cudaSuccess || it->second.ptr == nullptr) {
-            it = g_workspaces.erase(it);
-        }
-        else {
-            ++it;
-        }
-    }
-}
-
 extern "C" cublasStatus_t openmx_gemmul8Dgemm(cublasHandle_t handle,
                                                cublasOperation_t transa,
                                                cublasOperation_t transb,
@@ -331,6 +316,57 @@ extern "C" cublasStatus_t openmx_gemmul8Dgemm(cublasHandle_t handle,
                                                         static_cast<size_t>(ldc), num_moduli, fastmode, work);
 
     return CUBLAS_STATUS_SUCCESS;
+}
+
+extern "C" void openmx_gemmul8ReleaseWorkspaces(void)
+{
+    std::lock_guard<std::mutex> lock(g_workspace_mutex);
+    cudaError_t                 first_error = cudaSuccess;
+
+    for (auto it = g_workspaces.begin(); it != g_workspaces.end();) {
+        cudaError_t status = release_workspace(it->second);
+        if (status == cudaSuccess) {
+            it = g_workspaces.erase(it);
+        } else {
+            if (first_error == cudaSuccess) {
+                first_error = status;
+            }
+            ++it;
+        }
+    }
+
+    if (first_error != cudaSuccess) {
+        std::fprintf(stderr,
+                     "openmx_gemmul8ReleaseWorkspaces: cudaFree failed: %s\n",
+                     cudaGetErrorString(first_error));
+        std::fflush(stderr);
+    }
+}
+
+extern "C" size_t openmx_gemmul8ZWorkspaceSize(int m, int n, int k)
+{
+    if (m <= 0 || n <= 0 || k <= 0 ||
+        gemmul8_disabled("OPENMX_GEMMUL8_DISABLE_Z", "GEMMUL8_DISABLE_Z")) {
+        return 0;
+    }
+
+    const unsigned num_moduli = gemmul8_num_moduli("OPENMX_GEMMUL8_NUM_MOD_Z", "GEMMUL8_NUM_MOD_Z");
+
+    return gemmul8::workSize<true, gemmul8::Backend::INT8>(
+        static_cast<size_t>(m), static_cast<size_t>(n), static_cast<size_t>(k), num_moduli);
+}
+
+extern "C" size_t openmx_gemmul8DWorkspaceSize(int m, int n, int k)
+{
+    if (m <= 0 || n <= 0 || k <= 0 ||
+        gemmul8_disabled("OPENMX_GEMMUL8_DISABLE_D", "GEMMUL8_DISABLE_D")) {
+        return 0;
+    }
+
+    const unsigned num_moduli = gemmul8_num_moduli("OPENMX_GEMMUL8_NUM_MOD_D", "GEMMUL8_NUM_MOD_D");
+
+    return gemmul8::workSize<false, gemmul8::Backend::INT8>(
+        static_cast<size_t>(m), static_cast<size_t>(n), static_cast<size_t>(k), num_moduli);
 }
 
 extern "C" cublasStatus_t openmx_gemmul8Zgemm(cublasHandle_t handle,

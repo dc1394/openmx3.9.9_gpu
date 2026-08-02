@@ -51,6 +51,48 @@ static void* Force_checked_malloc(size_t size, const char* file, int line)
     abort();
 }
 
+static int Force_env_flag(const char* name, int default_value)
+{
+    const char* value = getenv(name);
+
+    if (value == NULL || value[0] == '\0') {
+        return default_value;
+    }
+
+    return atoi(value) != 0;
+}
+
+static int Force_collective_env_flag(const char* name, int default_value,
+    MPI_Comm comm)
+{
+    int myid;
+    int value = default_value;
+
+    MPI_Comm_rank(comm, &myid);
+    if (myid == 0) {
+        value = Force_env_flag(name, default_value);
+    }
+    MPI_Bcast(&value, 1, MPI_INT, 0, comm);
+
+    return value;
+}
+
+static void Force_profile_report(const char* label, double local_elapsed,
+    MPI_Comm comm, int myid, int numprocs)
+{
+    double max_elapsed = 0.0;
+    double sum_elapsed = 0.0;
+
+    MPI_Reduce(&local_elapsed, &max_elapsed, 1, MPI_DOUBLE, MPI_MAX, 0, comm);
+    MPI_Reduce(&local_elapsed, &sum_elapsed, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
+
+    if (myid == 0) {
+        printf("[Force profile] %-12s max=%10.6f s  avg=%10.6f s\n",
+            label, max_elapsed, sum_elapsed / (double)numprocs);
+        fflush(stdout);
+    }
+}
+
 static int** Force_alloc_int_matrix(int rows, int cols)
 {
     int i;
@@ -137,6 +179,96 @@ static void Force_accumulate_atom_time_from_terms(const size_t* atom_terms, size
     }
 }
 
+/* Device memory used transiently by the force batches (packed item arrays,
+   reduction buffers) is claimed through explicit acc_malloc arenas, never
+   through data-clause allocation: on a device shared by several MPI ranks a
+   feasibility check made at batch begin can go stale while peer ranks claim
+   their own stage buffers, and an OpenACC data clause that then runs out of
+   memory aborts the whole run.  acc_malloc reports NULL instead, letting the
+   caller wait for the peers' transients or fall back to the host. */
+
+static void Force_gpu_pool_flush(void)
+{
+    if (cudaDeviceSynchronize() == cudaSuccess) acc_clear_freelists();
+}
+
+static size_t Force_gpu_arena_off(size_t* pos, size_t bytes)
+{
+    size_t off = *pos;
+
+    *pos = (off + bytes + 511U) & ~(size_t)511U;
+    return off;
+}
+
+/* one shot; the caller has a host fallback */
+static void* Force_gpu_arena_try(size_t bytes)
+{
+    void* arena = acc_malloc(bytes);
+
+    if (arena == NULL) {
+        /* our own freelist may hoard mismatched freed blocks */
+        Force_gpu_pool_flush();
+        arena = acc_malloc(bytes);
+    }
+    return arena;
+}
+
+/* mandatory claim: wait out the peers' transient spikes (they release on
+   their own, so this always makes progress) and only give up when the
+   device stays full for minutes */
+static void* Force_gpu_arena_wait(size_t bytes, const char* what)
+{
+    const int max_wait_ms = 180000;
+    int waited_ms = 0, warned = 0;
+
+    for (;;) {
+        void* arena = acc_malloc(bytes);
+
+        if (arena != NULL) return arena;
+        Force_gpu_pool_flush();
+
+        if (!warned && 2000 <= waited_ms) {
+            warned = 1;
+            fprintf(stderr,
+                "Force %s: waiting for %.1f MiB of device memory held by peer ranks...\n",
+                what, (double)bytes / (1024.0 * 1024.0));
+            fflush(stderr);
+        }
+        if (max_wait_ms <= waited_ms) {
+            size_t free_b = 0, total_b = 0;
+
+            (void)cudaMemGetInfo(&free_b, &total_b);
+            fprintf(stderr,
+                "Force %s: %.1f MiB of device memory did not free up within %d s (%.1f MiB free); "
+                "reduce the MPI ranks sharing the device.\n",
+                what, (double)bytes / (1024.0 * 1024.0), max_wait_ms / 1000,
+                (double)free_b / (1024.0 * 1024.0));
+            fflush(stderr);
+            MPI_Abort(mpi_comm_level1, 1);
+        }
+        {
+            struct timespec ts = { 0, 50 * 1000 * 1000 };
+
+            nanosleep(&ts, NULL);
+        }
+        waited_ms += 50;
+    }
+}
+
+static void Force_gpu_reduce_fallback_notice(size_t bytes)
+{
+    static int printed = 0;
+    size_t free_b = 0, total_b = 0;
+
+    if (printed) return;
+    printed = 1;
+    (void)cudaMemGetInfo(&free_b, &total_b);
+    fprintf(stderr,
+        "Force: a %.1f MiB GPU reduction buffer does not fit (%.1f MiB free); using the host for this reduction.\n",
+        (double)bytes / (1024.0 * 1024.0), (double)free_b / (1024.0 * 1024.0));
+    fflush(stderr);
+}
+
 static void Force_openacc_reduce_xyz(int num_atoms,
     const size_t* atom_offsets,
     size_t total_terms,
@@ -149,6 +281,9 @@ static void Force_openacc_reduce_xyz(int num_atoms,
     double* Fz)
 {
     int Mc_AN;
+    size_t nvec, asz = 0;
+    size_t o_off, o_w, o_vx, o_vy, o_vz, o_fx, o_fy, o_fz;
+    char* arena;
 
     for (Mc_AN = 0; Mc_AN <= num_atoms; Mc_AN++) {
         Fx[Mc_AN] = 0.0;
@@ -160,27 +295,83 @@ static void Force_openacc_reduce_xyz(int num_atoms,
         return;
     }
 
-#pragma acc data copyin(atom_offsets[0 : num_atoms + 1], weights[0 : total_terms], vx[0 : total_terms], vy[0 : total_terms], vz[0 : total_terms]) \
-    copyout(Fx[0 : num_atoms + 1], Fy[0 : num_atoms + 1], Fz[0 : num_atoms + 1])
-    {
-#pragma acc parallel loop gang
-        for (Mc_AN = 0; Mc_AN <= num_atoms; Mc_AN++) {
+    nvec = (size_t)num_atoms + 1;
+    o_off = Force_gpu_arena_off(&asz, sizeof(size_t) * nvec);
+    o_w = Force_gpu_arena_off(&asz, sizeof(double) * total_terms);
+    o_vx = Force_gpu_arena_off(&asz, sizeof(double) * total_terms);
+    o_vy = Force_gpu_arena_off(&asz, sizeof(double) * total_terms);
+    o_vz = Force_gpu_arena_off(&asz, sizeof(double) * total_terms);
+    o_fx = Force_gpu_arena_off(&asz, sizeof(double) * nvec);
+    o_fy = Force_gpu_arena_off(&asz, sizeof(double) * nvec);
+    o_fz = Force_gpu_arena_off(&asz, sizeof(double) * nvec);
+
+    arena = (char*)Force_gpu_arena_try(asz);
+
+    if (arena != NULL) {
+        acc_memcpy_to_device(arena + o_off, (void*)atom_offsets, sizeof(size_t) * nvec);
+        acc_memcpy_to_device(arena + o_w, (void*)weights, sizeof(double) * total_terms);
+        acc_memcpy_to_device(arena + o_vx, (void*)vx, sizeof(double) * total_terms);
+        acc_memcpy_to_device(arena + o_vy, (void*)vy, sizeof(double) * total_terms);
+        acc_memcpy_to_device(arena + o_vz, (void*)vz, sizeof(double) * total_terms);
+
+        {
+            const size_t* atom_offsets = (const size_t*)(void*)(arena + o_off);
+            const double* weights = (const double*)(void*)(arena + o_w);
+            const double* vx = (const double*)(void*)(arena + o_vx);
+            const double* vy = (const double*)(void*)(arena + o_vy);
+            const double* vz = (const double*)(void*)(arena + o_vz);
+            double* Fx = (double*)(void*)(arena + o_fx);
+            double* Fy = (double*)(void*)(arena + o_fy);
+            double* Fz = (double*)(void*)(arena + o_fz);
+
+#pragma acc parallel loop gang deviceptr(atom_offsets, weights, vx, vy, vz, Fx, Fy, Fz)
+            for (Mc_AN = 0; Mc_AN <= num_atoms; Mc_AN++) {
+                double sumx = 0.0;
+                double sumy = 0.0;
+                double sumz = 0.0;
+
+                if (Mc_AN != 0) {
+                    size_t start = atom_offsets[Mc_AN - 1];
+                    size_t end = atom_offsets[Mc_AN];
+                    size_t idx;
+
+#pragma acc loop vector reduction(+:sumx, sumy, sumz)
+                    for (idx = start; idx < end; idx++) {
+                        double weight = weights[idx];
+                        sumx += weight * vx[idx];
+                        sumy += weight * vy[idx];
+                        sumz += weight * vz[idx];
+                    }
+                }
+
+                Fx[Mc_AN] = sumx;
+                Fy[Mc_AN] = sumy;
+                Fz[Mc_AN] = sumz;
+            }
+        }
+
+        acc_memcpy_from_device(Fx, arena + o_fx, sizeof(double) * nvec);
+        acc_memcpy_from_device(Fy, arena + o_fy, sizeof(double) * nvec);
+        acc_memcpy_from_device(Fz, arena + o_fz, sizeof(double) * nvec);
+        acc_free(arena);
+        Force_gpu_pool_flush();
+    } else {
+        Force_gpu_reduce_fallback_notice(asz);
+
+#pragma omp parallel for schedule(dynamic)
+        for (Mc_AN = 1; Mc_AN <= num_atoms; Mc_AN++) {
             double sumx = 0.0;
             double sumy = 0.0;
             double sumz = 0.0;
+            size_t start = atom_offsets[Mc_AN - 1];
+            size_t end = atom_offsets[Mc_AN];
+            size_t idx;
 
-            if (Mc_AN != 0) {
-                size_t start = atom_offsets[Mc_AN - 1];
-                size_t end = atom_offsets[Mc_AN];
-                size_t idx;
-
-#pragma acc loop vector reduction(+:sumx, sumy, sumz)
-                for (idx = start; idx < end; idx++) {
-                    double weight = weights[idx];
-                    sumx += weight * vx[idx];
-                    sumy += weight * vy[idx];
-                    sumz += weight * vz[idx];
-                }
+            for (idx = start; idx < end; idx++) {
+                double weight = weights[idx];
+                sumx += weight * vx[idx];
+                sumy += weight * vy[idx];
+                sumz += weight * vz[idx];
             }
 
             Fx[Mc_AN] = sumx;
@@ -530,14 +721,47 @@ static void Force_openacc_reduce_terms(size_t total_terms,
         return;
     }
 
-#pragma acc data copyin(weights[0 : total_terms], vx[0 : total_terms], vy[0 : total_terms], vz[0 : total_terms]) copy(sx, sy, sz)
     {
-#pragma acc parallel loop reduction(+:sx, sy, sz)
-        for (idx = 0; idx < total_terms; idx++) {
-            double weight = weights[idx];
-            sx += weight * vx[idx];
-            sy += weight * vy[idx];
-            sz += weight * vz[idx];
+        size_t asz = 0;
+        const size_t o_w = Force_gpu_arena_off(&asz, sizeof(double) * total_terms);
+        const size_t o_vx = Force_gpu_arena_off(&asz, sizeof(double) * total_terms);
+        const size_t o_vy = Force_gpu_arena_off(&asz, sizeof(double) * total_terms);
+        const size_t o_vz = Force_gpu_arena_off(&asz, sizeof(double) * total_terms);
+        char* arena = (char*)Force_gpu_arena_try(asz);
+
+        if (arena != NULL) {
+            acc_memcpy_to_device(arena + o_w, (void*)weights, sizeof(double) * total_terms);
+            acc_memcpy_to_device(arena + o_vx, (void*)vx, sizeof(double) * total_terms);
+            acc_memcpy_to_device(arena + o_vy, (void*)vy, sizeof(double) * total_terms);
+            acc_memcpy_to_device(arena + o_vz, (void*)vz, sizeof(double) * total_terms);
+
+            {
+                const double* weights = (const double*)(void*)(arena + o_w);
+                const double* vx = (const double*)(void*)(arena + o_vx);
+                const double* vy = (const double*)(void*)(arena + o_vy);
+                const double* vz = (const double*)(void*)(arena + o_vz);
+
+#pragma acc parallel loop reduction(+:sx, sy, sz) deviceptr(weights, vx, vy, vz)
+                for (idx = 0; idx < total_terms; idx++) {
+                    double weight = weights[idx];
+                    sx += weight * vx[idx];
+                    sy += weight * vy[idx];
+                    sz += weight * vz[idx];
+                }
+            }
+
+            /* no pool flush here: these reductions repeat with the same
+               few arena sizes (per-pair calls), so freelist reuse matters */
+            acc_free(arena);
+        } else {
+            Force_gpu_reduce_fallback_notice(asz);
+
+            for (idx = 0; idx < total_terms; idx++) {
+                double weight = weights[idx];
+                sx += weight * vx[idx];
+                sy += weight * vy[idx];
+                sz += weight * vz[idx];
+            }
         }
     }
 
@@ -597,6 +821,1183 @@ static size_t Force4B_pack_trace_terms(double***** CDM0,
     }
 
     return idx;
+}
+
+static void Force3_gpu_abort(const char* message)
+{
+    fprintf(stderr, "%s\n", message);
+    fflush(stderr);
+    MPI_Abort(mpi_comm_level1, 1);
+}
+
+/* Batched device evaluation of the part-2 trace of Force3:
+   sum over the overlap grid points of every (atom, neighbour) pair of
+   Tr[ DM * (dChi0 x Chi1) ] * Vpot.  The per-pair partial forces come back
+   to the host and are accumulated per atom in pair order.  Everything here
+   is rank-local (no MPI collectives), so each rank decides independently. */
+
+typedef struct {
+    size_t dchi_base;
+    size_t vpot_base;
+    size_t orb1_base;
+    size_t dm_off;
+    int    vpot_stride;
+    int    no0;
+    int    no1;
+    int    glist_off;
+    int    n_olg;
+    int    orb1_fnan;
+    int    atom;
+} Force3GpuPair;
+
+/* Per-rank chunk budget for the batched trace, or zero when the rank should
+   stay on the CPU path.  Every rank on the node shares one device here, so
+   the resident orbital table plus one transient chunk of every sharing rank
+   must fit next to the reserve.  Only the leading checks are collective;
+   the returned decision may differ between ranks (the trace path itself has
+   no MPI). */
+static size_t Force3_GpuChunkBudget(void)
+{
+    int Mc_AN, node_ranks = 1;
+    size_t orbs_bytes = 0, grid_pts = 0, resident_bytes;
+    size_t free_bytes = 0, total_bytes = 0;
+    size_t usable, budget;
+    /* the chunk scratch is mirrored on the host (gl/fn/dm packing), so a
+       large cap multiplies host memory by the rank count; keep it small */
+    const size_t budget_cap = (size_t)384 * 1024 * 1024;
+    const size_t budget_floor = (size_t)192 * 1024 * 1024;
+    const size_t reserve = (size_t)256 * 1024 * 1024;
+    MPI_Comm node_comm = MPI_COMM_NULL;
+
+    if (scf_eigen_lib_flag != GPUSOLVER) return 0;
+    if (!Force_collective_env_flag("OPENMX_FORCE3_GPU", 1, mpi_comm_level1)) return 0;
+
+    MPI_Comm_split_type(mpi_comm_level1, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
+    MPI_Comm_size(node_comm, &node_ranks);
+    MPI_Comm_free(&node_comm);
+    if (node_ranks < 1) node_ranks = 1;
+
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        orbs_bytes += (size_t)GridN_Atom[Gc_AN] * (size_t)Spe_Total_CNO[WhatSpecies[Gc_AN]]
+            * sizeof(float);
+        grid_pts += (size_t)GridN_Atom[Gc_AN];
+    }
+    /* device-resident tables: the orbital table, the per-spin grid
+       potentials, and (with on-device derivatives) the grid coordinates */
+    resident_bytes = orbs_bytes
+        + grid_pts * (size_t)(SpinP_switch + 1) * sizeof(double)
+        + grid_pts * 3 * sizeof(double);
+
+    if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess) return 0;
+    if (free_bytes <= reserve) return 0;
+
+    usable = (free_bytes - reserve) / (size_t)node_ranks;
+    if (usable <= resident_bytes + budget_floor) return 0;
+
+    budget = usable - resident_bytes;
+    if (budget_cap < budget) budget = budget_cap;
+    return budget;
+}
+
+/* caps of the on-device orbital-derivative evaluation */
+#define F3_DORB_L0MAX 3
+#define F3_DORB_MULMAX 8
+
+/* The device evaluation covers uncontracted bases with L0 <= 3 (the
+   explicit real-harmonic formulas); anything else keeps the host
+   Get_dOrbitals path with the derivative upload. */
+static int Force3_GpuDorbMode(void)
+{
+    int w, L0;
+
+    if (Cnt_switch != 0) return 0;
+    if (!Force_env_flag("OPENMX_FORCE3_GPU_DORB", 1)) return 0;
+
+    for (w = 0; w < SpeciesNum; w++) {
+        if (F3_DORB_L0MAX < Spe_MaxL_Basis[w]) return 0;
+        for (L0 = 0; L0 <= Spe_MaxL_Basis[w]; L0++) {
+            if (F3_DORB_MULMAX < Spe_Num_Basis[w][L0]) return 0;
+        }
+        if (Spe_Num_Mesh_PAO[w] < 6) return 0;
+    }
+    return 1;
+}
+
+static void Force3_GpuTrace(const double* dchi_all, const size_t* dchi_off,
+    double* vpot_dev_full, const size_t* vpot_off,
+    double* xyz_dev_full, const size_t* xyz_off, int dorb_mode,
+    size_t chunk_budget)
+{
+    int Mc_AN, h_AN, myid;
+    size_t orbs_local_count = 0;
+    size_t* orb_off;
+    float* orbs_dev;
+    float* orb_stage;
+    int chunk_lo;
+    const int spins = SpinP_switch + 1;
+
+    /* per-species PAO tables of the on-device orbital derivatives */
+    double* pao_rv = NULL;
+    double* pao_rwf = NULL;
+    size_t* rv_off = NULL;
+    size_t* rwf_base = NULL;
+    int* sp_mesh = NULL;
+    int* sp_maxl = NULL;
+    int* sp_nb = NULL;
+    size_t pao_rv_count = 0, pao_rwf_count = 0;
+
+    MPI_Comm_rank(mpi_comm_level1, &myid);
+
+    /* ---- flatten the local orbital table (float) into a device-resident
+            buffer, one atom block at a time through a staging buffer ---- */
+
+    orb_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(Matomnum + 2),
+        __FILE__, __LINE__);
+
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int NO0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        orb_off[Mc_AN] = orbs_local_count;
+        orbs_local_count += (size_t)GridN_Atom[Gc_AN] * (size_t)NO0;
+    }
+    orb_off[Matomnum + 1] = orbs_local_count;
+
+    orbs_dev = (float*)Force_gpu_arena_wait(
+        sizeof(float) * (orbs_local_count == 0 ? 1 : orbs_local_count),
+        "GPU trace orbital table");
+    {
+        size_t maxorb = 0;
+
+        for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+            size_t cnt = orb_off[Mc_AN + 1] - orb_off[Mc_AN];
+            if (maxorb < cnt) maxorb = cnt;
+        }
+        orb_stage = (float*)Force_checked_malloc(
+            sizeof(float) * (maxorb == 0 ? 1 : maxorb), __FILE__, __LINE__);
+    }
+
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int NO0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+        size_t cnt = orb_off[Mc_AN + 1] - orb_off[Mc_AN];
+        int Nc;
+
+#pragma omp parallel for schedule(dynamic)
+        for (Nc = 0; Nc < GridN_Atom[Gc_AN]; Nc++) {
+            const Type_Orbs_Grid* src = Orbs_Grid[Mc_AN][Nc];
+            float* dst = orb_stage + (size_t)Nc * (size_t)NO0;
+            int i;
+
+            for (i = 0; i < NO0; i++) dst[i] = (float)src[i];
+        }
+
+        if (cnt != 0) {
+            acc_memcpy_to_device(orbs_dev + orb_off[Mc_AN], orb_stage, sizeof(float) * cnt);
+        }
+    }
+
+    /* ---- flatten the PAO radial tables when the device evaluates the
+            orbital derivatives itself ---- */
+
+    if (dorb_mode) {
+        int w, L0, Mul0, i;
+
+        rv_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(SpeciesNum + 1), __FILE__, __LINE__);
+        rwf_base = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(SpeciesNum + 1), __FILE__, __LINE__);
+        sp_mesh = (int*)Force_checked_malloc(sizeof(int) * (size_t)SpeciesNum, __FILE__, __LINE__);
+        sp_maxl = (int*)Force_checked_malloc(sizeof(int) * (size_t)SpeciesNum, __FILE__, __LINE__);
+        sp_nb = (int*)Force_checked_malloc(sizeof(int) * (size_t)SpeciesNum * (F3_DORB_L0MAX + 1),
+            __FILE__, __LINE__);
+
+        for (w = 0; w < SpeciesNum; w++) {
+            int nb_tot = 0;
+
+            rv_off[w] = pao_rv_count;
+            rwf_base[w] = pao_rwf_count;
+            sp_mesh[w] = Spe_Num_Mesh_PAO[w];
+            sp_maxl[w] = Spe_MaxL_Basis[w];
+            for (L0 = 0; L0 <= F3_DORB_L0MAX; L0++) {
+                int nb = (L0 <= Spe_MaxL_Basis[w]) ? Spe_Num_Basis[w][L0] : 0;
+
+                sp_nb[w * (F3_DORB_L0MAX + 1) + L0] = nb;
+                nb_tot += nb;
+            }
+            pao_rv_count += (size_t)Spe_Num_Mesh_PAO[w];
+            pao_rwf_count += (size_t)nb_tot * (size_t)Spe_Num_Mesh_PAO[w];
+        }
+        rv_off[SpeciesNum] = pao_rv_count;
+        rwf_base[SpeciesNum] = pao_rwf_count;
+
+        pao_rv = (double*)Force_checked_malloc(sizeof(double) * (pao_rv_count == 0 ? 1 : pao_rv_count),
+            __FILE__, __LINE__);
+        pao_rwf = (double*)Force_checked_malloc(sizeof(double) * (pao_rwf_count == 0 ? 1 : pao_rwf_count),
+            __FILE__, __LINE__);
+
+        for (w = 0; w < SpeciesNum; w++) {
+            size_t rpos = rwf_base[w];
+
+            for (i = 0; i < Spe_Num_Mesh_PAO[w]; i++) {
+                pao_rv[rv_off[w] + (size_t)i] = Spe_PAO_RV[w][i];
+            }
+            for (L0 = 0; L0 <= Spe_MaxL_Basis[w]; L0++) {
+                for (Mul0 = 0; Mul0 < Spe_Num_Basis[w][L0]; Mul0++) {
+                    for (i = 0; i < Spe_Num_Mesh_PAO[w]; i++) {
+                        pao_rwf[rpos++] = Spe_PAO_RWF[w][L0][Mul0][i];
+                    }
+                }
+            }
+        }
+    }
+
+    {
+        const size_t rv_n = (pao_rv_count == 0 ? 1 : pao_rv_count);
+        const size_t rwf_n = (pao_rwf_count == 0 ? 1 : pao_rwf_count);
+        const size_t spn = (size_t)SpeciesNum;
+        const size_t spl = (size_t)SpeciesNum * (F3_DORB_L0MAX + 1);
+        double* rv_p = (dorb_mode ? pao_rv : (double*)orb_off);
+        double* rwf_p = (dorb_mode ? pao_rwf : (double*)orb_off);
+        size_t* rvo_p = (dorb_mode ? rv_off : orb_off);
+        size_t* rwb_p = (dorb_mode ? rwf_base : orb_off);
+        int* spm_p = (dorb_mode ? sp_mesh : (int*)orb_off);
+        int* spx_p = (dorb_mode ? sp_maxl : (int*)orb_off);
+        int* spb_p = (dorb_mode ? sp_nb : (int*)orb_off);
+        const size_t rv_map = (dorb_mode ? rv_n : 1);
+        const size_t rwf_map = (dorb_mode ? rwf_n : 1);
+        const size_t sp_map = (dorb_mode ? spn : 1);
+        const size_t spl_map = (dorb_mode ? spl : 1);
+        const size_t spo_map = (dorb_mode ? spn + 1 : 1);
+
+        /* ---- plan the chunk partition up front; every chunk then reuses one
+                set of device buffers sized to the largest chunk.  Per-chunk
+                data regions would strand one pool block per distinct size (the
+                NVHPC freelist reuses exact sizes only), and the node ranks
+                sharing the device run it out of memory. ---- */
+
+        int n_chunks = 0;
+        int* chunk_bound = (int*)Force_checked_malloc(sizeof(int) * (size_t)(Matomnum + 2), __FILE__, __LINE__);
+        int* plan_pairs = (int*)Force_checked_malloc(sizeof(int) * (size_t)(Matomnum + 1), __FILE__, __LINE__);
+        size_t* plan_gl = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(Matomnum + 1), __FILE__, __LINE__);
+        size_t* plan_fn = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(Matomnum + 1), __FILE__, __LINE__);
+        size_t* plan_dm = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(Matomnum + 1), __FILE__, __LINE__);
+        size_t max_pairs = 0, max_gl = 0, max_fn = 0, max_dm = 0;
+        size_t max_dchi = 0, max_npts = 0;
+        size_t max_atoms = 0;
+
+        chunk_bound[0] = 1;
+        chunk_lo = 1;
+        while (chunk_lo <= Matomnum) {
+
+            /* ---- grow a chunk of consecutive atoms under the budget ---- */
+
+            int chunk_hi = chunk_lo; /* exclusive */
+            int npairs = 0;
+            size_t gl_count = 0, fn_count = 0, dm_count = 0;
+
+            while (chunk_hi <= Matomnum) {
+                int Gc_AN = M2G[chunk_hi];
+                int NO0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+                size_t a_gl = 0, a_fn = 0, a_dm = 0;
+                size_t chunk_bytes;
+                int a_pairs = 0;
+
+                for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+                    int Gh_AN = natn[Gc_AN][h_AN];
+                    int NO1 = Spe_Total_CNO[WhatSpecies[Gh_AN]];
+                    size_t nolg = (size_t)NumOLG[chunk_hi][h_AN];
+
+                    a_pairs++;
+                    a_gl += nolg;
+                    a_dm += (size_t)spins * (size_t)NO0 * (size_t)NO1;
+                    if (G2ID[Gh_AN] != myid) a_fn += nolg * (size_t)NO1;
+                }
+
+                chunk_bytes = (gl_count + a_gl) * 2 * sizeof(int)
+                    + (fn_count + a_fn) * sizeof(float)
+                    + (dm_count + a_dm) * sizeof(double)
+                    + (dchi_off[chunk_hi + 1] - dchi_off[chunk_lo]) * sizeof(double);
+
+                if (chunk_lo < chunk_hi && chunk_budget < chunk_bytes) break;
+
+                gl_count += a_gl;
+                fn_count += a_fn;
+                dm_count += a_dm;
+                npairs += a_pairs;
+                chunk_hi++;
+            }
+
+            plan_pairs[n_chunks] = npairs;
+            plan_gl[n_chunks] = gl_count;
+            plan_fn[n_chunks] = fn_count;
+            plan_dm[n_chunks] = dm_count;
+            n_chunks++;
+            chunk_bound[n_chunks] = chunk_hi;
+
+            if (max_pairs < (size_t)npairs) max_pairs = (size_t)npairs;
+            if (max_gl < gl_count) max_gl = gl_count;
+            if (max_fn < fn_count) max_fn = fn_count;
+            if (max_dm < dm_count) max_dm = dm_count;
+            {
+                const size_t c_dchi = dchi_off[chunk_hi] - dchi_off[chunk_lo];
+                const size_t c_npts = (xyz_off[chunk_hi] - xyz_off[chunk_lo]) / 3;
+
+                if (max_dchi < c_dchi) max_dchi = c_dchi;
+                if (max_npts < c_npts) max_npts = c_npts;
+                if (max_atoms < (size_t)(chunk_hi - chunk_lo)) max_atoms = (size_t)(chunk_hi - chunk_lo);
+            }
+
+            chunk_lo = chunk_hi;
+        }
+
+        {
+            const size_t pm_n = (max_pairs == 0 ? 1 : max_pairs);
+            const size_t glb_n = (max_gl == 0 ? 1 : max_gl);
+            const size_t fnb_n = (max_fn == 0 ? 1 : max_fn);
+            const size_t dmb_n = (max_dm == 0 ? 1 : max_dm);
+            const size_t pf_n = 3 * pm_n;
+            const size_t pt_n = ((dorb_mode && max_npts != 0) ? max_npts : 1);
+            const size_t am_n = ((dorb_mode && max_atoms != 0) ? max_atoms : 1);
+            Force3GpuPair* pm = (Force3GpuPair*)Force_checked_malloc(
+                sizeof(Force3GpuPair) * pm_n, __FILE__, __LINE__);
+            int* pm_h = (int*)Force_checked_malloc(sizeof(int) * pm_n, __FILE__, __LINE__);
+            int* gl1 = (int*)Force_checked_malloc(sizeof(int) * glb_n, __FILE__, __LINE__);
+            int* gl2 = (int*)Force_checked_malloc(sizeof(int) * glb_n, __FILE__, __LINE__);
+            float* fn_buf = (float*)Force_checked_malloc(sizeof(float) * fnb_n, __FILE__, __LINE__);
+            double* dm_buf = (double*)Force_checked_malloc(sizeof(double) * dmb_n, __FILE__, __LINE__);
+            double* pair_f = (double*)Force_checked_malloc(sizeof(double) * pf_n, __FILE__, __LINE__);
+            int* pt_aidx = (int*)Force_checked_malloc(sizeof(int) * pt_n, __FILE__, __LINE__);
+            int* a_wan = (int*)Force_checked_malloc(sizeof(int) * am_n, __FILE__, __LINE__);
+            int* a_no0 = (int*)Force_checked_malloc(sizeof(int) * am_n, __FILE__, __LINE__);
+            size_t* a_dchi = (size_t*)Force_checked_malloc(sizeof(size_t) * am_n, __FILE__, __LINE__);
+            size_t* a_pt0 = (size_t*)Force_checked_malloc(sizeof(size_t) * am_n, __FILE__, __LINE__);
+            double* dchi_dev;
+            int ic;
+
+            /* one arena claim covers the whole chunk-loop footprint
+               (scratch, staged chunk buffers, radial tables).  A data
+               region here would allocate piecemeal and abort fatally if
+               a peer rank grabbed the memory in between; the arena wait
+               is non-fatal and the kernels read the same-name shadow
+               pointers below, so the kernel bodies stay verbatim */
+            size_t arena_pos = 0;
+            const size_t o_dchi = Force_gpu_arena_off(&arena_pos, (max_dchi == 0 ? 1 : max_dchi) * sizeof(double));
+            const size_t o_rv   = Force_gpu_arena_off(&arena_pos, sizeof(*rv_p) * rv_map);
+            const size_t o_rwf  = Force_gpu_arena_off(&arena_pos, sizeof(*rwf_p) * rwf_map);
+            const size_t o_rvo  = Force_gpu_arena_off(&arena_pos, sizeof(*rvo_p) * spo_map);
+            const size_t o_rwb  = Force_gpu_arena_off(&arena_pos, sizeof(*rwb_p) * spo_map);
+            const size_t o_spm  = Force_gpu_arena_off(&arena_pos, sizeof(*spm_p) * sp_map);
+            const size_t o_spx  = Force_gpu_arena_off(&arena_pos, sizeof(*spx_p) * sp_map);
+            const size_t o_spb  = Force_gpu_arena_off(&arena_pos, sizeof(*spb_p) * spl_map);
+            const size_t o_pm   = Force_gpu_arena_off(&arena_pos, sizeof(Force3GpuPair) * pm_n);
+            const size_t o_gl1  = Force_gpu_arena_off(&arena_pos, sizeof(int) * glb_n);
+            const size_t o_gl2  = Force_gpu_arena_off(&arena_pos, sizeof(int) * glb_n);
+            const size_t o_fn   = Force_gpu_arena_off(&arena_pos, sizeof(float) * fnb_n);
+            const size_t o_dm   = Force_gpu_arena_off(&arena_pos, sizeof(double) * dmb_n);
+            const size_t o_pf   = Force_gpu_arena_off(&arena_pos, sizeof(double) * pf_n);
+            const size_t o_pt   = Force_gpu_arena_off(&arena_pos, sizeof(int) * pt_n);
+            const size_t o_awan = Force_gpu_arena_off(&arena_pos, sizeof(int) * am_n);
+            const size_t o_ano0 = Force_gpu_arena_off(&arena_pos, sizeof(int) * am_n);
+            const size_t o_adchi = Force_gpu_arena_off(&arena_pos, sizeof(size_t) * am_n);
+            const size_t o_apt0 = Force_gpu_arena_off(&arena_pos, sizeof(size_t) * am_n);
+            unsigned char* chunk_arena =
+                (unsigned char*)Force_gpu_arena_wait(arena_pos, "GPU trace chunk buffers");
+
+            /* the radial tables are read-only for the whole chunk loop */
+            acc_memcpy_to_device(chunk_arena + o_rv,  rv_p,  sizeof(*rv_p) * rv_map);
+            acc_memcpy_to_device(chunk_arena + o_rwf, rwf_p, sizeof(*rwf_p) * rwf_map);
+            acc_memcpy_to_device(chunk_arena + o_rvo, rvo_p, sizeof(*rvo_p) * spo_map);
+            acc_memcpy_to_device(chunk_arena + o_rwb, rwb_p, sizeof(*rwb_p) * spo_map);
+            acc_memcpy_to_device(chunk_arena + o_spm, spm_p, sizeof(*spm_p) * sp_map);
+            acc_memcpy_to_device(chunk_arena + o_spx, spx_p, sizeof(*spx_p) * sp_map);
+            acc_memcpy_to_device(chunk_arena + o_spb, spb_p, sizeof(*spb_p) * spl_map);
+
+            dchi_dev = (double*)(void*)(chunk_arena + o_dchi);
+
+    {
+        for (ic = 0; ic < n_chunks; ic++) {
+
+            {
+                const int chunk_hi = chunk_bound[ic + 1];
+                const int npairs = plan_pairs[ic];
+                const size_t gl_count = plan_gl[ic];
+                const size_t fn_count = plan_fn[ic];
+                const size_t dm_count = plan_dm[ic];
+                size_t gl_pos = 0, fn_pos = 0, dm_pos = 0;
+                int p = 0, mc;
+                size_t dchi_lo, dchi_len;
+
+                chunk_lo = chunk_bound[ic];
+                dchi_lo = dchi_off[chunk_lo];
+                dchi_len = dchi_off[chunk_hi] - dchi_off[chunk_lo];
+
+                /* offsets first (sequential), the bulk copies in parallel */
+
+                for (mc = chunk_lo; mc < chunk_hi; mc++) {
+                    int Gc_AN = M2G[mc];
+                    int NO0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+                    for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+                        int Gh_AN = natn[Gc_AN][h_AN];
+                        int Mh_AN = F_G2M[Gh_AN];
+                        int NO1 = Spe_Total_CNO[WhatSpecies[Gh_AN]];
+                        int nolg = NumOLG[mc][h_AN];
+                        int is_fnan = (G2ID[Gh_AN] != myid);
+
+                        pm[p].dchi_base = dchi_off[mc] - dchi_lo;
+                        /* vpot lives in the full device-resident buffer,
+                           so its base offset is global, not chunk-relative */
+                        pm[p].vpot_base = vpot_off[mc];
+                        pm[p].vpot_stride = GridN_Atom[Gc_AN];
+                        pm[p].no0 = NO0;
+                        pm[p].no1 = NO1;
+                        pm[p].glist_off = (int)gl_pos;
+                        pm[p].n_olg = nolg;
+                        pm[p].orb1_fnan = is_fnan;
+                        pm[p].orb1_base = is_fnan ? fn_pos : orb_off[Mh_AN];
+                        pm[p].dm_off = dm_pos;
+                        pm[p].atom = mc;
+                        pm_h[p] = h_AN;
+
+                        gl_pos += (size_t)nolg;
+                        if (is_fnan) fn_pos += (size_t)nolg * (size_t)NO1;
+                        dm_pos += (size_t)spins * (size_t)NO0 * (size_t)NO1;
+                        p++;
+                    }
+                }
+
+                if (p != npairs || gl_pos != gl_count || fn_pos != fn_count || dm_pos != dm_count) {
+                    Force3_gpu_abort("Force3 GPU trace: inconsistent chunk assembly.");
+                }
+
+#pragma omp parallel for schedule(dynamic)
+                for (p = 0; p < npairs; p++) {
+                    const int mc2 = pm[p].atom;
+                    const int h2 = pm_h[p];
+                    const int NO0 = pm[p].no0;
+                    const int NO1 = pm[p].no1;
+                    const int nolg = pm[p].n_olg;
+                    size_t pos;
+
+                    memcpy(gl1 + pm[p].glist_off, GListTAtoms1[mc2][h2], sizeof(int) * (size_t)nolg);
+                    memcpy(gl2 + pm[p].glist_off, GListTAtoms2[mc2][h2], sizeof(int) * (size_t)nolg);
+
+                    if (pm[p].orb1_fnan) {
+                        int Nog, j;
+
+                        for (Nog = 0; Nog < nolg; Nog++) {
+                            const Type_Orbs_Grid* src = Orbs_Grid_FNAN[mc2][h2][Nog];
+                            float* dst = fn_buf + pm[p].orb1_base + (size_t)Nog * (size_t)NO1;
+
+                            for (j = 0; j < NO1; j++) dst[j] = (float)src[j];
+                        }
+                    }
+
+                    pos = pm[p].dm_off;
+                    {
+                        int spin, i;
+
+                        for (spin = 0; spin < spins; spin++) {
+                            for (i = 0; i < NO0; i++) {
+                                memcpy(dm_buf + pos, DM[0][spin][mc2][h2][i],
+                                    sizeof(double) * (size_t)NO1);
+                                pos += (size_t)NO1;
+                            }
+                        }
+                    }
+                }
+
+                /* ---- stage the chunk into the fixed device buffers ---- */
+
+                {
+                    const size_t gl_u = (gl_count == 0 ? 1 : gl_count);
+                    const size_t fn_u = (fn_count == 0 ? 1 : fn_count);
+                    const size_t dm_u = (dm_count == 0 ? 1 : dm_count);
+                    const size_t npairs_u = (size_t)(npairs == 0 ? 1 : npairs);
+
+                    acc_memcpy_to_device(chunk_arena + o_pm,  pm,     sizeof(Force3GpuPair) * npairs_u);
+                    acc_memcpy_to_device(chunk_arena + o_gl1, gl1,    sizeof(int) * gl_u);
+                    acc_memcpy_to_device(chunk_arena + o_gl2, gl2,    sizeof(int) * gl_u);
+                    acc_memcpy_to_device(chunk_arena + o_fn,  fn_buf, sizeof(float) * fn_u);
+                    acc_memcpy_to_device(chunk_arena + o_dm,  dm_buf, sizeof(double) * dm_u);
+                }
+
+                /* ---- the per-chunk orbital derivatives ---- */
+
+                if (dorb_mode) {
+
+                    {
+                        int chunk_atoms = chunk_hi - chunk_lo;
+                        size_t npts = (xyz_off[chunk_hi] - xyz_off[chunk_lo]) / 3;
+                        const size_t xyz_lo = xyz_off[chunk_lo];
+                        double* xyz_chunk = xyz_dev_full + xyz_lo;
+                        int a;
+
+                        for (a = 0; a < chunk_atoms; a++) {
+                            int mc3 = chunk_lo + a;
+                            int Gc_AN = M2G[mc3];
+                            size_t p0 = (xyz_off[mc3] - xyz_lo) / 3;
+                            size_t pe = (xyz_off[mc3 + 1] - xyz_lo) / 3;
+                            size_t q;
+
+                            a_wan[a] = WhatSpecies[Gc_AN];
+                            a_no0[a] = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+                            a_dchi[a] = dchi_off[mc3] - dchi_lo;
+                            a_pt0[a] = p0;
+                            for (q = p0; q < pe; q++) pt_aidx[q] = a;
+                        }
+
+                        {
+                            const int npts_c = (int)npts;
+                            const size_t npts_u = (npts == 0 ? 1 : npts);
+                            const size_t am_u = (size_t)chunk_atoms;
+
+                            acc_memcpy_to_device(chunk_arena + o_pt,    pt_aidx, sizeof(int) * npts_u);
+                            acc_memcpy_to_device(chunk_arena + o_awan,  a_wan,   sizeof(int) * am_u);
+                            acc_memcpy_to_device(chunk_arena + o_ano0,  a_no0,   sizeof(int) * am_u);
+                            acc_memcpy_to_device(chunk_arena + o_adchi, a_dchi,  sizeof(size_t) * am_u);
+                            acc_memcpy_to_device(chunk_arena + o_apt0,  a_pt0,   sizeof(size_t) * am_u);
+                            {
+                                const int* pt_aidx = (const int*)(const void*)(chunk_arena + o_pt);
+                                const int* a_wan = (const int*)(const void*)(chunk_arena + o_awan);
+                                const int* a_no0 = (const int*)(const void*)(chunk_arena + o_ano0);
+                                const size_t* a_dchi = (const size_t*)(const void*)(chunk_arena + o_adchi);
+                                const size_t* a_pt0 = (const size_t*)(const void*)(chunk_arena + o_apt0);
+                                const double* rv_p = (const double*)(const void*)(chunk_arena + o_rv);
+                                const double* rwf_p = (const double*)(const void*)(chunk_arena + o_rwf);
+                                const size_t* rvo_p = (const size_t*)(const void*)(chunk_arena + o_rvo);
+                                const size_t* rwb_p = (const size_t*)(const void*)(chunk_arena + o_rwb);
+                                const int* spm_p = (const int*)(const void*)(chunk_arena + o_spm);
+                                const int* spx_p = (const int*)(const void*)(chunk_arena + o_spx);
+                                const int* spb_p = (const int*)(const void*)(chunk_arena + o_spb);
+
+#pragma acc parallel loop gang vector_length(128) deviceptr(dchi_dev, xyz_chunk, \
+    pt_aidx, a_wan, a_no0, a_dchi, a_pt0, \
+    rv_p, rwf_p, rvo_p, rwb_p, spm_p, spx_p, spb_p)
+                                for (int ip = 0; ip < npts_c; ip++) {
+                                    const int a2 = pt_aidx[ip];
+                                    const int wan = a_wan[a2];
+                                    const int NO0 = a_no0[a2];
+                                    const size_t Nc = (size_t)ip - a_pt0[a2];
+                                    double* dchi = dchi_dev + a_dchi[a2] + Nc * (size_t)NO0 * 3;
+                                    const double x = xyz_chunk[3 * (size_t)ip + 0];
+                                    const double y = xyz_chunk[3 * (size_t)ip + 1];
+                                    const double z = xyz_chunk[3 * (size_t)ip + 2];
+                                    const int mesh = spm_p[wan];
+                                    const int maxl = spx_p[wan];
+                                    const double* rv = rv_p + rvo_p[wan];
+                                    double RF[F3_DORB_L0MAX + 1][F3_DORB_MULMAX];
+                                    double dRF[F3_DORB_L0MAX + 1][F3_DORB_MULMAX];
+                                    double AF[F3_DORB_L0MAX + 1][2 * F3_DORB_L0MAX + 1];
+                                    double dAFQ[F3_DORB_L0MAX + 1][2 * F3_DORB_L0MAX + 1];
+                                    double dAFP[F3_DORB_L0MAX + 1][2 * F3_DORB_L0MAX + 1];
+                                    double xx = x, yy = y, zz = z;
+                                    double R, Q, P;
+                                    int po = 0;
+                                    int L0, Mul0, M0, i1;
+
+                                    /* xyz2spherical */
+                                    {
+                                        const double Min_r = 10e-15;
+                                        const double Rmin0 = 10e-14;
+                                        int pass;
+
+                                        for (pass = 0; pass < 2; pass++) {
+                                            double dum = xx * xx + yy * yy;
+                                            double r = sqrt(dum + zz * zz);
+                                            double r1 = sqrt(dum);
+                                            double theta, phi, dum1;
+
+                                            if (Min_r <= r) {
+                                                if (r < fabs(zz)) dum1 = (zz >= 0.0 ? 1.0 : -1.0);
+                                                else dum1 = zz / r;
+                                                theta = acos(dum1);
+
+                                                if (Min_r <= r1) {
+                                                    if (r1 < fabs(yy)) dum1 = (yy >= 0.0 ? 1.0 : -1.0);
+                                                    else dum1 = yy / r1;
+                                                    if (0.0 <= xx) phi = asin(dum1);
+                                                    else phi = PI - asin(dum1);
+                                                } else {
+                                                    phi = 0.0;
+                                                }
+                                            } else {
+                                                theta = 0.5 * PI;
+                                                phi = 0.0;
+                                            }
+
+                                            R = r;
+                                            Q = theta;
+                                            P = phi;
+
+                                            if (pass == 0 && R < Rmin0) {
+                                                xx += Rmin0;
+                                                yy += Rmin0;
+                                                zz += Rmin0;
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    /* radial spline of every (L0, Mul0) */
+                                    if (rv[mesh - 1] < R) {
+                                        for (L0 = 0; L0 <= maxl; L0++) {
+                                            const int nb = spb_p[wan * (F3_DORB_L0MAX + 1) + L0];
+                                            for (Mul0 = 0; Mul0 < nb; Mul0++) {
+                                                RF[L0][Mul0] = 0.0;
+                                                dRF[L0][Mul0] = 0.0;
+                                            }
+                                        }
+                                        po = 1;
+                                    } else {
+                                        int m;
+                                        double rm_or_R;
+                                        int below = (R < rv[0]);
+                                        double h1, h2, h3, x1, x2, y1v, y2v, y12, y22;
+                                        double dum, dum1, dum2, dum3, dum4;
+                                        size_t rpos = rwb_p[wan];
+
+                                        if (below) {
+                                            m = 4;
+                                            rm_or_R = rv[m];
+                                        } else {
+                                            int mp_min = 0, mp_max = mesh - 1;
+
+                                            do {
+                                                m = (mp_min + mp_max) / 2;
+                                                if (rv[m] < R) mp_min = m;
+                                                else mp_max = m;
+                                            } while ((mp_max - mp_min) != 1);
+                                            m = mp_max;
+                                            rm_or_R = R;
+                                        }
+
+                                        /* the boundary meshes fold the outer stencil point back
+                                           inward instead of reading past the table */
+                                        h2 = rv[m] - rv[m - 1];
+                                        h3 = (m == mesh - 1) ? 0.0 : (rv[m + 1] - rv[m]);
+                                        h1 = (m == 1) ? 0.0 : (rv[m - 1] - rv[m - 2]);
+                                        if (m == mesh - 1) h3 = -(h1 + h2);
+                                        if (m == 1) h1 = -(h2 + h3);
+
+                                        x1 = rm_or_R - rv[m - 1];
+                                        x2 = rm_or_R - rv[m];
+                                        y1v = x1 / h2;
+                                        y2v = x2 / h2;
+                                        y12 = y1v * y1v;
+                                        y22 = y2v * y2v;
+
+                                        dum = h1 + h2;
+                                        dum1 = h1 / h2 / dum;
+                                        dum2 = h2 / h1 / dum;
+                                        dum = h2 + h3;
+                                        dum3 = h2 / h3 / dum;
+                                        dum4 = h3 / h2 / dum;
+
+                                        for (L0 = 0; L0 <= maxl; L0++) {
+                                            const int nb = spb_p[wan * (F3_DORB_L0MAX + 1) + L0];
+
+                                            for (Mul0 = 0; Mul0 < nb; Mul0++) {
+                                                const double* rwf = rwf_p + rpos;
+                                                double f2 = rwf[m - 1];
+                                                double f3 = rwf[m];
+                                                double f4 = (m == mesh - 1) ? 0.0 : rwf[m + 1];
+                                                double f1 = (m == 1) ? f4 : rwf[m - 2];
+                                                double g1, g2, f, df;
+
+                                                rpos += (size_t)mesh;
+
+                                                if (m == mesh - 1) f4 = f1;
+
+                                                dum = f3 - f2;
+                                                g1 = dum * dum1 + (f2 - f1) * dum2;
+                                                g2 = (f4 - f3) * dum3 + dum * dum4;
+
+                                                f = y22 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2v)
+                                                    + y12 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1v);
+
+                                                df = 2.0 * y2v / h2 * (3.0 * f2 + h2 * g1 + (2.0 * f2 + h2 * g1) * y2v)
+                                                    + y22 * (2.0 * f2 + h2 * g1) / h2
+                                                    + 2.0 * y1v / h2 * (3.0 * f3 - h2 * g2 - (2.0 * f3 - h2 * g2) * y1v)
+                                                    - y12 * (2.0 * f3 - h2 * g2) / h2;
+
+                                                if (below) {
+                                                    double aa, bb, cc, dd;
+                                                    const double rm = rm_or_R;
+
+                                                    if (L0 == 0) {
+                                                        aa = 0.0;
+                                                        bb = 0.5 * df / rm;
+                                                        cc = 0.0;
+                                                        dd = f - bb * rm * rm;
+                                                    } else if (L0 == 1) {
+                                                        aa = (rm * df - f) / (2.0 * rm * rm * rm);
+                                                        bb = 0.0;
+                                                        cc = df - 3.0 * aa * rm * rm;
+                                                        dd = 0.0;
+                                                    } else {
+                                                        bb = (3.0 * f - rm * df) / (rm * rm);
+                                                        aa = (f - bb * rm * rm) / (rm * rm * rm);
+                                                        cc = 0.0;
+                                                        dd = 0.0;
+                                                    }
+
+                                                    RF[L0][Mul0] = aa * R * R * R + bb * R * R + cc * R + dd;
+                                                    dRF[L0][Mul0] = 3.0 * aa * R * R + 2.0 * bb * R + cc;
+                                                } else {
+                                                    RF[L0][Mul0] = f;
+                                                    dRF[L0][Mul0] = df;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    /* angular parts and assembly */
+                                    {
+                                        const double Rmin0 = 10e-14;
+                                        double dRx = 0.0, dRy = 0.0, dRz = 0.0;
+                                        double dQx = 0.0, dQy = 0.0, dQz = 0.0;
+                                        double dPx = 0.0, dPy = 0.0, dPz = 0.0;
+
+                                        if (po == 0) {
+                                            const double siQ = sin(Q);
+                                            const double coQ = cos(Q);
+                                            const double siP = sin(P);
+                                            const double coP = cos(P);
+                                            double dum, dum1, dum2;
+
+                                            dRx = siQ * coP;
+                                            dRy = siQ * siP;
+                                            dRz = coQ;
+
+                                            if (Rmin0 < R) {
+                                                dQx = coQ * coP / R;
+                                                dQy = coQ * siP / R;
+                                                dQz = -siQ / R;
+                                                dPx = -siP / R;
+                                                dPy = coP / R;
+                                                dPz = 0.0;
+                                            }
+
+                                            for (L0 = 0; L0 <= maxl; L0++) {
+                                                if (L0 == 0) {
+                                                    AF[0][0] = 0.282094791773878;
+                                                    dAFQ[0][0] = 0.0;
+                                                    dAFP[0][0] = 0.0;
+                                                } else if (L0 == 1) {
+                                                    dum = 0.48860251190292 * siQ;
+
+                                                    AF[1][0] = dum * coP;
+                                                    AF[1][1] = dum * siP;
+                                                    AF[1][2] = 0.48860251190292 * coQ;
+
+                                                    dAFQ[1][0] = 0.48860251190292 * coQ * coP;
+                                                    dAFQ[1][1] = 0.48860251190292 * coQ * siP;
+                                                    dAFQ[1][2] = -0.48860251190292 * siQ;
+
+                                                    dAFP[1][0] = -0.48860251190292 * siP;
+                                                    dAFP[1][1] = 0.48860251190292 * coP;
+                                                    dAFP[1][2] = 0.0;
+                                                } else if (L0 == 2) {
+                                                    dum1 = siQ * siQ;
+                                                    dum2 = 1.09254843059208 * siQ * coQ;
+                                                    AF[2][0] = 0.94617469575756 * coQ * coQ - 0.31539156525252;
+                                                    AF[2][1] = 0.54627421529604 * dum1 * (1.0 - 2.0 * siP * siP);
+                                                    AF[2][2] = 1.09254843059208 * dum1 * siP * coP;
+                                                    AF[2][3] = dum2 * coP;
+                                                    AF[2][4] = dum2 * siP;
+
+                                                    dAFQ[2][0] = -1.89234939151512 * siQ * coQ;
+                                                    dAFQ[2][1] = 1.09254843059208 * siQ * coQ * (1.0 - 2.0 * siP * siP);
+                                                    dAFQ[2][2] = 2.18509686118416 * siQ * coQ * siP * coP;
+                                                    dAFQ[2][3] = 1.09254843059208 * (1.0 - 2.0 * siQ * siQ) * coP;
+                                                    dAFQ[2][4] = 1.09254843059208 * (1.0 - 2.0 * siQ * siQ) * siP;
+
+                                                    dAFP[2][0] = 0.0;
+                                                    dAFP[2][1] = -2.18509686118416 * siQ * siP * coP;
+                                                    dAFP[2][2] = 1.09254843059208 * siQ * (1.0 - 2.0 * siP * siP);
+                                                    dAFP[2][3] = -1.09254843059208 * coQ * siP;
+                                                    dAFP[2][4] = 1.09254843059208 * coQ * coP;
+                                                } else {
+                                                    AF[3][0] = 0.373176332590116 * (5.0 * coQ * coQ * coQ - 3.0 * coQ);
+                                                    AF[3][1] = 0.457045799464466 * coP * siQ * (5.0 * coQ * coQ - 1.0);
+                                                    AF[3][2] = 0.457045799464466 * siP * siQ * (5.0 * coQ * coQ - 1.0);
+                                                    AF[3][3] = 1.44530572132028 * siQ * siQ * coQ * (coP * coP - siP * siP);
+                                                    AF[3][4] = 2.89061144264055 * siQ * siQ * coQ * siP * coP;
+                                                    AF[3][5] = 0.590043589926644 * siQ * siQ * siQ * (4.0 * coP * coP * coP - 3.0 * coP);
+                                                    AF[3][6] = 0.590043589926644 * siQ * siQ * siQ * (3.0 * siP - 4.0 * siP * siP * siP);
+
+                                                    dAFQ[3][0] = 0.373176332590116 * siQ * (-15.0 * coQ * coQ + 3.0);
+                                                    dAFQ[3][1] = 0.457045799464466 * coP * coQ * (15.0 * coQ * coQ - 11.0);
+                                                    dAFQ[3][2] = 0.457045799464466 * siP * coQ * (15.0 * coQ * coQ - 11.0);
+                                                    dAFQ[3][3] = 1.44530572132028 * (coP * coP - siP * siP) * siQ * (2.0 * coQ * coQ - siQ * siQ);
+                                                    dAFQ[3][4] = 2.89061144264055 * coP * siP * siQ * (2.0 * coQ * coQ - siQ * siQ);
+                                                    dAFQ[3][5] = 1.770130769779932 * coP * coQ * siQ * siQ * (-3.0 + 4.0 * coP * coP);
+                                                    dAFQ[3][6] = 1.770130769779932 * coQ * siP * siQ * siQ * (3.0 - 4.0 * siP * siP);
+
+                                                    dAFP[3][0] = 0.0;
+                                                    dAFP[3][1] = 0.457045799464466 * siP * (-5.0 * coQ * coQ + 1.0);
+                                                    dAFP[3][2] = 0.457045799464466 * coP * (5.0 * coQ * coQ - 1.0);
+                                                    dAFP[3][3] = -5.781222885281120 * coP * coQ * siP * siQ;
+                                                    dAFP[3][4] = 2.89061144264055 * coQ * siQ * (coP * coP - siP * siP);
+                                                    dAFP[3][5] = 1.770130769779932 * siP * siQ * siQ * (1.0 - 4.0 * coP * coP);
+                                                    dAFP[3][6] = 1.770130769779932 * coP * siQ * siQ * (1.0 - 4.0 * siP * siP);
+                                                }
+                                            }
+                                        }
+
+                                        i1 = -1;
+                                        for (L0 = 0; L0 <= maxl; L0++) {
+                                            const int nb = spb_p[wan * (F3_DORB_L0MAX + 1) + L0];
+
+                                            for (Mul0 = 0; Mul0 < nb; Mul0++) {
+                                                for (M0 = 0; M0 <= 2 * L0; M0++) {
+                                                    double dChiR, dChiQ, dChiP;
+
+                                                    i1++;
+                                                    if (po == 0) {
+                                                        dChiR = dRF[L0][Mul0] * AF[L0][M0];
+                                                        dChiQ = RF[L0][Mul0] * dAFQ[L0][M0];
+                                                        dChiP = RF[L0][Mul0] * dAFP[L0][M0];
+
+                                                        dchi[(size_t)i1 * 3 + 0] = -dRx * dChiR - dQx * dChiQ - dPx * dChiP;
+                                                        dchi[(size_t)i1 * 3 + 1] = -dRy * dChiR - dQy * dChiQ - dPy * dChiP;
+                                                        dchi[(size_t)i1 * 3 + 2] = -dRz * dChiR - dQz * dChiQ - dPz * dChiP;
+                                                    } else {
+                                                        dchi[(size_t)i1 * 3 + 0] = 0.0;
+                                                        dchi[(size_t)i1 * 3 + 1] = 0.0;
+                                                        dchi[(size_t)i1 * 3 + 2] = 0.0;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+                } else if (dchi_len != 0) {
+                    acc_memcpy_to_device(dchi_dev, (void*)(dchi_all + dchi_lo),
+                        dchi_len * sizeof(double));
+                }
+
+                if (0 < npairs) {
+                    const int spin_count = spins;
+                    const int npairs_c = npairs;
+
+                    {
+                        const Force3GpuPair* pm = (const Force3GpuPair*)(const void*)(chunk_arena + o_pm);
+                        const int* gl1 = (const int*)(const void*)(chunk_arena + o_gl1);
+                        const int* gl2 = (const int*)(const void*)(chunk_arena + o_gl2);
+                        const float* fn_buf = (const float*)(const void*)(chunk_arena + o_fn);
+                        const double* dm_buf = (const double*)(const void*)(chunk_arena + o_dm);
+                        double* pair_f = (double*)(void*)(chunk_arena + o_pf);
+
+#pragma acc parallel loop gang vector_length(128) deviceptr(dchi_dev, vpot_dev_full, orbs_dev, \
+    pm, gl1, gl2, fn_buf, dm_buf, pair_f)
+                        for (int pp = 0; pp < npairs_c; pp++) {
+                            const int NO0 = pm[pp].no0;
+                            const int NO1 = pm[pp].no1;
+                            const int n_olg = pm[pp].n_olg;
+                            const int gl_off = pm[pp].glist_off;
+                            const int vstride = pm[pp].vpot_stride;
+                            const int use_fn = pm[pp].orb1_fnan;
+                            const size_t dbase = pm[pp].dchi_base;
+                            const size_t vbase = pm[pp].vpot_base;
+                            const size_t obase = pm[pp].orb1_base;
+                            const size_t dmoff = pm[pp].dm_off;
+                            double fx = 0.0, fy = 0.0, fz = 0.0;
+
+#pragma acc loop vector reduction(+:fx, fy, fz)
+                            for (int Nog = 0; Nog < n_olg; Nog++) {
+                                const int Nc = gl1[gl_off + Nog];
+                                const int Nh = gl2[gl_off + Nog];
+                                const float* orb1 = use_fn
+                                    ? (fn_buf + obase + (size_t)Nog * (size_t)NO1)
+                                    : (orbs_dev + obase + (size_t)Nh * (size_t)NO1);
+                                const double* dchi = dchi_dev + dbase + (size_t)Nc * (size_t)NO0 * 3;
+
+                                for (int spin = 0; spin < spin_count; spin++) {
+                                    const double* dm = dm_buf + dmoff
+                                        + (size_t)spin * (size_t)NO0 * (size_t)NO1;
+                                    double tmpx = 0.0, tmpy = 0.0, tmpz = 0.0;
+
+                                    for (int i = 0; i < NO0; i++) {
+                                        double tmp0 = 0.0;
+
+                                        for (int j = 0; j < NO1; j++) {
+                                            tmp0 += (double)orb1[j] * dm[(size_t)i * (size_t)NO1 + j];
+                                        }
+
+                                        tmpx += dchi[(size_t)i * 3 + 0] * tmp0;
+                                        tmpy += dchi[(size_t)i * 3 + 1] * tmp0;
+                                        tmpz += dchi[(size_t)i * 3 + 2] * tmp0;
+                                    }
+
+                                    {
+                                        const double Vpt = vpot_dev_full[vbase + (size_t)spin * (size_t)vstride + Nc];
+
+                                        fx += tmpx * Vpt;
+                                        fy += tmpy * Vpt;
+                                        fz += tmpz * Vpt;
+                                    }
+                                }
+                            }
+
+                            pair_f[3 * (size_t)pp + 0] = fx;
+                            pair_f[3 * (size_t)pp + 1] = fy;
+                            pair_f[3 * (size_t)pp + 2] = fz;
+                        }
+                    }
+
+                    acc_memcpy_from_device(pair_f, chunk_arena + o_pf,
+                        sizeof(double) * 3U * (size_t)npairs_c);
+
+                    {
+                        int q = 0;
+
+                        while (q < npairs) {
+                            const int mc_atom = pm[q].atom;
+                            const int Gc_AN = M2G[mc_atom];
+                            double ax = 0.0, ay = 0.0, az = 0.0;
+
+                            while (q < npairs && pm[q].atom == mc_atom) {
+                                ax += pair_f[3 * (size_t)q + 0];
+                                ay += pair_f[3 * (size_t)q + 1];
+                                az += pair_f[3 * (size_t)q + 2];
+                                q++;
+                            }
+
+                            Gxyz[Gc_AN][17] += ax * GridVol;
+                            Gxyz[Gc_AN][18] += ay * GridVol;
+                            Gxyz[Gc_AN][19] += az * GridVol;
+
+                            if (2 <= level_stdout) {
+                                printf("<Force>  force(3) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
+                                    myid, mc_atom, Gc_AN, ax * GridVol, ay * GridVol, az * GridVol);
+                                fflush(stdout);
+                            }
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+
+            acc_free(chunk_arena);
+
+            free(a_pt0);
+            free(a_dchi);
+            free(a_no0);
+            free(a_wan);
+            free(pt_aidx);
+            free(pm_h);
+            free(pair_f);
+            free(dm_buf);
+            free(fn_buf);
+            free(gl2);
+            free(gl1);
+            free(pm);
+        }
+
+        free(plan_dm);
+        free(plan_fn);
+        free(plan_gl);
+        free(plan_pairs);
+        free(chunk_bound);
+    }
+
+    free(sp_nb);
+    free(sp_maxl);
+    free(sp_mesh);
+    free(rwf_base);
+    free(rv_off);
+    free(pao_rwf);
+    free(pao_rv);
+    acc_free(orbs_dev);
+    free(orb_stage);
+    free(orb_off);
+
+    /* return the pooled chunk buffers to CUDA so the next force stage
+       measures the true free memory */
+    acc_wait_all();
+    if (cudaDeviceSynchronize() == cudaSuccess) {
+        acc_clear_freelists();
+    }
+}
+
+static void Force4B_case2_trace_fused(int Mc_AN, int Gc_AN,
+    int h_AN, int q_AN, double***** CDM0, Type_DS_VNA***** DS_VNA,
+    double* dEx, double* dEy, double* dEz)
+{
+    int m, n, l;
+    const int Gh_AN = natn[Gc_AN][h_AN];
+    const int Gq_AN = natn[Gc_AN][q_AN];
+    const int Mh_AN = F_G2M[Gh_AN];
+    const int Hwan = WhatSpecies[Gh_AN];
+    const int Qwan = WhatSpecies[Gq_AN];
+    const int ian = Spe_Total_CNO[Hwan];
+    const int jan = Spe_Total_CNO[Qwan];
+    const int kl = RMI1[Mc_AN][h_AN][q_AN];
+    const int kl1 = RMI1[Mc_AN][0][h_AN];
+    const int kl2 = RMI1[Mc_AN][0][q_AN];
+    const int num_projectors = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
+    const double pref = ((Solver == 5 || Solver == 8 || Solver == 11) || q_AN == h_AN)
+        ? ((SpinP_switch == 0) ? 2.0 : 1.0)
+        : ((SpinP_switch == 0) ? 4.0 : 2.0);
+    const double rcut = Spe_Atom_Cut1[Hwan] + Spe_Atom_Cut1[Qwan];
+    const double scale0 = pref * dampingF(rcut, Dis[Gh_AN][kl]);
+
+    for (m = 0; m < ian; m++) {
+        const Type_DS_VNA* restrict h0 = DS_VNA[0][Matomnum + 1][kl1][m];
+        const Type_DS_VNA* restrict hx = DS_VNA[1][Matomnum + 1][kl1][m];
+        const Type_DS_VNA* restrict hy = DS_VNA[2][Matomnum + 1][kl1][m];
+        const Type_DS_VNA* restrict hz = DS_VNA[3][Matomnum + 1][kl1][m];
+        double* cdm0_row = CDM0[0][Mh_AN][kl][m];
+        double* cdm1_row = (SpinP_switch == 0) ? NULL : CDM0[1][Mh_AN][kl][m];
+
+        for (n = 0; n < jan; n++) {
+            const Type_DS_VNA* restrict q0 = DS_VNA[0][Matomnum + 1][kl2][n];
+            const Type_DS_VNA* restrict qx = DS_VNA[1][Matomnum + 1][kl2][n];
+            const Type_DS_VNA* restrict qy = DS_VNA[2][Matomnum + 1][kl2][n];
+            const Type_DS_VNA* restrict qz = DS_VNA[3][Matomnum + 1][kl2][n];
+            double sumx = 0.0;
+            double sumy = 0.0;
+            double sumz = 0.0;
+
+#pragma omp simd reduction(+:sumx, sumy, sumz)
+            for (l = 0; l < num_projectors; l++) {
+                sumx -= (double)(hx[l] * q0[l]) + (double)(h0[l] * qx[l]);
+                sumy -= (double)(hy[l] * q0[l]) + (double)(h0[l] * qy[l]);
+                sumz -= (double)(hz[l] * q0[l]) + (double)(h0[l] * qz[l]);
+            }
+
+            {
+                const double cdm = (SpinP_switch == 0)
+                    ? cdm0_row[n]
+                    : cdm0_row[n] + cdm1_row[n];
+                const double scale = scale0 * cdm;
+                *dEx += scale * sumx;
+                *dEy += scale * sumy;
+                *dEz += scale * sumz;
+            }
+        }
+    }
+}
+
+static void Force4B_case1_trace_fused(int Mc_AN, int Gc_AN, int q_AN,
+    double***** CDM0, Type_DS_VNA***** DS_VNA,
+    double* dEx, double* dEy, double* dEz)
+{
+    int k, m, n, l;
+    const int center_atom = natn[Gc_AN][0];
+    const int q_atom = natn[Gc_AN][q_AN];
+    const int center_local = F_G2M[center_atom];
+    const int q_local = F_G2M[q_atom];
+    const int q_storage = (q_local <= Matomnum) ? q_local : Matomnum + 1;
+    const int center_species = WhatSpecies[center_atom];
+    const int q_species = WhatSpecies[q_atom];
+    const int ian = Spe_Total_CNO[center_species];
+    const int jan = Spe_Total_CNO[q_species];
+    const int cdm_kl = RMI1[Mc_AN][0][q_AN];
+    const int num_projectors = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
+    const double pref = (SpinP_switch == 0) ? 4.0 : 2.0;
+    const double rcut = Spe_Atom_Cut1[center_species] + Spe_Atom_Cut1[q_species];
+    const double distance = Dis[Gc_AN][q_AN];
+    const double dmp = dampingF(rcut, distance);
+    double force_x = 0.0;
+    double force_y = 0.0;
+    double force_z = 0.0;
+
+    for (k = 0; k <= FNAN[Gc_AN]; k++) {
+        const int qk_kl = RMI1[Mc_AN][q_AN][k];
+        if (qk_kl >= 0) {
+            for (m = 0; m < ian; m++) {
+                double* cdm0_row = CDM0[0][center_local][cdm_kl][m];
+                double* cdm1_row = (SpinP_switch == 0) ? NULL : CDM0[1][center_local][cdm_kl][m];
+                const Type_DS_VNA* restrict hx = DS_VNA[1][Mc_AN][k][m];
+                const Type_DS_VNA* restrict hy = DS_VNA[2][Mc_AN][k][m];
+                const Type_DS_VNA* restrict hz = DS_VNA[3][Mc_AN][k][m];
+
+                for (n = 0; n < jan; n++) {
+                    const Type_DS_VNA* restrict q0 = DS_VNA[0][q_storage][qk_kl][n];
+                    double sumx = 0.0;
+                    double sumy = 0.0;
+                    double sumz = 0.0;
+
+#pragma omp simd reduction(+:sumx, sumy, sumz)
+                    for (l = 0; l < num_projectors; l++) {
+                        sumx += (double)(hx[l] * q0[l]);
+                        sumy += (double)(hy[l] * q0[l]);
+                        sumz += (double)(hz[l] * q0[l]);
+                    }
+
+                    {
+                        const double cdm = (SpinP_switch == 0)
+                            ? cdm0_row[n]
+                            : cdm0_row[n] + cdm1_row[n];
+                        const double scale = pref * cdm;
+                        force_x += scale * sumx;
+                        force_y += scale * sumy;
+                        force_z += scale * sumz;
+                    }
+                }
+            }
+        }
+    }
+
+    force_x *= dmp;
+    force_y *= dmp;
+    force_z *= dmp;
+
+    {
+        double derivative_scale = 0.0;
+        double r = distance;
+
+        if (rcut > r) {
+            derivative_scale = deri_dampingF(rcut, r) / dmp;
+        }
+        if (r < 1.0e-10) {
+            r = 1.0e-10;
+        }
+
+        if (derivative_scale != 0.0) {
+            double trace_hvna = 0.0;
+            const int center_cell = ncn[Gc_AN][0];
+            const int q_cell = ncn[Gc_AN][q_AN];
+
+            for (m = 0; m < ian; m++) {
+                double* cdm0_row = CDM0[0][center_local][cdm_kl][m];
+                double* cdm1_row = (SpinP_switch == 0) ? NULL : CDM0[1][center_local][cdm_kl][m];
+                for (n = 0; n < jan; n++) {
+                    const double cdm = (SpinP_switch == 0)
+                        ? cdm0_row[n]
+                        : cdm0_row[n] + cdm1_row[n];
+                    trace_hvna += pref * cdm * HVNA[Mc_AN][q_AN][m][n];
+                }
+            }
+
+            const double dx = derivative_scale
+                * ((Gxyz[center_atom][1] + atv[center_cell][1])
+                    - (Gxyz[q_atom][1] + atv[q_cell][1])) / r;
+            const double dy = derivative_scale
+                * ((Gxyz[center_atom][2] + atv[center_cell][2])
+                    - (Gxyz[q_atom][2] + atv[q_cell][2])) / r;
+            const double dz = derivative_scale
+                * ((Gxyz[center_atom][3] + atv[center_cell][3])
+                    - (Gxyz[q_atom][3] + atv[q_cell][3])) / r;
+            force_x += trace_hvna * dx;
+            force_y += trace_hvna * dy;
+            force_z += trace_hvna * dz;
+        }
+    }
+
+    *dEx += force_x;
+    *dEy += force_y;
+    *dEz += force_z;
 }
 
 static void dH_U_full(int Mc_AN, int h_AN, int q_AN,
@@ -668,6 +2069,12 @@ static size_t Force4_OpenACC(double* Fx, double* Fy, double* Fz, size_t* atom_te
 static void Force4B(double***** CDM0);
 
 static void Force_HNL(double***** CDM0, double***** iDM0);
+static int Force_HNL_GpuBegin(double****** DS_NL);
+static void Force_HNL_GpuEnd(void);
+static void Force_HNL_GpuArchiveHalo(double****** DS_NL, int Original_Mc_AN, int Gc_AN);
+static void Force_HNL_GpuArchiveCase2(double****** DS_NL, int Mc_AN, int Gc_AN);
+static void Force_HNL_GpuCase1Run(double***** CDM0);
+static void Force_HNL_GpuCase2Run(double***** CDM0);
 static void Force_CoreHole(double***** CDM0, double***** iDM0);
 
 double Force(double***** H0,
@@ -720,11 +2127,16 @@ double Force(double***** H0,
     double TStime, TEtime;
     int numprocs, myid, tag = 999, ID, IDS, IDR;
     double Stime_atom, Etime_atom;
+    double profile_stamp, profile_total_start;
     double***** Force2_source = NULL;
     double***** Force5_source = NULL;
     size_t* gpu_atom_terms = NULL;
     size_t gpu_total_terms;
-    const int use_force_openacc = (scf_eigen_lib_flag_input == CuSOLVER);
+    const int force_profile = Force_collective_env_flag(
+        "OPENMX_FORCE_PROFILE", 0, mpi_comm_level1);
+    const int use_force_openacc = (scf_eigen_lib_flag == GPUSOLVER
+        && Force_collective_env_flag("OPENMX_FORCE_GPU", 1,
+            mpi_comm_level1));
     const int use_force4_openacc = (use_force_openacc
         && F_VNA_flag == 1
         && (ProExpn_VNA == 0 || ProExpn_VNA == 1));
@@ -754,6 +2166,16 @@ double Force(double***** H0,
 
     MPI_Barrier(mpi_comm_level1);
     dtime(&TStime);
+    profile_total_start = TStime;
+    profile_stamp = TStime;
+
+    /* the SCF-side device caches were released just before Force; return
+       any blocks still parked in this rank's OpenACC freelist so the force
+       batches (and the peer ranks) measure the true free device memory */
+    if (use_force_openacc) {
+        acc_wait_all();
+        Force_gpu_pool_flush();
+    }
 
     /****************************************************
      allocation of arrays:
@@ -1260,6 +2682,14 @@ double Force(double***** H0,
 
     } /* if (use_iDM0) */
 
+    if (force_profile) {
+        double now;
+        dtime(&now);
+        Force_profile_report("setup+CDM", now - profile_stamp,
+            mpi_comm_level1, myid, numprocs);
+        profile_stamp = now;
+    }
+
     /****************************************************
                         #1 of force
 
@@ -1406,6 +2836,10 @@ double Force(double***** H0,
     } /* #pragma omp parallel */
 
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("force#1", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for force#1=%18.5f\n", etime - stime);
         fflush(stdout);
@@ -1497,7 +2931,7 @@ double Force(double***** H0,
     dtime(&stime);
 
     if (myid == Host_ID && 0 < level_stdout) {
-        printf("  Force calculation #2\n");
+        printf("  Force calculation #2%s\n", use_force2_openacc ? " (GPU reduction)" : "");
         fflush(stdout);
     }
 
@@ -2054,6 +3488,10 @@ double Force(double***** H0,
     }
 
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("force#2", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for force#2=%18.5f\n", etime - stime);
         fflush(stdout);
@@ -2070,13 +3508,19 @@ double Force(double***** H0,
     dtime(&stime);
 
     if (myid == Host_ID && 0 < level_stdout) {
-        printf("  Force calculation #3\n");
+        printf("  Force calculation #3%s\n",
+            (scf_eigen_lib_flag == GPUSOLVER && Force_env_flag("OPENMX_FORCE3_GPU", 1))
+                ? " (GPU-accelerated)" : "");
         fflush(stdout);
     }
 
     Force3();
 
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("force#3", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for force#3=%18.5f\n", etime - stime);
         fflush(stdout);
@@ -2092,7 +3536,10 @@ double Force(double***** H0,
     dtime(&stime);
 
     if (myid == Host_ID && 0 < level_stdout) {
-        printf("  Force calculation #4%s\n", use_force4_openacc ? " (GPU-accelerated)" : "");
+        printf("  Force calculation #4%s\n",
+            (ProExpn_VNA == 0 && use_force4_openacc) ? " (GPU reduction)"
+            : (ProExpn_VNA == 1 && F_VNA_flag == 1 && scf_eigen_lib_flag == GPUSOLVER &&
+               Force_env_flag("OPENMX_FORCE4B_GPU", 1)) ? " (GPU-accelerated)" : "");
         fflush(stdout);
     }
 
@@ -2122,6 +3569,10 @@ double Force(double***** H0,
     }
 
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("force#4", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for force#4=%18.5f\n", etime - stime);
         fflush(stdout);
@@ -2136,7 +3587,7 @@ double Force(double***** H0,
     dtime(&stime);
 
     if (myid == Host_ID && 0 < level_stdout) {
-        printf("  Force calculation #5%s\n", use_force_openacc ? " (GPU-accelerated)" : "");
+        printf("  Force calculation #5%s\n", use_force_openacc ? " (GPU reduction)" : "");
         fflush(stdout);
     }
 
@@ -2218,6 +3669,10 @@ double Force(double***** H0,
     }
 
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("force#5", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for force#5=%18.5f\n", etime - stime);
         fflush(stdout);
@@ -2683,7 +4138,14 @@ double Force(double***** H0,
                    Force arising from HNL
     ****************************************************/
 
+    dtime(&stime);
     Force_HNL(CDM0, iDM0);
+    dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("force-HNL", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+        profile_stamp = etime;
+    }
 
     /****************************************************
           Force arising from the penalty functional
@@ -2832,6 +4294,13 @@ double Force(double***** H0,
     dtime(&TEtime);
     time0 = TEtime - TStime;
 
+    if (force_profile) {
+        Force_profile_report("cleanup", TEtime - profile_stamp,
+            mpi_comm_level1, myid, numprocs);
+        Force_profile_report("total", TEtime - profile_total_start,
+            mpi_comm_level1, myid, numprocs);
+    }
+
     return time0;
 }
 
@@ -2889,6 +4358,77 @@ void Force3()
     double sumy = 0.0;
     double sumz = 0.0;
 
+    /* Batched device path for the part-2 trace: part 1 then writes the
+       orbital derivatives and grid potentials of every atom into flat
+       buffers, and one chunked kernel replaces the per-atom h_AN loops. */
+
+    int use_gpu_trace = 0;
+    int f3_dorb = 0;
+    double* dchi_all = NULL;
+    size_t* dchi_off = NULL;
+    size_t* vpot_off = NULL;
+    size_t* xyz_off = NULL;
+    /* the per-spin grid potentials and grid coordinates are staged one
+       atom at a time and live on the device only; a full host copy of
+       either multiplies the node's host memory by the rank count */
+    double* vpot_stage = NULL;
+    double* xyz_stage = NULL;
+    double* vpot_dev_full = NULL;
+    double* xyz_dev_full = NULL;
+
+    size_t f3_chunk_budget = Force3_GpuChunkBudget();
+
+    if (f3_chunk_budget != 0) {
+        size_t dpos = 0, vpos = 0, xpos = 0, maxgrid = 0;
+        int mc;
+
+        f3_dorb = Force3_GpuDorbMode();
+
+        dchi_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(Matomnum + 2),
+            __FILE__, __LINE__);
+        vpot_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(Matomnum + 2),
+            __FILE__, __LINE__);
+        xyz_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(Matomnum + 2),
+            __FILE__, __LINE__);
+        dchi_off[0] = 0;
+        vpot_off[0] = 0;
+        xyz_off[0] = 0;
+        for (mc = 1; mc <= Matomnum; mc++) {
+            int ga = M2G[mc];
+            int no0 = Spe_Total_CNO[WhatSpecies[ga]];
+
+            dchi_off[mc] = dpos;
+            vpot_off[mc] = vpos;
+            xyz_off[mc] = xpos;
+            dpos += (size_t)GridN_Atom[ga] * (size_t)no0 * 3;
+            vpos += (size_t)(SpinP_switch + 1) * (size_t)GridN_Atom[ga];
+            xpos += (size_t)GridN_Atom[ga] * 3;
+            if (maxgrid < (size_t)GridN_Atom[ga]) maxgrid = (size_t)GridN_Atom[ga];
+        }
+        dchi_off[Matomnum + 1] = dpos;
+        vpot_off[Matomnum + 1] = vpos;
+        xyz_off[Matomnum + 1] = xpos;
+
+        /* with the on-device orbital derivatives only the grid coordinates
+           travel to the device; otherwise part 1 fills the flat derivative
+           buffer on the host */
+        if (f3_dorb) {
+            xyz_stage = (double*)Force_checked_malloc(
+                sizeof(double) * 3 * (maxgrid == 0 ? 1 : maxgrid), __FILE__, __LINE__);
+            xyz_dev_full = (double*)Force_gpu_arena_wait(
+                sizeof(double) * (xpos == 0 ? 1 : xpos), "GPU trace grid coordinates");
+        } else {
+            dchi_all = (double*)Force_checked_malloc(sizeof(double) * (dpos == 0 ? 1 : dpos),
+                __FILE__, __LINE__);
+        }
+        vpot_stage = (double*)Force_checked_malloc(
+            sizeof(double) * (size_t)(SpinP_switch + 1) * (maxgrid == 0 ? 1 : maxgrid),
+            __FILE__, __LINE__);
+        vpot_dev_full = (double*)Force_gpu_arena_wait(
+            sizeof(double) * (vpos == 0 ? 1 : vpos), "GPU trace grid potentials");
+        use_gpu_trace = 1;
+    }
+
 #pragma omp parallel
     {
 
@@ -2906,10 +4446,12 @@ void Force3()
         struct WORK_DORBITAL work_dObs;
         Get_dOrbitals_init(&work_dObs);
 
+#if measure_time
         double time1 = 0.0;
         double time2 = 0.0;
         double last_time;
         double current_time;
+#endif
 
         int Mc_AN;
         for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
@@ -2918,11 +4460,32 @@ void Force3()
             int Cwan = WhatSpecies[Gc_AN];
             int NO0 = Spe_Total_CNO[Cwan];
 
+            /* part-1 write targets: the flat per-atom slices on the GPU
+               path, the shared per-atom buffers on the CPU path */
+            double* vpot_dst[4];
+            {
+                int s;
+                for (s = 0; s <= SpinP_switch; s++) {
+                    vpot_dst[s] = use_gpu_trace
+                        ? (vpot_stage + (size_t)s * (size_t)GridN_Atom[Gc_AN])
+                        : Vpot_grid[s];
+                }
+            }
+
             /***********************************
                          calc dOrb0
             ***********************************/
-#pragma omp barrier /* this barrier is necessary to wait (1)clearing sumx, sumy, sumz, and (2)initializing work_dObs */
+#pragma omp barrier /* wait until the previous atom's master update has completed */
+#pragma omp master
+            {
+                sumx = 0.0;
+                sumy = 0.0;
+                sumz = 0.0;
+            }
+#pragma omp barrier
+#if measure_time
             dtime(&last_time);
+#endif
 
             int Nc;
 #pragma omp for
@@ -2940,6 +4503,16 @@ void Force3()
                 double dx = x - Gxyz[Gc_AN][1];
                 double dy = y - Gxyz[Gc_AN][2];
                 double dz = z - Gxyz[Gc_AN][3];
+
+                if (f3_dorb) {
+                    /* the device kernel evaluates the derivatives itself */
+                    size_t xb = (size_t)Nc * 3;
+
+                    xyz_stage[xb + 0] = dx;
+                    xyz_stage[xb + 1] = dy;
+                    xyz_stage[xb + 2] = dz;
+                }
+                else {
 
                 if (Cnt_switch == 0) {
                     /* AITUNE201704 : Get_dOrbitals(Cwan, dx, dy, dz, dorbs0); */
@@ -3305,7 +4878,6 @@ void Force3()
                                 dChiQ = RF[L0][Mul0] * dAFQ[L0][M0];
                                 dChiP = RF[L0][Mul0] * dAFP[L0][M0];
 
-                                dorbs0[0][i1] = RF[L0][Mul0] * AF[L0][M0];
                                 dorbs0[1][i1] = -dRx * dChiR - dQx * dChiQ - dPx * dChiP;
                                 dorbs0[2][i1] = -dRy * dChiR - dQy * dChiQ - dPy * dChiP;
                                 dorbs0[3][i1] = -dRz * dChiR - dQz * dChiQ - dPz * dChiP;
@@ -3319,13 +4891,17 @@ void Force3()
                     Get_Cnt_dOrbitals(Mc_AN, dx, dy, dz, dorbs0);
                 }
 
-                int k;
-                for (k = 0; k < 3; k++) {
-                    int i;
-                    for (i = 0; i < NO0; i++) {
-                        dChi0[Nc][i][k] = dorbs0[k + 1][i];
-                    }
+                int i;
+                for (i = 0; i < NO0; i++) {
+                    double* dchi = use_gpu_trace
+                        ? (dchi_all + dchi_off[Mc_AN] + ((size_t)Nc * (size_t)NO0 + (size_t)i) * 3)
+                        : dChi0[Nc][i];
+                    dchi[0] = dorbs0[1][i];
+                    dchi[1] = dorbs0[2][i];
+                    dchi[2] = dorbs0[3][i];
                 }
+
+                } /* if (f3_dorb) else */
 
                 if (SpinP_switch == 0 || SpinP_switch == 1) {
 
@@ -3368,9 +4944,9 @@ void Force3()
                         }
 
                         if (SpinP_switch == 0) {
-                            Vpot_grid[0][Nc] = 4.0 * Vpt;
+                            vpot_dst[0][Nc] = 4.0 * Vpt;
                         } else if (SpinP_switch == 1) {
-                            Vpot_grid[spin][Nc] = 2.0 * Vpt;
+                            vpot_dst[spin][Nc] = 2.0 * Vpt;
                         }
                     }
                 }
@@ -3446,28 +5022,45 @@ void Force3()
                         ImVpt21 = 0.0;
                     }
 
-                    Vpot_grid[0][Nc] = 2.0 * ReVpt11;
-                    Vpot_grid[1][Nc] = 2.0 * ReVpt22;
-                    Vpot_grid[2][Nc] = 4.0 * ReVpt21;
-                    Vpot_grid[3][Nc] = 4.0 * ImVpt21;
+                    vpot_dst[0][Nc] = 2.0 * ReVpt11;
+                    vpot_dst[1][Nc] = 2.0 * ReVpt22;
+                    vpot_dst[2][Nc] = 4.0 * ReVpt21;
+                    vpot_dst[3][Nc] = 4.0 * ImVpt21;
                 }
 
             } /* Nc, here omp barrier is called implicitly because of end of for loop */
 
+            if (use_gpu_trace) {
+#pragma omp master
+                {
+                    if (0 < GridN_Atom[Gc_AN]) {
+                        acc_memcpy_to_device(vpot_dev_full + vpot_off[Mc_AN], vpot_stage,
+                            sizeof(double) * (size_t)(SpinP_switch + 1) * (size_t)GridN_Atom[Gc_AN]);
+                        if (f3_dorb) {
+                            acc_memcpy_to_device(xyz_dev_full + xyz_off[Mc_AN], xyz_stage,
+                                sizeof(double) * 3 * (size_t)GridN_Atom[Gc_AN]);
+                        }
+                    }
+                }
+                /* no barrier needed here: the next atom's leading barrier keeps
+                   the other threads from refilling the stage until the master
+                   thread has finished the upload */
+            }
+
+#if measure_time
             dtime(&current_time);
             time1 += current_time - last_time;
             last_time = current_time;
+#endif
 
-            double sumx1 = 0.0;
-            double sumy1 = 0.0;
-            double sumz1 = 0.0;
+            if (!use_gpu_trace) {
 
             int h_AN;
+#pragma omp for schedule(static) reduction(+:sumx, sumy, sumz)
             for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
 
                 int Gh_AN = natn[Gc_AN][h_AN];
                 int Mh_AN = F_G2M[Gh_AN];
-                int Rnh = ncn[Gc_AN][h_AN];
                 int Hwan = WhatSpecies[Gh_AN];
                 int NO1 = Spe_Total_CNO[Hwan];
 
@@ -3482,20 +5075,21 @@ void Force3()
 
                     /* set orbs1 */
 
+                    const Type_Orbs_Grid* restrict orbs1_source;
                     if (G2ID[Gh_AN] == myid) {
-                        int j;
-                        for (j = 0; j < NO1; j++) {
-                            orbs1[j] = Orbs_Grid[Mh_AN][Nh][j];
-                        }
+                        orbs1_source = Orbs_Grid[Mh_AN][Nh];
                     } else {
-                        int j;
-                        for (j = 0; j < NO1; j++) {
-                            orbs1[j] = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog][j];
-                        }
+                        orbs1_source = Orbs_Grid_FNAN[Mc_AN][h_AN][Nog];
+                    }
+                    int j;
+#pragma omp simd
+                    for (j = 0; j < NO1; j++) {
+                        orbs1[j] = (double)orbs1_source[j];
                     }
 
                     int spin;
                     for (spin = 0; spin <= SpinP_switch; spin++) {
+                        double** dm = DM[0][spin][Mc_AN][h_AN];
 
                         double tmpx = 0.0;
                         double tmpy = 0.0;
@@ -3504,9 +5098,11 @@ void Force3()
                         int i;
                         for (i = 0; i < NO0; i++) {
                             double tmp0 = 0.0;
+                            const double* restrict dm_row = dm[i];
                             int j;
+#pragma omp simd reduction(+:tmp0)
                             for (j = 0; j < NO1; j++) {
-                                tmp0 += orbs1[j] * DM[0][spin][Mc_AN][h_AN][i][j];
+                                tmp0 += orbs1[j] * dm_row[j];
                             }
 
                             tmpx += ai_dorbs0[i][0] * tmp0;
@@ -3516,9 +5112,9 @@ void Force3()
 
                         /* due to difference in the definition between density matrix and density */
                         double Vpt = Vpot_grid[spin][Nc];
-                        sumx1 += tmpx * Vpt;
-                        sumy1 += tmpy * Vpt;
-                        sumz1 += tmpz * Vpt;
+                        sumx += tmpx * Vpt;
+                        sumy += tmpy * Vpt;
+                        sumz += tmpz * Vpt;
 
                     } /* spin */
                 } /* Nog */
@@ -3531,14 +5127,16 @@ void Force3()
 
 #pragma omp master
             {
-                Gxyz[Gc_AN][17] += sumx1 * GridVol;
-                Gxyz[Gc_AN][18] += sumy1 * GridVol;
-                Gxyz[Gc_AN][19] += sumz1 * GridVol;
+                Gxyz[Gc_AN][17] += sumx * GridVol;
+                Gxyz[Gc_AN][18] += sumy * GridVol;
+                Gxyz[Gc_AN][19] += sumz * GridVol;
             }
 
+#if measure_time
             dtime(&current_time);
             time2 += current_time - last_time;
             last_time = current_time;
+#endif
 
 #pragma omp master
             if (2 <= level_stdout) {
@@ -3551,6 +5149,8 @@ void Force3()
                        myid, GridN_Atom[Gc_AN], FNAN[Gc_AN]);
                 */
             }
+
+            } /* if (!use_gpu_trace) */
 
         } /* Mc_AN */
 
@@ -3573,7 +5173,22 @@ void Force3()
 
     } /* #pragma omp parallel */
 
+    /* batched device evaluation of the skipped part-2 traces */
+    if (use_gpu_trace) {
+        Force3_GpuTrace(dchi_all, dchi_off, vpot_dev_full, vpot_off,
+            xyz_dev_full, xyz_off, f3_dorb, f3_chunk_budget);
+    }
+
     /* free */
+    if (xyz_dev_full != NULL) acc_free(xyz_dev_full);
+    if (vpot_dev_full != NULL) acc_free(vpot_dev_full);
+    free(xyz_stage);
+    free(vpot_stage);
+    free(dchi_all);
+    free(xyz_off);
+    free(vpot_off);
+    free(dchi_off);
+
     free(dChi0[0][0]);
     free(dChi0[0]);
     free(dChi0);
@@ -4062,6 +5677,7 @@ void Force_HNL(double***** CDM0, double***** iDM0)
     dcomplex ***Hx1, ***Hy1, ***Hz1;
     int *Snd_DS_NL_Size, *Rcv_DS_NL_Size;
     int* Indicator;
+    int fhnl_gpu = 0;
     double* tmp_array;
     double* tmp_array2;
 
@@ -4125,6 +5741,10 @@ void Force_HNL(double***** CDM0, double***** iDM0)
             Cont_Matrix1(DS_NL[so][3], CntDS_NL[so][3]);
         }
     }
+
+    /* batched device path for the scalar-relativistic traces */
+
+    fhnl_gpu = Force_HNL_GpuBegin(DS_NL);
 
     /*****************************************}**********************
         THE FIRST CASE:
@@ -4333,9 +5953,15 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                 /* free tmp_array2 */
                 free(tmp_array2);
 
+                if (fhnl_gpu) {
+                    Force_HNL_GpuArchiveHalo(DS_NL, Original_Mc_AN, Gc_AN);
+                }
+
                 /*****************************************************************
                                    multiplying overlap integrals
                 *****************************************************************/
+
+                if (!fhnl_gpu) {
 
                 for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
 
@@ -4526,6 +6152,8 @@ void Force_HNL(double***** CDM0, double***** iDM0)
                     time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
 
                 } /* Mc_AN */
+
+                } /* if (!fhnl_gpu) */
 
                 /********************************************
                   increment of F_Rcv_Num_WK[IDR]
@@ -4721,6 +6349,9 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
                 Gq_AN = natn[Gc_AN][q_AN];
                 Mq_AN = F_G2M[Gq_AN];
+
+                if (fhnl_gpu && q_AN != 0)
+                    continue;
 
                 if (Mq_AN <= Matomnum) {
 
@@ -4927,6 +6558,10 @@ void Force_HNL(double***** CDM0, double***** iDM0)
         free(Hz1);
 
     } /* #pragma omp parallel */
+
+    if (fhnl_gpu) {
+        Force_HNL_GpuCase1Run(CDM0);
+    }
 
     dtime(&etime);
     if (myid == 0 && measure_time) {
@@ -5182,9 +6817,15 @@ void Force_HNL(double***** CDM0, double***** iDM0)
 
         if (Mc_AN <= Matomnum) {
 
+            if (fhnl_gpu) {
+                Force_HNL_GpuArchiveCase2(DS_NL, Mc_AN, Gc_AN);
+            }
+
+            if (!fhnl_gpu) {
+
             /* get Nthrds0 */
             // comment out May 20th, 2023 H. Kawai
-            // 
+            //
 #if NVHPC_VERSION >= 250000
             #pragma omp parallel shared(Nthrds0)
 #endif
@@ -5424,9 +7065,17 @@ void Force_HNL(double***** CDM0, double***** iDM0)
             free(dEy_threads);
             free(dEz_threads);
 
+            } /* if (!fhnl_gpu) */
+
         } /* if (Mc_AN<=Matomnum) */
 
     } /* Mc_AN */
+
+    if (fhnl_gpu) {
+        Force_HNL_GpuCase2Run(CDM0);
+        Force_HNL_GpuEnd();
+        fhnl_gpu = 0;
+    }
 
     dtime(&etime);
     if (myid == 0 && measure_time) {
@@ -5472,6 +7121,1746 @@ void Force_HNL(double***** CDM0, double***** iDM0)
     free(Rcv_DS_NL_Size);
 }
 
+/* ------------------------------------------------------------------ */
+/* Batched device evaluation of the heavy Force4B projector traces.
+
+   The generic (fused) case-1 and case-2 traces are dot products over
+   num_projectors of precomputed DS_VNA rows contracted with CDM; only
+   they run on the device.  The special pairs (q_AN==0, h_AN==q_AN, ...)
+   and the damping corrections stay on the unchanged host path.
+
+   The MPI structure is untouched: the halo blocks received in the
+   case-1 communication loop and the per-atom case-2 stagings are
+   archived, and one batched kernel per case runs after the loops.
+
+   All three archives live on the DEVICE only (acc_malloc); each atom
+   block is packed into a small host staging buffer and uploaded as it
+   becomes available.  Host-resident copies of the archives used to add
+   up to several GB per rank, which multiplied by the ranks sharing a
+   node exhausted host memory on large systems.                        */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    int enabled;
+    int num_proj;
+
+    /* local DS_VNA rows, direction-major: flat[dir*stride + block]    */
+    float* flat_dev;
+    size_t flat_stride;
+    size_t* mck_off;   /* (Mc,k) block base: mck_off[mck_base[Mc]+k]   */
+    int* mck_base;     /* Mc -> first (Mc,k) slot                      */
+
+    /* case-1 halo archive: direction 0 rows of every received atom    */
+    float* halo_dev;
+    size_t halo_count;
+    size_t* halo_off;  /* (halo_idx, k) block base                     */
+    int* halo_base;    /* halo_idx -> first slot                       */
+
+    /* case-2 per-centre archive: 4 directions of the staged slot;
+       block sizes follow the NEIGHBOUR's orbital count                 */
+    float* c2_dev;
+    size_t c2_stride;
+    size_t* c2_off;    /* (Mc,k) block base, indexed via mck_base      */
+
+    /* host bounce buffer holding one atom's largest one-direction block */
+    float* stage;
+    size_t stage_len;
+} Force4BGpuContext;
+
+static Force4BGpuContext F4B_gpu = { 0 };
+
+static void Force4B_gpu_abort(const char* message)
+{
+    fprintf(stderr, "%s\n", message);
+    fflush(stderr);
+    MPI_Abort(mpi_comm_level1, 1);
+}
+
+/* per-item metadata of the batched case-1/case-2 kernels */
+typedef struct {
+    size_t cdm_off;
+    int k_off;
+    int k_n;
+    int ian;
+    int jan;
+} Force4BGpuItem;
+
+static int Force4B_GpuBegin(Type_DS_VNA***** DS_VNA)
+{
+    Force4BGpuContext* g = &F4B_gpu;
+    int Mc_AN, k, node_ranks = 1, node_rank = 0;
+    size_t pos = 0, slots = 0, halo_slots = 0, c2pos = 0, maxblk = 0;
+    size_t free_bytes = 0, total_bytes = 0;
+    MPI_Comm node_comm = MPI_COMM_NULL;
+
+    memset(g, 0, sizeof(*g));
+    g->num_proj = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
+
+    if (scf_eigen_lib_flag != GPUSOLVER) return 0;
+    if (!Force_collective_env_flag("OPENMX_FORCE4B_GPU", 1, mpi_comm_level1)) return 0;
+
+    MPI_Comm_split_type(mpi_comm_level1, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
+    MPI_Comm_size(node_comm, &node_ranks);
+    MPI_Comm_rank(node_comm, &node_rank);
+    if (node_ranks < 1) node_ranks = 1;
+
+    /* return every rank's OpenACC freelist (e.g. the Force3 buffers) to CUDA
+       before anyone measures the shared free memory */
+    acc_wait_all();
+    if (cudaDeviceSynchronize() == cudaSuccess) {
+        acc_clear_freelists();
+    }
+    MPI_Barrier(node_comm);
+    MPI_Comm_free(&node_comm);
+
+    /* size the flat local table (4 dirs) and the halo/case-2 archives;
+       also find the largest one-direction atom block for the staging
+       buffer */
+
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        size_t blk = (size_t)(FNAN[Gc_AN] + 1) * (size_t)Spe_Total_CNO[WhatSpecies[Gc_AN]]
+            * (size_t)g->num_proj;
+        size_t c2blk = 0;
+
+        slots += (size_t)(FNAN[Gc_AN] + 1);
+        pos += blk;
+        if (maxblk < blk) maxblk = blk;
+        for (k = 0; k <= FNAN[Gc_AN]; k++) {
+            c2blk += (size_t)Spe_Total_CNO[WhatSpecies[natn[Gc_AN][k]]] * (size_t)g->num_proj;
+        }
+        c2pos += c2blk;
+        if (maxblk < c2blk) maxblk = c2blk;
+    }
+    g->flat_stride = pos;
+    g->c2_stride = c2pos;
+
+    for (Mc_AN = Matomnum + 1; Mc_AN <= Matomnum + MatomnumF; Mc_AN++) {
+        int Gc_AN = F_M2G[Mc_AN];
+        size_t blk = (size_t)(FNAN[Gc_AN] + 1) * (size_t)Spe_Total_CNO[WhatSpecies[Gc_AN]]
+            * (size_t)g->num_proj;
+
+        halo_slots += (size_t)(FNAN[Gc_AN] + 1);
+        g->halo_count += blk;
+        if (maxblk < blk) maxblk = blk;
+    }
+
+    /* feasibility against the device memory shared by the node ranks */
+
+    if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess) return 0;
+    {
+        const size_t reserve = (size_t)256 * 1024 * 1024;
+        const size_t transients = (size_t)192 * 1024 * 1024;
+        size_t need = (4U * g->flat_stride + g->halo_count + 4U * g->c2_stride) * sizeof(float)
+            + transients;
+
+        if (free_bytes <= reserve) return 0;
+        if ((free_bytes - reserve) / (size_t)node_ranks <= need) {
+            if (node_rank == 0) {
+                fprintf(stderr,
+                    "Force4B GPU: not enough free device memory; CPU fallback.\n");
+                fflush(stderr);
+            }
+            return 0;
+        }
+    }
+
+    g->mck_base = (int*)Force_checked_malloc(sizeof(int) * (size_t)(Matomnum + 2), __FILE__, __LINE__);
+    g->mck_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (slots == 0 ? 1 : slots), __FILE__, __LINE__);
+    g->halo_base = (int*)Force_checked_malloc(sizeof(int) * (size_t)(MatomnumF + 2), __FILE__, __LINE__);
+    g->halo_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (halo_slots == 0 ? 1 : halo_slots),
+        __FILE__, __LINE__);
+    g->c2_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (slots == 0 ? 1 : slots), __FILE__, __LINE__);
+    g->stage_len = (maxblk == 0 ? 1 : maxblk);
+    g->stage = (float*)Force_checked_malloc(sizeof(float) * g->stage_len, __FILE__, __LINE__);
+
+    pos = 0;
+    slots = 0;
+    c2pos = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        g->mck_base[Mc_AN] = (int)slots;
+        for (k = 0; k <= FNAN[Gc_AN]; k++) {
+            int nok = Spe_Total_CNO[WhatSpecies[natn[Gc_AN][k]]];
+
+            g->mck_off[slots] = pos;
+            g->c2_off[slots] = c2pos;
+            pos += (size_t)no0 * (size_t)g->num_proj;
+            c2pos += (size_t)nok * (size_t)g->num_proj;
+            slots++;
+        }
+    }
+
+    halo_slots = 0;
+    pos = 0;
+    for (Mc_AN = Matomnum + 1; Mc_AN <= Matomnum + MatomnumF; Mc_AN++) {
+        int Gc_AN = F_M2G[Mc_AN];
+        int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        g->halo_base[Mc_AN - Matomnum] = (int)halo_slots;
+        for (k = 0; k <= FNAN[Gc_AN]; k++) {
+            g->halo_off[halo_slots] = pos;
+            pos += (size_t)no0 * (size_t)g->num_proj;
+            halo_slots++;
+        }
+    }
+
+    /* device archives */
+
+    g->flat_dev = (float*)acc_malloc(sizeof(float) * (g->flat_stride == 0 ? 4 : 4U * g->flat_stride));
+    g->halo_dev = (float*)acc_malloc(sizeof(float) * (g->halo_count == 0 ? 1 : g->halo_count));
+    g->c2_dev = (float*)acc_malloc(sizeof(float) * (g->c2_stride == 0 ? 4 : 4U * g->c2_stride));
+    if (g->flat_dev == NULL || g->halo_dev == NULL || g->c2_dev == NULL) {
+        if (g->flat_dev != NULL) acc_free(g->flat_dev);
+        if (g->halo_dev != NULL) acc_free(g->halo_dev);
+        if (g->c2_dev != NULL) acc_free(g->c2_dev);
+        free(g->stage);
+        free(g->c2_off);
+        free(g->halo_off);
+        free(g->halo_base);
+        free(g->mck_off);
+        free(g->mck_base);
+        memset(g, 0, sizeof(*g));
+        fprintf(stderr, "Force4B GPU: device allocation failed; CPU fallback.\n");
+        fflush(stderr);
+        return 0;
+    }
+
+    /* upload the (premultiplied) local DS_VNA rows one atom block at a
+       time through the staging buffer */
+
+    {
+        int kk;
+
+        for (kk = 0; kk <= 3; kk++) {
+            for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+                int Gc_AN = M2G[Mc_AN];
+                int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+                size_t base = g->mck_off[g->mck_base[Mc_AN]];
+                size_t blk = (size_t)(FNAN[Gc_AN] + 1) * (size_t)no0 * (size_t)g->num_proj;
+                int k2;
+
+#pragma omp parallel for schedule(dynamic)
+                for (k2 = 0; k2 <= FNAN[Gc_AN]; k2++) {
+                    size_t off = g->mck_off[g->mck_base[Mc_AN] + k2] - base;
+                    int i, l;
+
+                    for (i = 0; i < no0; i++) {
+                        const Type_DS_VNA* src = DS_VNA[kk][Mc_AN][k2][i];
+                        float* dst = g->stage + off + (size_t)i * (size_t)g->num_proj;
+
+                        for (l = 0; l < g->num_proj; l++) dst[l] = (float)src[l];
+                    }
+                }
+
+                if (blk != 0) {
+                    acc_memcpy_to_device(g->flat_dev + (size_t)kk * g->flat_stride + base,
+                        g->stage, sizeof(float) * blk);
+                }
+            }
+        }
+    }
+
+    g->enabled = 1;
+    return 1;
+}
+
+static void Force4B_GpuEnd(void)
+{
+    Force4BGpuContext* g = &F4B_gpu;
+
+    if (!g->enabled) return;
+
+    if (g->flat_dev != NULL) acc_free(g->flat_dev);
+    if (g->halo_dev != NULL) acc_free(g->halo_dev);
+    if (g->c2_dev != NULL) acc_free(g->c2_dev);
+    acc_clear_freelists();
+
+    free(g->stage);
+    free(g->c2_off);
+    free(g->halo_off);
+    free(g->halo_base);
+    free(g->mck_off);
+    free(g->mck_base);
+    memset(g, 0, sizeof(*g));
+}
+
+/* archive the direction-0 block of the halo atom just received into the
+   Matomnum+1 slot of the case-1 communication loop */
+static void Force4B_GpuArchiveHalo(Type_DS_VNA***** DS_VNA, int Original_Mc_AN, int Gc_AN)
+{
+    Force4BGpuContext* g = &F4B_gpu;
+    int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+    int halo_idx = Original_Mc_AN - Matomnum;
+    size_t base;
+    size_t blk = (size_t)(FNAN[Gc_AN] + 1) * (size_t)no0 * (size_t)g->num_proj;
+    int k;
+
+    if (halo_idx < 1 || MatomnumF < halo_idx) {
+        Force4B_gpu_abort("Force4B GPU: halo index out of range.");
+    }
+    base = g->halo_off[g->halo_base[halo_idx]];
+
+#pragma omp parallel for schedule(dynamic)
+    for (k = 0; k <= FNAN[Gc_AN]; k++) {
+        size_t off = g->halo_off[g->halo_base[halo_idx] + k] - base;
+        int i, l;
+
+        for (i = 0; i < no0; i++) {
+            const Type_DS_VNA* src = DS_VNA[0][Matomnum + 1][k][i];
+            float* dst = g->stage + off + (size_t)i * (size_t)g->num_proj;
+
+            for (l = 0; l < g->num_proj; l++) dst[l] = (float)src[l];
+        }
+    }
+
+    if (blk != 0) {
+        acc_memcpy_to_device(g->halo_dev + base, g->stage, sizeof(float) * blk);
+    }
+}
+
+/* archive the staged 4-direction slot of the case-2 centre atom Mc_AN */
+static void Force4B_GpuArchiveCase2(Type_DS_VNA***** DS_VNA, int Mc_AN, int Gc_AN)
+{
+    Force4BGpuContext* g = &F4B_gpu;
+    size_t base = g->c2_off[g->mck_base[Mc_AN]];
+    size_t blk = 0;
+    int k, kk;
+
+    for (k = 0; k <= FNAN[Gc_AN]; k++) {
+        blk += (size_t)Spe_Total_CNO[WhatSpecies[natn[Gc_AN][k]]] * (size_t)g->num_proj;
+    }
+
+    for (kk = 0; kk <= 3; kk++) {
+
+#pragma omp parallel for schedule(dynamic)
+        for (k = 0; k <= FNAN[Gc_AN]; k++) {
+            int Gk_AN = natn[Gc_AN][k];
+            int nok = Spe_Total_CNO[WhatSpecies[Gk_AN]];
+            size_t off = g->c2_off[g->mck_base[Mc_AN] + k] - base;
+            int i, l;
+
+            for (i = 0; i < nok; i++) {
+                const Type_DS_VNA* src = DS_VNA[kk][Matomnum + 1][k][i];
+                float* dst = g->stage + off + (size_t)i * (size_t)g->num_proj;
+
+                for (l = 0; l < g->num_proj; l++) dst[l] = (float)src[l];
+            }
+        }
+
+        if (blk != 0) {
+            acc_memcpy_to_device(g->c2_dev + (size_t)kk * g->c2_stride + base,
+                g->stage, sizeof(float) * blk);
+        }
+    }
+}
+
+/* the unified case-1 batch: for every local atom, all q_AN != 0 pairs
+   (local q reads the flat table, halo q reads the halo archive) */
+static void Force4B_GpuCase1Run(double***** CDM0)
+{
+    Force4BGpuContext* g = &F4B_gpu;
+    const int num_proj = g->num_proj;
+    int Mc_AN, q_AN, k;
+    int nitems = 0, kslots = 0;
+    size_t cdm_count = 0;
+    Force4BGpuItem* items;
+    int* item_atom;
+    int* item_q;
+    size_t* krowA;
+    size_t* krowB;
+    int* krow_halo;
+    double* cdm_pref;
+    double* item_f;
+    int p;
+    size_t cpos = 0;
+    int kpos = 0;
+
+    /* count */
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int ian = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        for (q_AN = 1; q_AN <= FNAN[Gc_AN]; q_AN++) {
+            int jan = Spe_Total_CNO[WhatSpecies[natn[Gc_AN][q_AN]]];
+
+            nitems++;
+            cdm_count += (size_t)ian * (size_t)jan;
+            for (k = 0; k <= FNAN[Gc_AN]; k++) {
+                if (0 <= RMI1[Mc_AN][q_AN][k]) kslots++;
+            }
+        }
+    }
+
+    if (nitems == 0) return;
+
+    items = (Force4BGpuItem*)Force_checked_malloc(sizeof(Force4BGpuItem) * (size_t)nitems, __FILE__, __LINE__);
+    item_atom = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    item_q = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    krowA = (size_t*)Force_checked_malloc(sizeof(size_t) * (kslots == 0 ? 1 : (size_t)kslots), __FILE__, __LINE__);
+    krowB = (size_t*)Force_checked_malloc(sizeof(size_t) * (kslots == 0 ? 1 : (size_t)kslots), __FILE__, __LINE__);
+    krow_halo = (int*)Force_checked_malloc(sizeof(int) * (kslots == 0 ? 1 : (size_t)kslots), __FILE__, __LINE__);
+    cdm_pref = (double*)Force_checked_malloc(sizeof(double) * (cdm_count == 0 ? 1 : cdm_count), __FILE__, __LINE__);
+    item_f = (double*)Force_checked_malloc(sizeof(double) * 3U * (size_t)nitems, __FILE__, __LINE__);
+
+    /* build */
+    p = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int ian = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        for (q_AN = 1; q_AN <= FNAN[Gc_AN]; q_AN++) {
+            int Gq_AN = natn[Gc_AN][q_AN];
+            int Mq_AN = F_G2M[Gq_AN];
+            int jan = Spe_Total_CNO[WhatSpecies[Gq_AN]];
+            int cdm_kl = RMI1[Mc_AN][0][q_AN];
+            const double pref = (SpinP_switch == 0) ? 4.0 : 2.0;
+            int i, j;
+
+            items[p].cdm_off = cpos;
+            items[p].k_off = kpos;
+            items[p].ian = ian;
+            items[p].jan = jan;
+            item_atom[p] = Mc_AN;
+            item_q[p] = q_AN;
+
+            for (i = 0; i < ian; i++) {
+                const double* c0 = CDM0[0][Mc_AN][cdm_kl][i];
+                const double* c1 = (SpinP_switch == 0) ? NULL : CDM0[1][Mc_AN][cdm_kl][i];
+
+                for (j = 0; j < jan; j++) {
+                    cdm_pref[cpos++] = pref * ((c1 == NULL) ? c0[j] : (c0[j] + c1[j]));
+                }
+            }
+
+            for (k = 0; k <= FNAN[Gc_AN]; k++) {
+                int qk_kl = RMI1[Mc_AN][q_AN][k];
+
+                if (qk_kl < 0) continue;
+                krowA[kpos] = g->mck_off[g->mck_base[Mc_AN] + k];
+                if (Mq_AN <= Matomnum) {
+                    krowB[kpos] = g->mck_off[g->mck_base[Mq_AN] + qk_kl];
+                    krow_halo[kpos] = 0;
+                } else {
+                    krowB[kpos] = g->halo_off[g->halo_base[Mq_AN - Matomnum] + qk_kl];
+                    krow_halo[kpos] = 1;
+                }
+                kpos++;
+            }
+            items[p].k_n = kpos - items[p].k_off;
+            p++;
+        }
+    }
+
+    if (p != nitems || kpos != kslots || cpos != cdm_count) {
+        Force4B_gpu_abort("Force4B GPU: inconsistent case-1 batch.");
+    }
+
+    {
+        float* flat = g->flat_dev;
+        float* halo = g->halo_dev;
+        size_t flat_stride = g->flat_stride;
+        const int nitems_c = nitems;
+        const size_t kslots_c = (kslots == 0 ? 1 : (size_t)kslots);
+        const size_t cdm_c = (cdm_count == 0 ? 1 : cdm_count);
+        size_t asz = 0;
+        const size_t o_items = Force_gpu_arena_off(&asz, sizeof(Force4BGpuItem) * (size_t)nitems_c);
+        const size_t o_krowA = Force_gpu_arena_off(&asz, sizeof(size_t) * kslots_c);
+        const size_t o_krowB = Force_gpu_arena_off(&asz, sizeof(size_t) * kslots_c);
+        const size_t o_khalo = Force_gpu_arena_off(&asz, sizeof(int) * kslots_c);
+        const size_t o_cdm = Force_gpu_arena_off(&asz, sizeof(double) * cdm_c);
+        const size_t o_itemf = Force_gpu_arena_off(&asz, sizeof(double) * 3U * (size_t)nitems_c);
+        char* arena = (char*)Force_gpu_arena_wait(asz, "4B first-case batch");
+
+        acc_memcpy_to_device(arena + o_items, items, sizeof(Force4BGpuItem) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_krowA, krowA, sizeof(size_t) * kslots_c);
+        acc_memcpy_to_device(arena + o_krowB, krowB, sizeof(size_t) * kslots_c);
+        acc_memcpy_to_device(arena + o_khalo, krow_halo, sizeof(int) * kslots_c);
+        acc_memcpy_to_device(arena + o_cdm, cdm_pref, sizeof(double) * cdm_c);
+
+        {
+            const Force4BGpuItem* items = (const Force4BGpuItem*)(void*)(arena + o_items);
+            const size_t* krowA = (const size_t*)(void*)(arena + o_krowA);
+            const size_t* krowB = (const size_t*)(void*)(arena + o_krowB);
+            const int* krow_halo = (const int*)(void*)(arena + o_khalo);
+            const double* cdm_pref = (const double*)(void*)(arena + o_cdm);
+            double* item_f = (double*)(void*)(arena + o_itemf);
+
+#pragma acc parallel loop gang vector_length(128) \
+    deviceptr(flat, halo, items, krowA, krowB, krow_halo, cdm_pref, item_f)
+            for (int pp = 0; pp < nitems_c; pp++) {
+                const int ian = items[pp].ian;
+                const int jan = items[pp].jan;
+                const int k_off = items[pp].k_off;
+                const int k_n = items[pp].k_n;
+                const size_t cdm_off = items[pp].cdm_off;
+                const int mn = ian * jan;
+                double fx = 0.0, fy = 0.0, fz = 0.0;
+
+#pragma acc loop vector reduction(+:fx, fy, fz)
+                for (int idx = 0; idx < mn; idx++) {
+                    const int m = idx / jan;
+                    const int n = idx - m * jan;
+                    const double w = cdm_pref[cdm_off + (size_t)idx];
+                    double sx = 0.0, sy = 0.0, sz = 0.0;
+
+                    for (int kk = 0; kk < k_n; kk++) {
+                        const size_t abase = krowA[k_off + kk] + (size_t)m * (size_t)num_proj;
+                        const float* bx = (krow_halo[k_off + kk]
+                            ? (halo + krowB[k_off + kk])
+                            : (flat + krowB[k_off + kk])) + (size_t)n * (size_t)num_proj;
+                        const float* a1 = flat + flat_stride + abase;
+                        const float* a2 = flat + 2U * flat_stride + abase;
+                        const float* a3 = flat + 3U * flat_stride + abase;
+                        double tx = 0.0, ty = 0.0, tz = 0.0;
+
+                        for (int l = 0; l < num_proj; l++) {
+                            tx += (double)(a1[l] * bx[l]);
+                            ty += (double)(a2[l] * bx[l]);
+                            tz += (double)(a3[l] * bx[l]);
+                        }
+                        sx += tx;
+                        sy += ty;
+                        sz += tz;
+                    }
+
+                    fx += w * sx;
+                    fy += w * sy;
+                    fz += w * sz;
+                }
+
+                item_f[3 * (size_t)pp + 0] = fx;
+                item_f[3 * (size_t)pp + 1] = fy;
+                item_f[3 * (size_t)pp + 2] = fz;
+            }
+        }
+
+        acc_memcpy_from_device(item_f, arena + o_itemf, sizeof(double) * 3U * (size_t)nitems_c);
+        acc_free(arena);
+        Force_gpu_pool_flush();
+    }
+
+    /* damping tail and accumulation (host, same math as the fused trace) */
+
+    for (p = 0; p < nitems; p++) {
+        int mc = item_atom[p];
+        int q_AN = item_q[p];
+        int Gc_AN = M2G[mc];
+        int Gq_AN = natn[Gc_AN][q_AN];
+        int jan = items[p].jan;
+        int ian = items[p].ian;
+        int cdm_kl = RMI1[mc][0][q_AN];
+        const double pref = (SpinP_switch == 0) ? 4.0 : 2.0;
+        const double rcut = Spe_Atom_Cut1[WhatSpecies[Gc_AN]] + Spe_Atom_Cut1[WhatSpecies[Gq_AN]];
+        double r = Dis[Gc_AN][q_AN];
+        const double dmp = dampingF(rcut, r);
+        double fx = item_f[3 * (size_t)p + 0] * dmp;
+        double fy = item_f[3 * (size_t)p + 1] * dmp;
+        double fz = item_f[3 * (size_t)p + 2] * dmp;
+        double derivative_scale = 0.0;
+
+        if (rcut > r) {
+            derivative_scale = deri_dampingF(rcut, r) / dmp;
+        }
+        if (r < 1.0e-10) {
+            r = 1.0e-10;
+        }
+
+        if (derivative_scale != 0.0) {
+            double trace_hvna = 0.0;
+            const int center_cell = ncn[Gc_AN][0];
+            const int q_cell = ncn[Gc_AN][q_AN];
+            int m, n;
+
+            for (m = 0; m < ian; m++) {
+                const double* c0 = CDM0[0][mc][cdm_kl][m];
+                const double* c1 = (SpinP_switch == 0) ? NULL : CDM0[1][mc][cdm_kl][m];
+
+                for (n = 0; n < jan; n++) {
+                    const double cdm = (c1 == NULL) ? c0[n] : (c0[n] + c1[n]);
+
+                    trace_hvna += pref * cdm * HVNA[mc][q_AN][m][n];
+                }
+            }
+
+            {
+                const double dx = derivative_scale
+                    * ((Gxyz[Gc_AN][1] + atv[center_cell][1])
+                        - (Gxyz[Gq_AN][1] + atv[q_cell][1])) / r;
+                const double dy = derivative_scale
+                    * ((Gxyz[Gc_AN][2] + atv[center_cell][2])
+                        - (Gxyz[Gq_AN][2] + atv[q_cell][2])) / r;
+                const double dz = derivative_scale
+                    * ((Gxyz[Gc_AN][3] + atv[center_cell][3])
+                        - (Gxyz[Gq_AN][3] + atv[q_cell][3])) / r;
+
+                fx += trace_hvna * dx;
+                fy += trace_hvna * dy;
+                fz += trace_hvna * dz;
+            }
+        }
+
+        Gxyz[Gc_AN][41] += fx;
+        Gxyz[Gc_AN][42] += fy;
+        Gxyz[Gc_AN][43] += fz;
+    }
+
+    free(item_f);
+    free(cdm_pref);
+    free(krow_halo);
+    free(krowB);
+    free(krowA);
+    free(item_q);
+    free(item_atom);
+    free(items);
+
+    /* the local table and the halo archive are no longer needed after
+       the case-1 batch; release the device memory early */
+    if (g->flat_dev != NULL) {
+        acc_free(g->flat_dev);
+        g->flat_dev = NULL;
+    }
+    if (g->halo_dev != NULL) {
+        acc_free(g->halo_dev);
+        g->halo_dev = NULL;
+    }
+    acc_clear_freelists();
+}
+
+/* the case-2 batch: all fused-eligible (h,q) pairs of every centre,
+   reading the archived 4-direction stagings */
+static void Force4B_GpuCase2Run(double***** CDM0)
+{
+    Force4BGpuContext* g = &F4B_gpu;
+    const int num_proj = g->num_proj;
+    int Mc_AN, h_AN, q_AN;
+    int nitems = 0;
+    size_t cdm_count = 0;
+    Force4BGpuItem* items;
+    size_t* pair_h_off;
+    size_t* pair_q_off;
+    int* item_atom;
+    double* cdm_scale;
+    double* item_f;
+    int p;
+    size_t cpos = 0;
+
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+
+        for (h_AN = 1; h_AN <= FNAN[Gc_AN]; h_AN++) {
+            int start_q_AN = (Solver == 5 || Solver == 8 || Solver == 11) ? 0 : h_AN;
+            int ian = Spe_Total_CNO[WhatSpecies[natn[Gc_AN][h_AN]]];
+
+            for (q_AN = start_q_AN; q_AN <= FNAN[Gc_AN]; q_AN++) {
+                if (q_AN == 0 || h_AN == q_AN) continue;
+                if (RMI1[Mc_AN][h_AN][q_AN] < 0) continue;
+                nitems++;
+                cdm_count += (size_t)ian * (size_t)Spe_Total_CNO[WhatSpecies[natn[Gc_AN][q_AN]]];
+            }
+        }
+    }
+
+    if (nitems == 0) return;
+
+    items = (Force4BGpuItem*)Force_checked_malloc(sizeof(Force4BGpuItem) * (size_t)nitems, __FILE__, __LINE__);
+    pair_h_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)nitems, __FILE__, __LINE__);
+    pair_q_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)nitems, __FILE__, __LINE__);
+    item_atom = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    cdm_scale = (double*)Force_checked_malloc(sizeof(double) * (cdm_count == 0 ? 1 : cdm_count), __FILE__, __LINE__);
+    item_f = (double*)Force_checked_malloc(sizeof(double) * 3U * (size_t)nitems, __FILE__, __LINE__);
+
+    p = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+
+        for (h_AN = 1; h_AN <= FNAN[Gc_AN]; h_AN++) {
+            int start_q_AN = (Solver == 5 || Solver == 8 || Solver == 11) ? 0 : h_AN;
+            int Gh_AN = natn[Gc_AN][h_AN];
+            int Mh_AN = F_G2M[Gh_AN];
+            int Hwan = WhatSpecies[Gh_AN];
+            int ian = Spe_Total_CNO[Hwan];
+
+            for (q_AN = start_q_AN; q_AN <= FNAN[Gc_AN]; q_AN++) {
+                int Gq_AN, Qwan, jan, kl, kl1, kl2, i, j;
+                double pref, rcut, scale0;
+
+                if (q_AN == 0 || h_AN == q_AN) continue;
+                kl = RMI1[Mc_AN][h_AN][q_AN];
+                if (kl < 0) continue;
+
+                Gq_AN = natn[Gc_AN][q_AN];
+                Qwan = WhatSpecies[Gq_AN];
+                jan = Spe_Total_CNO[Qwan];
+                kl1 = RMI1[Mc_AN][0][h_AN];
+                kl2 = RMI1[Mc_AN][0][q_AN];
+
+                pref = ((Solver == 5 || Solver == 8 || Solver == 11) || q_AN == h_AN)
+                    ? ((SpinP_switch == 0) ? 2.0 : 1.0)
+                    : ((SpinP_switch == 0) ? 4.0 : 2.0);
+                rcut = Spe_Atom_Cut1[Hwan] + Spe_Atom_Cut1[Qwan];
+                scale0 = pref * dampingF(rcut, Dis[Gh_AN][kl]);
+
+                items[p].cdm_off = cpos;
+                items[p].k_off = 0;
+                items[p].k_n = 0;
+                items[p].ian = ian;
+                items[p].jan = jan;
+                pair_h_off[p] = g->c2_off[g->mck_base[Mc_AN] + kl1];
+                pair_q_off[p] = g->c2_off[g->mck_base[Mc_AN] + kl2];
+                item_atom[p] = Mc_AN;
+
+                for (i = 0; i < ian; i++) {
+                    const double* c0 = CDM0[0][Mh_AN][kl][i];
+                    const double* c1 = (SpinP_switch == 0) ? NULL : CDM0[1][Mh_AN][kl][i];
+
+                    for (j = 0; j < jan; j++) {
+                        cdm_scale[cpos++] = scale0 * ((c1 == NULL) ? c0[j] : (c0[j] + c1[j]));
+                    }
+                }
+                p++;
+            }
+        }
+    }
+
+    if (p != nitems || cpos != cdm_count) {
+        Force4B_gpu_abort("Force4B GPU: inconsistent case-2 batch.");
+    }
+
+    {
+        float* c2 = g->c2_dev;
+        size_t flat_stride = g->c2_stride;
+        const int nitems_c = nitems;
+        const size_t cdm_c = (cdm_count == 0 ? 1 : cdm_count);
+        size_t asz = 0;
+        const size_t o_items = Force_gpu_arena_off(&asz, sizeof(Force4BGpuItem) * (size_t)nitems_c);
+        const size_t o_hoff = Force_gpu_arena_off(&asz, sizeof(size_t) * (size_t)nitems_c);
+        const size_t o_qoff = Force_gpu_arena_off(&asz, sizeof(size_t) * (size_t)nitems_c);
+        const size_t o_cdm = Force_gpu_arena_off(&asz, sizeof(double) * cdm_c);
+        const size_t o_itemf = Force_gpu_arena_off(&asz, sizeof(double) * 3U * (size_t)nitems_c);
+        char* arena = (char*)Force_gpu_arena_wait(asz, "4B second-case batch");
+
+        acc_memcpy_to_device(arena + o_items, items, sizeof(Force4BGpuItem) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_hoff, pair_h_off, sizeof(size_t) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_qoff, pair_q_off, sizeof(size_t) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_cdm, cdm_scale, sizeof(double) * cdm_c);
+
+        {
+            const Force4BGpuItem* items = (const Force4BGpuItem*)(void*)(arena + o_items);
+            const size_t* pair_h_off = (const size_t*)(void*)(arena + o_hoff);
+            const size_t* pair_q_off = (const size_t*)(void*)(arena + o_qoff);
+            const double* cdm_scale = (const double*)(void*)(arena + o_cdm);
+            double* item_f = (double*)(void*)(arena + o_itemf);
+
+#pragma acc parallel loop gang vector_length(128) \
+    deviceptr(c2, items, pair_h_off, pair_q_off, cdm_scale, item_f)
+            for (int pp = 0; pp < nitems_c; pp++) {
+                const int ian = items[pp].ian;
+                const int jan = items[pp].jan;
+                const size_t cdm_off = items[pp].cdm_off;
+                const size_t hb = pair_h_off[pp];
+                const size_t qb = pair_q_off[pp];
+                const int mn = ian * jan;
+                double fx = 0.0, fy = 0.0, fz = 0.0;
+
+#pragma acc loop vector reduction(+:fx, fy, fz)
+                for (int idx = 0; idx < mn; idx++) {
+                    const int m = idx / jan;
+                    const int n = idx - m * jan;
+                    const double w = cdm_scale[cdm_off + (size_t)idx];
+                    const float* h0 = c2 + hb + (size_t)m * (size_t)num_proj;
+                    const float* hx = c2 + flat_stride + hb + (size_t)m * (size_t)num_proj;
+                    const float* hy = c2 + 2U * flat_stride + hb + (size_t)m * (size_t)num_proj;
+                    const float* hz = c2 + 3U * flat_stride + hb + (size_t)m * (size_t)num_proj;
+                    const float* q0 = c2 + qb + (size_t)n * (size_t)num_proj;
+                    const float* qx = c2 + flat_stride + qb + (size_t)n * (size_t)num_proj;
+                    const float* qy = c2 + 2U * flat_stride + qb + (size_t)n * (size_t)num_proj;
+                    const float* qz = c2 + 3U * flat_stride + qb + (size_t)n * (size_t)num_proj;
+                    double sx = 0.0, sy = 0.0, sz = 0.0;
+
+                    for (int l = 0; l < num_proj; l++) {
+                        sx -= (double)(hx[l] * q0[l]) + (double)(h0[l] * qx[l]);
+                        sy -= (double)(hy[l] * q0[l]) + (double)(h0[l] * qy[l]);
+                        sz -= (double)(hz[l] * q0[l]) + (double)(h0[l] * qz[l]);
+                    }
+
+                    fx += w * sx;
+                    fy += w * sy;
+                    fz += w * sz;
+                }
+
+                item_f[3 * (size_t)pp + 0] = fx;
+                item_f[3 * (size_t)pp + 1] = fy;
+                item_f[3 * (size_t)pp + 2] = fz;
+            }
+        }
+
+        acc_memcpy_from_device(item_f, arena + o_itemf, sizeof(double) * 3U * (size_t)nitems_c);
+        acc_free(arena);
+        Force_gpu_pool_flush();
+    }
+
+    for (p = 0; p < nitems; p++) {
+        int Gc_AN = M2G[item_atom[p]];
+
+        Gxyz[Gc_AN][41] += item_f[3 * (size_t)p + 0];
+        Gxyz[Gc_AN][42] += item_f[3 * (size_t)p + 1];
+        Gxyz[Gc_AN][43] += item_f[3 * (size_t)p + 2];
+    }
+
+    free(item_f);
+    free(cdm_scale);
+    free(item_atom);
+    free(pair_q_off);
+    free(pair_h_off);
+    free(items);
+}
+
+/* ------------------------------------------------------------------ */
+/* Batched device evaluation of the scalar-relativistic Force_HNL
+   traces.
+
+   When every species is j-averaged (VPS_j_dependency==0) and no
+   spin-orbit / LDA+U / constraint terms are active, both dHNL cases
+   reduce to energy-weighted dot products over the nonlocal projector
+   rows -- the same shape as the Force4B traces.  The q_AN==0 pairs of
+   the first case and the damping corrections stay on the host.
+
+   The MPI structure is untouched: the halo blocks received in the
+   first-case communication loop and the per-atom second-case stagings
+   are archived, and one batched kernel per case runs after the loops. */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    int enabled;
+
+    /* local DS_NL rows (so=0), direction-major: flat[dir*stride+block];
+       the (Mc,k) block holds CNO(Gc) rows of nlp(species of natn) each */
+    double* flat;
+    double* flat_dev;
+    size_t flat_stride;
+    size_t* mck_off;
+    int* mck_base;
+
+    /* first-case halo archive: direction-0 rows of every received atom */
+    double* halo;
+    size_t halo_count;
+    size_t* halo_off;
+    int* halo_base;
+
+    /* second-case per-centre archive: 4 directions of the staged slot;
+       the (Mc,k) block holds CNO(natn[Gc][k]) rows of nlp(centre) each */
+    double* c2;
+    size_t c2_stride;
+    size_t* c2_off;
+
+    /* per-species expanded projector energies (one entry per l)        */
+    double* ene;
+    size_t* ene_off;
+    int* sp_nlp;
+} ForceHNLGpuContext;
+
+static ForceHNLGpuContext FHNL_gpu = { 0 };
+
+static int Force_HNL_GpuBegin(double****** DS_NL)
+{
+    ForceHNLGpuContext* g = &FHNL_gpu;
+    int Mc_AN, k, w, node_ranks = 1, node_rank = 0;
+    size_t pos = 0, slots = 0, halo_slots = 0, ene_pos = 0;
+    size_t free_bytes = 0, total_bytes = 0;
+    MPI_Comm node_comm = MPI_COMM_NULL;
+
+    memset(g, 0, sizeof(*g));
+
+    if (scf_eigen_lib_flag != GPUSOLVER) return 0;
+    if (!Force_collective_env_flag("OPENMX_FORCEHNL_GPU", 1, mpi_comm_level1)) return 0;
+    if (F_NL_flag != 1) return 0;
+
+    /* only the real scalar-relativistic trace branches are batched */
+    if (!(SpinP_switch == 0 || SpinP_switch == 1 ||
+          (SpinP_switch == 3 && SO_switch == 0 && Hub_U_switch == 0 &&
+           Constraint_NCS_switch == 0 && Zeeman_NCS_switch == 0 && Zeeman_NCO_switch == 0))) {
+        return 0;
+    }
+    for (w = 0; w < SpeciesNum; w++) {
+        if (VPS_j_dependency[w] != 0) return 0;
+    }
+
+    MPI_Comm_split_type(mpi_comm_level1, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
+    MPI_Comm_size(node_comm, &node_ranks);
+    MPI_Comm_rank(node_comm, &node_rank);
+    if (node_ranks < 1) node_ranks = 1;
+    acc_wait_all();
+    if (cudaDeviceSynchronize() == cudaSuccess) {
+        acc_clear_freelists();
+    }
+    MPI_Barrier(node_comm);
+    MPI_Comm_free(&node_comm);
+
+    /* expanded projector energies per species */
+
+    g->ene_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)(SpeciesNum + 1), __FILE__, __LINE__);
+    g->sp_nlp = (int*)Force_checked_malloc(sizeof(int) * (size_t)SpeciesNum, __FILE__, __LINE__);
+    for (w = 0; w < SpeciesNum; w++) {
+        int l1, nlp = 0;
+
+        g->ene_off[w] = ene_pos;
+        for (l1 = 1; l1 <= Spe_Num_RVPS[w]; l1++) {
+            nlp += 2 * Spe_VPS_List[w][l1] + 1;
+        }
+        g->sp_nlp[w] = nlp;
+        ene_pos += (size_t)nlp;
+    }
+    g->ene_off[SpeciesNum] = ene_pos;
+    g->ene = (double*)Force_checked_malloc(sizeof(double) * (ene_pos == 0 ? 1 : ene_pos), __FILE__, __LINE__);
+    for (w = 0; w < SpeciesNum; w++) {
+        int l1, l3, l = 0;
+
+        for (l1 = 1; l1 <= Spe_Num_RVPS[w]; l1++) {
+            const double ene = Spe_VNLE[0][w][l1 - 1];
+            const int l2 = 2 * Spe_VPS_List[w][l1];
+
+            for (l3 = 0; l3 <= l2; l3++) {
+                g->ene[g->ene_off[w] + (size_t)l] = ene;
+                l++;
+            }
+        }
+    }
+
+    /* sizes of the flat local table, halo archive and staged archive */
+
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        slots += (size_t)(FNAN[Gc_AN] + 1);
+        for (k = 0; k <= FNAN[Gc_AN]; k++) {
+            pos += (size_t)no0 * (size_t)g->sp_nlp[WhatSpecies[natn[Gc_AN][k]]];
+        }
+    }
+    g->flat_stride = pos;
+
+    for (Mc_AN = Matomnum + 1; Mc_AN <= Matomnum + MatomnumF; Mc_AN++) {
+        int Gc_AN = F_M2G[Mc_AN];
+        int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        halo_slots += (size_t)(FNAN[Gc_AN] + 1);
+        for (k = 0; k <= FNAN[Gc_AN]; k++) {
+            g->halo_count += (size_t)no0 * (size_t)g->sp_nlp[WhatSpecies[natn[Gc_AN][k]]];
+        }
+    }
+
+    if (cudaMemGetInfo(&free_bytes, &total_bytes) != cudaSuccess) {
+        free(g->ene); free(g->sp_nlp); free(g->ene_off);
+        memset(g, 0, sizeof(*g));
+        return 0;
+    }
+
+    g->mck_base = (int*)Force_checked_malloc(sizeof(int) * (size_t)(Matomnum + 2), __FILE__, __LINE__);
+    g->mck_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (slots == 0 ? 1 : slots), __FILE__, __LINE__);
+    g->c2_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (slots == 0 ? 1 : slots), __FILE__, __LINE__);
+
+    pos = 0;
+    slots = 0;
+    {
+        size_t c2pos = 0;
+
+        for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+            int Gc_AN = M2G[Mc_AN];
+            int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+            int nlpc = g->sp_nlp[WhatSpecies[Gc_AN]];
+
+            g->mck_base[Mc_AN] = (int)slots;
+            for (k = 0; k <= FNAN[Gc_AN]; k++) {
+                int nok = Spe_Total_CNO[WhatSpecies[natn[Gc_AN][k]]];
+
+                g->mck_off[slots] = pos;
+                g->c2_off[slots] = c2pos;
+                pos += (size_t)no0 * (size_t)g->sp_nlp[WhatSpecies[natn[Gc_AN][k]]];
+                c2pos += (size_t)nok * (size_t)nlpc;
+                slots++;
+            }
+        }
+        g->c2_stride = c2pos;
+    }
+
+    /* feasibility: everything is resident at once (tens of MB) */
+    {
+        const size_t reserve = (size_t)256 * 1024 * 1024;
+        const size_t transients = (size_t)128 * 1024 * 1024;
+        size_t need = (4U * g->flat_stride + g->halo_count + 4U * g->c2_stride) * sizeof(double)
+            + transients;
+
+        if (free_bytes <= reserve ||
+            (free_bytes - reserve) / (size_t)node_ranks <= need) {
+            if (node_rank == 0) {
+                fprintf(stderr,
+                    "Force_HNL GPU: not enough free device memory; CPU fallback.\n");
+                fflush(stderr);
+            }
+            free(g->c2_off); free(g->mck_off); free(g->mck_base);
+            free(g->ene); free(g->sp_nlp); free(g->ene_off);
+            memset(g, 0, sizeof(*g));
+            return 0;
+        }
+    }
+
+    g->flat = (double*)Force_checked_malloc(sizeof(double) * (g->flat_stride == 0 ? 4 : 4U * g->flat_stride),
+        __FILE__, __LINE__);
+    g->c2 = (double*)Force_checked_malloc(sizeof(double) * (g->c2_stride == 0 ? 4 : 4U * g->c2_stride),
+        __FILE__, __LINE__);
+    g->halo_base = (int*)Force_checked_malloc(sizeof(int) * (size_t)(MatomnumF + 2), __FILE__, __LINE__);
+    g->halo_off = (size_t*)Force_checked_malloc(sizeof(size_t) * (halo_slots == 0 ? 1 : halo_slots),
+        __FILE__, __LINE__);
+    g->halo = (double*)Force_checked_malloc(sizeof(double) * (g->halo_count == 0 ? 1 : g->halo_count),
+        __FILE__, __LINE__);
+
+    halo_slots = 0;
+    pos = 0;
+    for (Mc_AN = Matomnum + 1; Mc_AN <= Matomnum + MatomnumF; Mc_AN++) {
+        int Gc_AN = F_M2G[Mc_AN];
+        int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        g->halo_base[Mc_AN - Matomnum] = (int)halo_slots;
+        for (k = 0; k <= FNAN[Gc_AN]; k++) {
+            g->halo_off[halo_slots] = pos;
+            pos += (size_t)no0 * (size_t)g->sp_nlp[WhatSpecies[natn[Gc_AN][k]]];
+            halo_slots++;
+        }
+    }
+
+    /* flatten the local so=0 rows of all four directions */
+
+#pragma omp parallel for schedule(dynamic)
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+        int kk, k2;
+
+        for (kk = 0; kk <= 3; kk++) {
+            for (k2 = 0; k2 <= FNAN[Gc_AN]; k2++) {
+                int nlp = FHNL_gpu.sp_nlp[WhatSpecies[natn[Gc_AN][k2]]];
+                size_t base = (size_t)kk * FHNL_gpu.flat_stride
+                    + FHNL_gpu.mck_off[FHNL_gpu.mck_base[Mc_AN] + k2];
+                int i;
+
+                for (i = 0; i < no0; i++) {
+                    memcpy(FHNL_gpu.flat + base + (size_t)i * (size_t)nlp,
+                        DS_NL[0][kk][Mc_AN][k2][i], sizeof(double) * (size_t)nlp);
+                }
+            }
+        }
+    }
+
+    {
+        size_t flat_len = (g->flat_stride == 0 ? 4 : 4U * g->flat_stride);
+
+        g->flat_dev = (double*)Force_gpu_arena_wait(flat_len * sizeof(double), "HNL flat archive");
+        acc_memcpy_to_device(g->flat_dev, g->flat, flat_len * sizeof(double));
+    }
+
+    g->enabled = 1;
+    return 1;
+}
+
+static void Force_HNL_GpuEnd(void)
+{
+    ForceHNLGpuContext* g = &FHNL_gpu;
+
+    if (!g->enabled) return;
+
+    if (g->flat_dev != NULL) {
+        acc_free(g->flat_dev);
+        g->flat_dev = NULL;
+    }
+    acc_clear_freelists();
+
+    free(g->halo);
+    free(g->halo_off);
+    free(g->halo_base);
+    free(g->c2);
+    free(g->flat);
+    free(g->c2_off);
+    free(g->mck_off);
+    free(g->mck_base);
+    free(g->ene);
+    free(g->sp_nlp);
+    free(g->ene_off);
+    memset(g, 0, sizeof(*g));
+}
+
+/* archive the direction-0 block of the halo atom just received into the
+   Matomnum+1 slot of the first-case communication loop */
+static void Force_HNL_GpuArchiveHalo(double****** DS_NL, int Original_Mc_AN, int Gc_AN)
+{
+    ForceHNLGpuContext* g = &FHNL_gpu;
+    int no0 = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+    int halo_idx = Original_Mc_AN - Matomnum;
+    int k;
+
+    if (halo_idx < 1 || MatomnumF < halo_idx) {
+        Force4B_gpu_abort("Force_HNL GPU: halo index out of range.");
+    }
+
+#pragma omp parallel for schedule(dynamic)
+    for (k = 0; k <= FNAN[Gc_AN]; k++) {
+        int nlp = g->sp_nlp[WhatSpecies[natn[Gc_AN][k]]];
+        size_t base = g->halo_off[g->halo_base[halo_idx] + k];
+        int i;
+
+        for (i = 0; i < no0; i++) {
+            memcpy(g->halo + base + (size_t)i * (size_t)nlp,
+                DS_NL[0][0][Matomnum + 1][k][i], sizeof(double) * (size_t)nlp);
+        }
+    }
+}
+
+/* archive the staged 4-direction slot of the second-case centre Mc_AN */
+static void Force_HNL_GpuArchiveCase2(double****** DS_NL, int Mc_AN, int Gc_AN)
+{
+    ForceHNLGpuContext* g = &FHNL_gpu;
+    int nlpc = g->sp_nlp[WhatSpecies[Gc_AN]];
+    int k;
+
+#pragma omp parallel for schedule(dynamic)
+    for (k = 0; k <= FNAN[Gc_AN]; k++) {
+        int nok = Spe_Total_CNO[WhatSpecies[natn[Gc_AN][k]]];
+        int kk, i;
+
+        for (kk = 0; kk <= 3; kk++) {
+            size_t base = (size_t)kk * g->c2_stride + g->c2_off[g->mck_base[Mc_AN] + k];
+
+            for (i = 0; i < nok; i++) {
+                memcpy(g->c2 + base + (size_t)i * (size_t)nlpc,
+                    DS_NL[0][kk][Matomnum + 1][k][i], sizeof(double) * (size_t)nlpc);
+            }
+        }
+    }
+}
+
+/* the unified first-case batch: every (local atom, q_AN != 0) pair;
+   local q reads the flat table, halo q reads the halo archive */
+static void Force_HNL_GpuCase1Run(double***** CDM0)
+{
+    ForceHNLGpuContext* g = &FHNL_gpu;
+    int Mc_AN, q_AN, k;
+    int nitems = 0, kslots = 0;
+    size_t cdm_count = 0;
+    Force4BGpuItem* items;
+    int* item_atom;
+    int* item_q;
+    size_t* krowA;
+    size_t* krowB;
+    int* krow_halo;
+    int* krow_ene;
+    int* krow_nlp;
+    double* cdm_pref;
+    double* item_f;
+    int p;
+    size_t cpos = 0;
+    int kpos = 0;
+
+    /* count */
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int ian = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        for (q_AN = 1; q_AN <= FNAN[Gc_AN]; q_AN++) {
+            if (RMI1[Mc_AN][0][q_AN] < 0) continue;
+            nitems++;
+            cdm_count += (size_t)ian * (size_t)Spe_Total_CNO[WhatSpecies[natn[Gc_AN][q_AN]]];
+            for (k = 0; k <= FNAN[Gc_AN]; k++) {
+                if (0 <= RMI1[Mc_AN][q_AN][k]) kslots++;
+            }
+        }
+    }
+
+    if (nitems == 0) return;
+
+    items = (Force4BGpuItem*)Force_checked_malloc(sizeof(Force4BGpuItem) * (size_t)nitems, __FILE__, __LINE__);
+    item_atom = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    item_q = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    krowA = (size_t*)Force_checked_malloc(sizeof(size_t) * (kslots == 0 ? 1 : (size_t)kslots), __FILE__, __LINE__);
+    krowB = (size_t*)Force_checked_malloc(sizeof(size_t) * (kslots == 0 ? 1 : (size_t)kslots), __FILE__, __LINE__);
+    krow_halo = (int*)Force_checked_malloc(sizeof(int) * (kslots == 0 ? 1 : (size_t)kslots), __FILE__, __LINE__);
+    krow_ene = (int*)Force_checked_malloc(sizeof(int) * (kslots == 0 ? 1 : (size_t)kslots), __FILE__, __LINE__);
+    krow_nlp = (int*)Force_checked_malloc(sizeof(int) * (kslots == 0 ? 1 : (size_t)kslots), __FILE__, __LINE__);
+    cdm_pref = (double*)Force_checked_malloc(sizeof(double) * (cdm_count == 0 ? 1 : cdm_count), __FILE__, __LINE__);
+    item_f = (double*)Force_checked_malloc(sizeof(double) * 3U * (size_t)nitems, __FILE__, __LINE__);
+
+    /* build */
+    p = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int ian = Spe_Total_CNO[WhatSpecies[Gc_AN]];
+
+        for (q_AN = 1; q_AN <= FNAN[Gc_AN]; q_AN++) {
+            int Gq_AN, Mq_AN, jan, cdm_kl, i, j;
+            const double pref = (SpinP_switch == 0) ? 4.0 : 2.0;
+
+            cdm_kl = RMI1[Mc_AN][0][q_AN];
+            if (cdm_kl < 0) continue;
+
+            Gq_AN = natn[Gc_AN][q_AN];
+            Mq_AN = F_G2M[Gq_AN];
+            jan = Spe_Total_CNO[WhatSpecies[Gq_AN]];
+
+            items[p].cdm_off = cpos;
+            items[p].k_off = kpos;
+            items[p].ian = ian;
+            items[p].jan = jan;
+            item_atom[p] = Mc_AN;
+            item_q[p] = q_AN;
+
+            for (i = 0; i < ian; i++) {
+                const double* c0 = CDM0[0][Mc_AN][cdm_kl][i];
+                const double* c1 = (SpinP_switch == 0) ? NULL : CDM0[1][Mc_AN][cdm_kl][i];
+
+                for (j = 0; j < jan; j++) {
+                    cdm_pref[cpos++] = pref * ((c1 == NULL) ? c0[j] : (c0[j] + c1[j]));
+                }
+            }
+
+            for (k = 0; k <= FNAN[Gc_AN]; k++) {
+                int qk_kl = RMI1[Mc_AN][q_AN][k];
+                int kwan;
+
+                if (qk_kl < 0) continue;
+                kwan = WhatSpecies[natn[Gc_AN][k]];
+                krowA[kpos] = g->mck_off[g->mck_base[Mc_AN] + k];
+                krow_ene[kpos] = (int)g->ene_off[kwan];
+                krow_nlp[kpos] = g->sp_nlp[kwan];
+                if (Mq_AN <= Matomnum) {
+                    krowB[kpos] = g->mck_off[g->mck_base[Mq_AN] + qk_kl];
+                    krow_halo[kpos] = 0;
+                } else {
+                    krowB[kpos] = g->halo_off[g->halo_base[Mq_AN - Matomnum] + qk_kl];
+                    krow_halo[kpos] = 1;
+                }
+                kpos++;
+            }
+            items[p].k_n = kpos - items[p].k_off;
+            p++;
+        }
+    }
+
+    if (p != nitems || kpos != kslots || cpos != cdm_count) {
+        Force4B_gpu_abort("Force_HNL GPU: inconsistent first-case batch.");
+    }
+
+    {
+        const double* flat = g->flat_dev;
+        size_t halo_len = (g->halo_count == 0 ? 1 : g->halo_count);
+        size_t ene_len = (g->ene_off[SpeciesNum] == 0 ? 1 : g->ene_off[SpeciesNum]);
+        size_t flat_stride = g->flat_stride;
+        const int nitems_c = nitems;
+        const size_t kslots_c = (size_t)kslots;
+        const size_t cdm_c = cdm_count;
+        size_t asz = 0;
+        const size_t o_items = Force_gpu_arena_off(&asz, sizeof(Force4BGpuItem) * (size_t)nitems_c);
+        const size_t o_krowA = Force_gpu_arena_off(&asz, sizeof(size_t) * kslots_c);
+        const size_t o_krowB = Force_gpu_arena_off(&asz, sizeof(size_t) * kslots_c);
+        const size_t o_khalo = Force_gpu_arena_off(&asz, sizeof(int) * kslots_c);
+        const size_t o_kene = Force_gpu_arena_off(&asz, sizeof(int) * kslots_c);
+        const size_t o_knlp = Force_gpu_arena_off(&asz, sizeof(int) * kslots_c);
+        const size_t o_cdm = Force_gpu_arena_off(&asz, sizeof(double) * cdm_c);
+        const size_t o_halo = Force_gpu_arena_off(&asz, sizeof(double) * halo_len);
+        const size_t o_ene = Force_gpu_arena_off(&asz, sizeof(double) * ene_len);
+        const size_t o_itemf = Force_gpu_arena_off(&asz, sizeof(double) * 3U * (size_t)nitems_c);
+        char* arena = (char*)Force_gpu_arena_wait(asz, "HNL first-case batch");
+
+        acc_memcpy_to_device(arena + o_items, items, sizeof(Force4BGpuItem) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_krowA, krowA, sizeof(size_t) * kslots_c);
+        acc_memcpy_to_device(arena + o_krowB, krowB, sizeof(size_t) * kslots_c);
+        acc_memcpy_to_device(arena + o_khalo, krow_halo, sizeof(int) * kslots_c);
+        acc_memcpy_to_device(arena + o_kene, krow_ene, sizeof(int) * kslots_c);
+        acc_memcpy_to_device(arena + o_knlp, krow_nlp, sizeof(int) * kslots_c);
+        acc_memcpy_to_device(arena + o_cdm, cdm_pref, sizeof(double) * cdm_c);
+        acc_memcpy_to_device(arena + o_halo, g->halo, sizeof(double) * halo_len);
+        acc_memcpy_to_device(arena + o_ene, g->ene, sizeof(double) * ene_len);
+
+        {
+            const Force4BGpuItem* items = (const Force4BGpuItem*)(void*)(arena + o_items);
+            const size_t* krowA = (const size_t*)(void*)(arena + o_krowA);
+            const size_t* krowB = (const size_t*)(void*)(arena + o_krowB);
+            const int* krow_halo = (const int*)(void*)(arena + o_khalo);
+            const int* krow_ene = (const int*)(void*)(arena + o_kene);
+            const int* krow_nlp = (const int*)(void*)(arena + o_knlp);
+            const double* cdm_pref = (const double*)(void*)(arena + o_cdm);
+            const double* halo = (const double*)(void*)(arena + o_halo);
+            const double* ene = (const double*)(void*)(arena + o_ene);
+            double* item_f = (double*)(void*)(arena + o_itemf);
+
+#pragma acc parallel loop gang vector_length(128) \
+    deviceptr(items, krowA, krowB, krow_halo, krow_ene, krow_nlp, cdm_pref, halo, ene, item_f, flat)
+            for (int pp = 0; pp < nitems_c; pp++) {
+                const int ian = items[pp].ian;
+                const int jan = items[pp].jan;
+                const int k_off = items[pp].k_off;
+                const int k_n = items[pp].k_n;
+                const size_t cdm_off = items[pp].cdm_off;
+                const int mn = ian * jan;
+                double fx = 0.0, fy = 0.0, fz = 0.0;
+
+#pragma acc loop vector reduction(+:fx, fy, fz)
+                for (int idx = 0; idx < mn; idx++) {
+                    const int m = idx / jan;
+                    const int n = idx - m * jan;
+                    const double w = cdm_pref[cdm_off + (size_t)idx];
+                    double sx = 0.0, sy = 0.0, sz = 0.0;
+
+                    for (int kk = 0; kk < k_n; kk++) {
+                        const int nlp = krow_nlp[k_off + kk];
+                        const size_t abase = krowA[k_off + kk] + (size_t)m * (size_t)nlp;
+                        const double* b0 = (krow_halo[k_off + kk]
+                            ? (halo + krowB[k_off + kk])
+                            : (flat + krowB[k_off + kk])) + (size_t)n * (size_t)nlp;
+                        const double* a1 = flat + flat_stride + abase;
+                        const double* a2 = flat + 2U * flat_stride + abase;
+                        const double* a3 = flat + 3U * flat_stride + abase;
+                        const double* el = ene + krow_ene[k_off + kk];
+                        double tx = 0.0, ty = 0.0, tz = 0.0;
+
+                        for (int l = 0; l < nlp; l++) {
+                            tx += el[l] * a1[l] * b0[l];
+                            ty += el[l] * a2[l] * b0[l];
+                            tz += el[l] * a3[l] * b0[l];
+                        }
+                        sx += tx;
+                        sy += ty;
+                        sz += tz;
+                    }
+
+                    fx += w * sx;
+                    fy += w * sy;
+                    fz += w * sz;
+                }
+
+                item_f[3 * (size_t)pp + 0] = fx;
+                item_f[3 * (size_t)pp + 1] = fy;
+                item_f[3 * (size_t)pp + 2] = fz;
+            }
+        }
+
+        acc_memcpy_from_device(item_f, arena + o_itemf, sizeof(double) * 3U * (size_t)nitems_c);
+        acc_free(arena);
+        Force_gpu_pool_flush();
+    }
+
+    /* damping tail (dmp scaling plus the dQ/dx * HNL term) and the
+       per-atom accumulation, exactly as the host dHNL applies them */
+
+    for (p = 0; p < nitems; p++) {
+        int mc = item_atom[p];
+        int q_AN = item_q[p];
+        int Gc_AN = M2G[mc];
+        int Gq_AN = natn[Gc_AN][q_AN];
+        int ian = items[p].ian;
+        int jan = items[p].jan;
+        int cdm_kl = RMI1[mc][0][q_AN];
+        const double pref = (SpinP_switch == 0) ? 4.0 : 2.0;
+        const double rcut = Spe_Atom_Cut1[WhatSpecies[Gc_AN]] + Spe_Atom_Cut1[WhatSpecies[Gq_AN]];
+        const double dmp = dampingF(rcut, Dis[Gc_AN][cdm_kl]);
+        double fx = item_f[3 * (size_t)p + 0] * dmp;
+        double fy = item_f[3 * (size_t)p + 1] * dmp;
+        double fz = item_f[3 * (size_t)p + 2] * dmp;
+        double r = Dis[Gc_AN][q_AN];
+        double tmp = 0.0;
+
+        if (r < rcut) {
+            tmp = deri_dampingF(rcut, r) / dmp;
+        }
+        if (r < 1.0e-10) {
+            r = 1.0e-10;
+        }
+
+        if (tmp != 0.0) {
+            const int Rni = ncn[Gc_AN][0];
+            const int Rnj = ncn[Gc_AN][q_AN];
+            const double dxv = tmp * ((Gxyz[Gc_AN][1] + atv[Rni][1]) - (Gxyz[Gq_AN][1] + atv[Rnj][1])) / r;
+            const double dyv = tmp * ((Gxyz[Gc_AN][2] + atv[Rni][2]) - (Gxyz[Gq_AN][2] + atv[Rnj][2])) / r;
+            const double dzv = tmp * ((Gxyz[Gc_AN][3] + atv[Rni][3]) - (Gxyz[Gq_AN][3] + atv[Rnj][3])) / r;
+            const int somax = (SpinP_switch == 0) ? 0 : 1;
+            double trace = 0.0;
+            int so, i, j;
+
+            for (so = 0; so <= somax; so++) {
+                for (i = 0; i < ian; i++) {
+                    const double* c = CDM0[so][mc][cdm_kl][i];
+                    const double* hrow = HNL[so][mc][q_AN][i];
+
+                    for (j = 0; j < jan; j++) {
+                        trace += c[j] * hrow[j];
+                    }
+                }
+            }
+            trace *= pref;
+
+            fx += trace * dxv;
+            fy += trace * dyv;
+            fz += trace * dzv;
+        }
+
+        Gxyz[Gc_AN][41] += fx;
+        Gxyz[Gc_AN][42] += fy;
+        Gxyz[Gc_AN][43] += fz;
+    }
+
+    free(item_f);
+    free(cdm_pref);
+    free(krow_nlp);
+    free(krow_ene);
+    free(krow_halo);
+    free(krowB);
+    free(krowA);
+    free(item_q);
+    free(item_atom);
+    free(items);
+}
+
+/* the second-case batch: all (h,q) pairs of every centre, reading the
+   archived 4-direction stagings (the centre's own k=0 row serves as the
+   value side of the h_AN==0 pairs) */
+static void Force_HNL_GpuCase2Run(double***** CDM0)
+{
+    ForceHNLGpuContext* g = &FHNL_gpu;
+    const int solver_flat = (Solver == 5 || Solver == 8 || Solver == 11);
+    int Mc_AN, h_AN, q_AN;
+    int nitems = 0;
+    size_t cdm_count = 0;
+    Force4BGpuItem* items;
+    int* item_atom;
+    int* item_h;
+    int* item_qn;
+    int* item_h0;
+    int* item_nlp;
+    int* item_ene;
+    size_t* item_a;
+    size_t* item_b;
+    double* cdm_pref;
+    double* item_f;
+    int p;
+    size_t cpos = 0;
+
+    /* count */
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+
+        for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+            int start_q_AN = solver_flat ? 0 : h_AN;
+
+            for (q_AN = start_q_AN; q_AN <= FNAN[Gc_AN]; q_AN++) {
+                if (h_AN == 0 && q_AN == 0) continue;
+                if (RMI1[Mc_AN][h_AN][q_AN] < 0) continue;
+                nitems++;
+                cdm_count += (size_t)Spe_Total_CNO[WhatSpecies[natn[Gc_AN][h_AN]]]
+                    * (size_t)Spe_Total_CNO[WhatSpecies[natn[Gc_AN][q_AN]]];
+            }
+        }
+    }
+
+    if (nitems == 0) return;
+
+    items = (Force4BGpuItem*)Force_checked_malloc(sizeof(Force4BGpuItem) * (size_t)nitems, __FILE__, __LINE__);
+    item_atom = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    item_h = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    item_qn = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    item_h0 = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    item_nlp = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    item_ene = (int*)Force_checked_malloc(sizeof(int) * (size_t)nitems, __FILE__, __LINE__);
+    item_a = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)nitems, __FILE__, __LINE__);
+    item_b = (size_t*)Force_checked_malloc(sizeof(size_t) * (size_t)nitems, __FILE__, __LINE__);
+    cdm_pref = (double*)Force_checked_malloc(sizeof(double) * (cdm_count == 0 ? 1 : cdm_count), __FILE__, __LINE__);
+    item_f = (double*)Force_checked_malloc(sizeof(double) * 3U * (size_t)nitems, __FILE__, __LINE__);
+
+    /* build */
+    p = 0;
+    for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+        int Gc_AN = M2G[Mc_AN];
+        int Cwan = WhatSpecies[Gc_AN];
+
+        for (h_AN = 0; h_AN <= FNAN[Gc_AN]; h_AN++) {
+            int start_q_AN = solver_flat ? 0 : h_AN;
+            int Gh_AN = natn[Gc_AN][h_AN];
+            int Mh_AN = F_G2M[Gh_AN];
+            int ian = Spe_Total_CNO[WhatSpecies[Gh_AN]];
+
+            for (q_AN = start_q_AN; q_AN <= FNAN[Gc_AN]; q_AN++) {
+                int Gq_AN, jan, kl, kl1, kl2, i, j;
+                double pref;
+
+                if (h_AN == 0 && q_AN == 0) continue;
+                kl = RMI1[Mc_AN][h_AN][q_AN];
+                if (kl < 0) continue;
+
+                Gq_AN = natn[Gc_AN][q_AN];
+                jan = Spe_Total_CNO[WhatSpecies[Gq_AN]];
+
+                if (solver_flat || q_AN == h_AN) {
+                    pref = (SpinP_switch == 0) ? 2.0 : 1.0;
+                } else {
+                    pref = (SpinP_switch == 0) ? 4.0 : 2.0;
+                }
+
+                kl1 = RMI1[Mc_AN][0][h_AN];
+                kl2 = RMI1[Mc_AN][0][q_AN];
+                if (kl1 < 0 || kl2 < 0) {
+                    Force4B_gpu_abort("Force_HNL GPU: negative staging index.");
+                }
+
+                items[p].cdm_off = cpos;
+                items[p].k_off = 0;
+                items[p].k_n = 0;
+                items[p].ian = ian;
+                items[p].jan = jan;
+                item_atom[p] = Mc_AN;
+                item_h[p] = h_AN;
+                item_qn[p] = q_AN;
+                item_h0[p] = (h_AN == 0) ? 1 : ((q_AN == 0) ? 2 : 0);
+                item_nlp[p] = g->sp_nlp[Cwan];
+                item_ene[p] = (int)g->ene_off[Cwan];
+                if (h_AN == 0) {
+                    /* value side: the centre's own k=0 row of the flat table */
+                    item_a[p] = g->mck_off[g->mck_base[Mc_AN] + 0];
+                    item_b[p] = g->c2_off[g->mck_base[Mc_AN] + kl2];
+                } else {
+                    item_a[p] = g->c2_off[g->mck_base[Mc_AN] + kl1];
+                    item_b[p] = g->c2_off[g->mck_base[Mc_AN] + kl2];
+                }
+
+                for (i = 0; i < ian; i++) {
+                    const double* c0 = CDM0[0][Mh_AN][kl][i];
+                    const double* c1 = (SpinP_switch == 0) ? NULL : CDM0[1][Mh_AN][kl][i];
+
+                    for (j = 0; j < jan; j++) {
+                        cdm_pref[cpos++] = pref * ((c1 == NULL) ? c0[j] : (c0[j] + c1[j]));
+                    }
+                }
+                p++;
+            }
+        }
+    }
+
+    if (p != nitems || cpos != cdm_count) {
+        Force4B_gpu_abort("Force_HNL GPU: inconsistent second-case batch.");
+    }
+
+    {
+        const double* flat = g->flat_dev;
+        size_t c2_len = (g->c2_stride == 0 ? 4 : 4U * g->c2_stride);
+        size_t ene_len = (g->ene_off[SpeciesNum] == 0 ? 1 : g->ene_off[SpeciesNum]);
+        size_t c2_stride = g->c2_stride;
+        const int nitems_c = nitems;
+        const size_t cdm_c = cdm_count;
+        size_t asz = 0;
+        const size_t o_items = Force_gpu_arena_off(&asz, sizeof(Force4BGpuItem) * (size_t)nitems_c);
+        const size_t o_ih0 = Force_gpu_arena_off(&asz, sizeof(int) * (size_t)nitems_c);
+        const size_t o_inlp = Force_gpu_arena_off(&asz, sizeof(int) * (size_t)nitems_c);
+        const size_t o_iene = Force_gpu_arena_off(&asz, sizeof(int) * (size_t)nitems_c);
+        const size_t o_ia = Force_gpu_arena_off(&asz, sizeof(size_t) * (size_t)nitems_c);
+        const size_t o_ib = Force_gpu_arena_off(&asz, sizeof(size_t) * (size_t)nitems_c);
+        const size_t o_cdm = Force_gpu_arena_off(&asz, sizeof(double) * cdm_c);
+        const size_t o_c2 = Force_gpu_arena_off(&asz, sizeof(double) * c2_len);
+        const size_t o_ene = Force_gpu_arena_off(&asz, sizeof(double) * ene_len);
+        const size_t o_itemf = Force_gpu_arena_off(&asz, sizeof(double) * 3U * (size_t)nitems_c);
+        char* arena = (char*)Force_gpu_arena_wait(asz, "HNL second-case batch");
+
+        acc_memcpy_to_device(arena + o_items, items, sizeof(Force4BGpuItem) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_ih0, item_h0, sizeof(int) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_inlp, item_nlp, sizeof(int) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_iene, item_ene, sizeof(int) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_ia, item_a, sizeof(size_t) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_ib, item_b, sizeof(size_t) * (size_t)nitems_c);
+        acc_memcpy_to_device(arena + o_cdm, cdm_pref, sizeof(double) * cdm_c);
+        acc_memcpy_to_device(arena + o_c2, g->c2, sizeof(double) * c2_len);
+        acc_memcpy_to_device(arena + o_ene, g->ene, sizeof(double) * ene_len);
+
+        {
+            const Force4BGpuItem* items = (const Force4BGpuItem*)(void*)(arena + o_items);
+            const int* item_h0 = (const int*)(void*)(arena + o_ih0);
+            const int* item_nlp = (const int*)(void*)(arena + o_inlp);
+            const int* item_ene = (const int*)(void*)(arena + o_iene);
+            const size_t* item_a = (const size_t*)(void*)(arena + o_ia);
+            const size_t* item_b = (const size_t*)(void*)(arena + o_ib);
+            const double* cdm_pref = (const double*)(void*)(arena + o_cdm);
+            const double* c2 = (const double*)(void*)(arena + o_c2);
+            const double* ene = (const double*)(void*)(arena + o_ene);
+            double* item_f = (double*)(void*)(arena + o_itemf);
+
+#pragma acc parallel loop gang vector_length(128) \
+    deviceptr(items, item_h0, item_nlp, item_ene, item_a, item_b, cdm_pref, c2, ene, item_f, flat)
+            for (int pp = 0; pp < nitems_c; pp++) {
+                const int ian = items[pp].ian;
+                const int jan = items[pp].jan;
+                const size_t cdm_off = items[pp].cdm_off;
+                const int h0 = item_h0[pp];
+                const int nlp = item_nlp[pp];
+                const size_t a_off = item_a[pp];
+                const size_t b_off = item_b[pp];
+                const double* el = ene + item_ene[pp];
+                const int mn = ian * jan;
+                double fx = 0.0, fy = 0.0, fz = 0.0;
+
+#pragma acc loop vector reduction(+:fx, fy, fz)
+                for (int idx = 0; idx < mn; idx++) {
+                    const int m = idx / jan;
+                    const int n = idx - m * jan;
+                    const double w = cdm_pref[cdm_off + (size_t)idx];
+                    double sx = 0.0, sy = 0.0, sz = 0.0;
+
+                    if (h0 == 1) {
+                        /* -sum_l ene * <i|k>(0) * d<j|k>(dir) */
+                        const double* a0 = flat + a_off + (size_t)m * (size_t)nlp;
+                        const double* b1 = c2 + c2_stride + b_off + (size_t)n * (size_t)nlp;
+                        const double* b2 = c2 + 2U * c2_stride + b_off + (size_t)n * (size_t)nlp;
+                        const double* b3 = c2 + 3U * c2_stride + b_off + (size_t)n * (size_t)nlp;
+
+                        for (int l = 0; l < nlp; l++) {
+                            sx -= el[l] * a0[l] * b1[l];
+                            sy -= el[l] * a0[l] * b2[l];
+                            sz -= el[l] * a0[l] * b3[l];
+                        }
+                    } else {
+                        /* -sum_l ene * d<i|k>(dir) * <j|k>(0) */
+                        const double* a1 = c2 + c2_stride + a_off + (size_t)m * (size_t)nlp;
+                        const double* a2 = c2 + 2U * c2_stride + a_off + (size_t)m * (size_t)nlp;
+                        const double* a3 = c2 + 3U * c2_stride + a_off + (size_t)m * (size_t)nlp;
+                        const double* b0 = c2 + b_off + (size_t)n * (size_t)nlp;
+
+                        for (int l = 0; l < nlp; l++) {
+                            sx -= el[l] * a1[l] * b0[l];
+                            sy -= el[l] * a2[l] * b0[l];
+                            sz -= el[l] * a3[l] * b0[l];
+                        }
+
+                        if (h0 == 0) {
+                            /* -sum_l ene * <i|k>(0) * d<j|k>(dir) */
+                            const double* a0 = c2 + a_off + (size_t)m * (size_t)nlp;
+                            const double* b1 = c2 + c2_stride + b_off + (size_t)n * (size_t)nlp;
+                            const double* b2 = c2 + 2U * c2_stride + b_off + (size_t)n * (size_t)nlp;
+                            const double* b3 = c2 + 3U * c2_stride + b_off + (size_t)n * (size_t)nlp;
+
+                            for (int l = 0; l < nlp; l++) {
+                                sx -= el[l] * a0[l] * b1[l];
+                                sy -= el[l] * a0[l] * b2[l];
+                                sz -= el[l] * a0[l] * b3[l];
+                            }
+                        }
+                    }
+
+                    fx += w * sx;
+                    fy += w * sy;
+                    fz += w * sz;
+                }
+
+                item_f[3 * (size_t)pp + 0] = fx;
+                item_f[3 * (size_t)pp + 1] = fy;
+                item_f[3 * (size_t)pp + 2] = fz;
+            }
+        }
+
+        acc_memcpy_from_device(item_f, arena + o_itemf, sizeof(double) * 3U * (size_t)nitems_c);
+        acc_free(arena);
+        Force_gpu_pool_flush();
+    }
+
+    /* damping tail and per-centre accumulation */
+
+    for (p = 0; p < nitems; p++) {
+        int mc = item_atom[p];
+        int h_AN = item_h[p];
+        int q_AN = item_qn[p];
+        int Gc_AN = M2G[mc];
+        int Gh_AN = natn[Gc_AN][h_AN];
+        int Gq_AN = natn[Gc_AN][q_AN];
+        int ian = items[p].ian;
+        int jan = items[p].jan;
+        int kl = RMI1[mc][h_AN][q_AN];
+        const double rcut = Spe_Atom_Cut1[WhatSpecies[Gh_AN]] + Spe_Atom_Cut1[WhatSpecies[Gq_AN]];
+        const double dmp = dampingF(rcut, Dis[Gh_AN][kl]);
+        double fx = item_f[3 * (size_t)p + 0] * dmp;
+        double fy = item_f[3 * (size_t)p + 1] * dmp;
+        double fz = item_f[3 * (size_t)p + 2] * dmp;
+
+        if ((h_AN == 0 && q_AN != 0) || (h_AN != 0 && q_AN == 0)) {
+            const int kld = (h_AN == 0) ? q_AN : h_AN;
+            double r = Dis[Gc_AN][kld];
+            double tmp = 0.0;
+
+            if (r < rcut) {
+                tmp = deri_dampingF(rcut, r) / dmp;
+            }
+            if (r < 1.0e-10) {
+                r = 1.0e-10;
+            }
+
+            if (tmp != 0.0) {
+                const int Rni = ncn[Gc_AN][h_AN];
+                const int Rnj = ncn[Gc_AN][q_AN];
+                const double sgn = (h_AN == 0) ? 1.0 : -1.0;
+                const double dxv = sgn * tmp
+                    * ((Gxyz[Gh_AN][1] + atv[Rni][1]) - (Gxyz[Gq_AN][1] + atv[Rnj][1])) / r;
+                const double dyv = sgn * tmp
+                    * ((Gxyz[Gh_AN][2] + atv[Rni][2]) - (Gxyz[Gq_AN][2] + atv[Rnj][2])) / r;
+                const double dzv = sgn * tmp
+                    * ((Gxyz[Gh_AN][3] + atv[Rni][3]) - (Gxyz[Gq_AN][3] + atv[Rnj][3])) / r;
+                const int somax = (SpinP_switch == 0) ? 0 : 1;
+                const int Mh_AN = F_G2M[Gh_AN];
+                double pref;
+                double trace = 0.0;
+                int so, i, j;
+
+                if (solver_flat || q_AN == h_AN) {
+                    pref = (SpinP_switch == 0) ? 2.0 : 1.0;
+                } else {
+                    pref = (SpinP_switch == 0) ? 4.0 : 2.0;
+                }
+
+                for (so = 0; so <= somax; so++) {
+                    for (i = 0; i < ian; i++) {
+                        const double* c = CDM0[so][Mh_AN][kl][i];
+
+                        if (h_AN == 0) {
+                            const double* hrow = HNL[so][mc][kld][i];
+
+                            for (j = 0; j < jan; j++) {
+                                trace += c[j] * hrow[j];
+                            }
+                        } else {
+                            for (j = 0; j < jan; j++) {
+                                trace += c[j] * HNL[so][mc][kld][j][i];
+                            }
+                        }
+                    }
+                }
+                trace *= pref;
+
+                fx += trace * dxv;
+                fy += trace * dyv;
+                fz += trace * dzv;
+            }
+        }
+
+        Gxyz[Gc_AN][41] += fx;
+        Gxyz[Gc_AN][42] += fy;
+        Gxyz[Gc_AN][43] += fz;
+    }
+
+    free(item_f);
+    free(cdm_pref);
+    free(item_b);
+    free(item_a);
+    free(item_ene);
+    free(item_nlp);
+    free(item_h0);
+    free(item_qn);
+    free(item_h);
+    free(item_atom);
+    free(items);
+}
+
 void Force4B(double***** CDM0)
 {
     /****************************************************
@@ -5514,6 +8903,8 @@ void Force4B(double***** CDM0)
     MPI_Request request;
 
     static int counter = 0;
+    const int force_profile = Force_collective_env_flag(
+        "OPENMX_FORCE_PROFILE", 0, mpi_comm_level1);
 
     counter++;
 
@@ -5585,9 +8976,24 @@ void Force4B(double***** CDM0)
     tno2 = (List_YOUSO[35] + 1) * (List_YOUSO[35] + 1) * List_YOUSO[34];
     ActiveHVNA2 = (Cnt_switch == 0) ? HVNA2 : CntHVNA2;
     ActiveHVNA3 = (Cnt_switch == 0) ? HVNA3 : CntHVNA3;
-    const int use_force4b_openacc = (scf_eigen_lib_flag_input == CuSOLVER);
+    /*
+     * The OpenACC Force4B path packs host-side dHVNA products into large
+     * temporary arrays and copies them to the device for a scalar reduction.
+     * In DC-LNO/GPUSOLVER runs many MPI ranks can share one GPU while GPUSOLVER
+     * still owns most device memory, so these transient copies can exhaust
+     * device memory.  Keep Force4B on the CPU trace path, which avoids those
+     * device buffers and matches the original contraction.
+     */
+    const int use_force4b_openacc = 0;
+    const int use_force4b_fused = Force_collective_env_flag(
+        "OPENMX_FORCE4B_FUSED", 1, mpi_comm_level1);
+    int f4b_gpu = 0;
 
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("f4b-setup", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for part1 of force#4=%18.5f\n", etime - stime);
         fflush(stdout);
@@ -5689,9 +9095,21 @@ void Force4B(double***** CDM0)
     } /* #pragma omp parallel */
 
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("f4b-premul", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for part2 of force#4=%18.5f\n", etime - stime);
         fflush(stdout);
+    }
+
+    /* Batched device path for the fused case-1/case-2 traces: the halo
+       blocks and case-2 stagings are archived during the unchanged MPI
+       loops, and one kernel per case runs afterwards. */
+
+    if (use_force4b_fused) {
+        f4b_gpu = Force4B_GpuBegin(DS_VNA);
     }
 
     /*****************************************}**********************
@@ -5845,6 +9263,10 @@ void Force4B(double***** CDM0)
                 /* free tmp_array2 */
                 free(tmp_array2);
 
+                if (f4b_gpu) {
+                    Force4B_GpuArchiveHalo(DS_VNA, Original_Mc_AN, Gc_AN);
+                }
+
                 /*****************************************
                        multiplying overlap integrals
                 *****************************************/
@@ -5955,7 +9377,7 @@ void Force4B(double***** CDM0)
                         time_per_atom[Gc_AN] += Etime_atom - Stime_atom;
                     }
                 } else {
-#pragma omp parallel shared(List_YOUSO, time_per_atom, Gxyz, CDM0, SpinP_switch, DS_VNA, RMI1, Original_Mc_AN, IDR, Rcv_GAN, F_Rcv_Num_WK, Spe_Total_CNO, F_G2M, natn, FNAN, WhatSpecies, M2G, Matomnum, ActiveHVNA2, ActiveHVNA3) private(Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, Mc_AN, Cwan, fan, h_AN, Gh_AN, Mh_AN, Hwan, ian, n, jg, j0, jg0, Mj_AN0, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, HVNAx, HVNAy, HVNAz, i, j, pref)
+#pragma omp parallel shared(use_force4b_fused, List_YOUSO, time_per_atom, Gxyz, CDM0, SpinP_switch, DS_VNA, RMI1, Original_Mc_AN, IDR, Rcv_GAN, F_Rcv_Num_WK, Spe_Total_CNO, F_G2M, natn, FNAN, WhatSpecies, M2G, Matomnum, ActiveHVNA2, ActiveHVNA3) private(Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, Mc_AN, Cwan, fan, h_AN, Gh_AN, Mh_AN, Hwan, ian, n, jg, j0, jg0, Mj_AN0, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, HVNAx, HVNAy, HVNAz, i, j, pref)
                     {
 
                         /* allocation of array */
@@ -6001,6 +9423,14 @@ void Force4B(double***** CDM0)
                                 Qwan = WhatSpecies[Gq_AN];
                                 jan = Spe_Total_CNO[Qwan];
                                 kl = RMI1[Mc_AN][h_AN][q_AN];
+
+                                if (use_force4b_fused && q_AN != 0) {
+                                    if (!f4b_gpu) {
+                                        Force4B_case1_trace_fused(Mc_AN, Gc_AN, q_AN,
+                                            CDM0, DS_VNA, &dEx, &dEy, &dEz);
+                                    }
+                                    continue;
+                                }
 
                                 dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, ActiveHVNA2, ActiveHVNA3, HVNAx, HVNAy, HVNAz);
 
@@ -6108,6 +9538,10 @@ void Force4B(double***** CDM0)
     } while (po != 0);
 
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("f4b-case1-r", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for part3 of force#4=%18.5f\n", etime - stime);
         fflush(stdout);
@@ -6215,7 +9649,7 @@ void Force4B(double***** CDM0)
 
         } /* Mc_AN */
     } else {
-#pragma omp parallel shared(time_per_atom, Gxyz, CDM0, SpinP_switch, DS_VNA, RMI1, FNAN, Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO, ActiveHVNA2, ActiveHVNA3) private(HVNAx, HVNAy, HVNAz, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, i, j, pref)
+#pragma omp parallel shared(use_force4b_fused, time_per_atom, Gxyz, CDM0, SpinP_switch, DS_VNA, RMI1, FNAN, Spe_Total_CNO, WhatSpecies, F_G2M, natn, M2G, Matomnum, List_YOUSO, ActiveHVNA2, ActiveHVNA3) private(HVNAx, HVNAy, HVNAz, Mc_AN, Stime_atom, Etime_atom, dEx, dEy, dEz, Gc_AN, h_AN, Gh_AN, Mh_AN, Hwan, ian, q_AN, Gq_AN, Mq_AN, Qwan, jan, kl, i, j, pref)
         {
 
             /* allocation of array */
@@ -6250,6 +9684,14 @@ void Force4B(double***** CDM0)
                         Qwan = WhatSpecies[Gq_AN];
                         jan = Spe_Total_CNO[Qwan];
                         kl = RMI1[Mc_AN][h_AN][q_AN];
+
+                        if (use_force4b_fused && q_AN != 0) {
+                            if (!f4b_gpu) {
+                                Force4B_case1_trace_fused(Mc_AN, Gc_AN, q_AN,
+                                    CDM0, DS_VNA, &dEx, &dEy, &dEz);
+                            }
+                            continue;
+                        }
 
                         dHVNA(0, Mc_AN, h_AN, q_AN, DS_VNA, ActiveHVNA2, ActiveHVNA3, HVNAx, HVNAy, HVNAz);
 
@@ -6317,7 +9759,16 @@ void Force4B(double***** CDM0)
         } /* #pragma omp parallel */
     }
 
+    /* batched device evaluation of every skipped fused case-1 trace */
+    if (f4b_gpu) {
+        Force4B_GpuCase1Run(CDM0);
+    }
+
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("f4b-case1-l", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for part4 of force#4=%18.5f\n", etime - stime);
         fflush(stdout);
@@ -6570,6 +10021,10 @@ void Force4B(double***** CDM0)
 
         if (Mc_AN <= Matomnum) {
 
+            if (f4b_gpu) {
+                Force4B_GpuArchiveCase2(DS_VNA, Mc_AN, Gc_AN);
+            }
+
             /* one-dimensionalize the h_AN and q_AN loops */
 
             ODNloop = 0;
@@ -6670,7 +10125,7 @@ void Force4B(double***** CDM0)
                 }
             } else {
 #if NVHPC_VERSION >= 250000
-                #pragma omp parallel shared(ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,CDM0,SpinP_switch,DS_VNA,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver,ActiveHVNA2,ActiveHVNA3) private(HVNAx,HVNAy,HVNAz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop,pref) reduction(+:dEx,dEy,dEz)
+                #pragma omp parallel shared(use_force4b_fused,ODNloop,OneD2h_AN,OneD2q_AN,Mc_AN,Gc_AN,CDM0,SpinP_switch,DS_VNA,RMI1,Spe_Total_CNO,WhatSpecies,F_G2M,natn,FNAN,List_YOUSO,Solver,ActiveHVNA2,ActiveHVNA3) private(HVNAx,HVNAy,HVNAz,i,j,h_AN,Gh_AN,Mh_AN,Hwan,ian,q_AN,Gq_AN,Mq_AN,Qwan,jan,kl,Nloop,pref) reduction(+:dEx,dEy,dEz)
 #endif
                 {
 
@@ -6704,6 +10159,14 @@ void Force4B(double***** CDM0)
                         kl = RMI1[Mc_AN][h_AN][q_AN];
 
                         if (0 <= kl) {
+
+                            if (use_force4b_fused && h_AN != 0 && q_AN != 0 && h_AN != q_AN) {
+                                if (!f4b_gpu) {
+                                    Force4B_case2_trace_fused(Mc_AN, Gc_AN, h_AN, q_AN,
+                                        CDM0, DS_VNA, &dEx, &dEy, &dEz);
+                                }
+                                continue;
+                            }
 
                             dHVNA(1, Mc_AN, h_AN, q_AN, DS_VNA, ActiveHVNA2, ActiveHVNA3, HVNAx, HVNAy, HVNAz);
 
@@ -6785,10 +10248,29 @@ void Force4B(double***** CDM0)
 
     } /* Mc_AN */
 
+    /* batched device evaluation of every skipped fused case-2 trace */
+    if (f4b_gpu) {
+        Force4B_GpuCase2Run(CDM0);
+        Force4B_GpuEnd();
+    }
+
+    if (2 <= level_stdout) {
+        for (Mc_AN = 1; Mc_AN <= Matomnum; Mc_AN++) {
+            Gc_AN = M2G[Mc_AN];
+            printf("<Force>  force(4B) myid=%2d  Mc_AN=%2d Gc_AN=%2d  %15.12f %15.12f %15.12f\n",
+                myid, Mc_AN, Gc_AN, Gxyz[Gc_AN][41], Gxyz[Gc_AN][42], Gxyz[Gc_AN][43]);
+            fflush(stdout);
+        }
+    }
+
     free(OneD2q_AN);
     free(OneD2h_AN);
 
     dtime(&etime);
+    if (force_profile) {
+        Force_profile_report("f4b-case2", etime - stime,
+            mpi_comm_level1, myid, numprocs);
+    }
     if (myid == 0 && measure_time) {
         printf("Time for part5 of force#4=%18.5f\n", etime - stime);
         fflush(stdout);
@@ -6821,6 +10303,7 @@ void Force4B(double***** CDM0)
 
     free(VNA_List);
     free(VNA_List2);
+
 }
 
 void dHNL(int where_flag,
@@ -9798,6 +13281,7 @@ void dHCH(int where_flag,
 
     /* set penalty */
 
+    /* OpenMX 3.9.9 stores the already combined core-hole penalty. */
     penalty_value = penalty_value_CoreHole;
 
     penalty = (double**)malloc(sizeof(double*) * 2);
