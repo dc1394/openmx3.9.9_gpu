@@ -723,7 +723,7 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
   int *pao_n_flat,*at_fnan,*nb_off,*nb_wan;
   double *pao_xv_flat,*pao_rv_flat,*den2_flat;
   double *at_cx,*at_cy,*at_cz,*at_dr;
-  double *nb_x,*nb_y,*nb_z,*nb_rcut2;
+  double *nb_x,*nb_y,*nb_z;
   double *leb_x,*leb_y,*leb_z,*leb_w;
   double *pref;
   double energy_sum;
@@ -765,7 +765,6 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
   nb_x = (double*)malloc(sizeof(double)*nb_total);
   nb_y = (double*)malloc(sizeof(double)*nb_total);
   nb_z = (double*)malloc(sizeof(double)*nb_total);
-  nb_rcut2 = (double*)malloc(sizeof(double)*nb_total);
 
   leb_x = (double*)malloc(sizeof(double)*na);
   leb_y = (double*)malloc(sizeof(double)*na);
@@ -778,7 +777,7 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
   if (pao_n_flat==NULL || pao_xv_flat==NULL || pao_rv_flat==NULL || den2_flat==NULL ||
       at_fnan==NULL || nb_off==NULL || at_cx==NULL || at_cy==NULL || at_cz==NULL ||
       at_dr==NULL || nb_wan==NULL || nb_x==NULL || nb_y==NULL || nb_z==NULL ||
-      nb_rcut2==NULL || leb_x==NULL || leb_y==NULL || leb_z==NULL || leb_w==NULL ||
+      leb_x==NULL || leb_y==NULL || leb_z==NULL || leb_w==NULL ||
       pref==NULL){
     printf("TotalEnergy_Exc0_Batch_OpenACC: malloc failed.\n");
     fflush(stdout);
@@ -819,7 +818,6 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
       nb_x[n] = Gxyz[Gh_AN][1] + atv[Rn][1];
       nb_y[n] = Gxyz[Gh_AN][2] + atv[Rn][2];
       nb_z[n] = Gxyz[Gh_AN][3] + atv[Rn][3];
-      nb_rcut2[n] = Spe_Atom_Cut1[Hwan]*Spe_Atom_Cut1[Hwan];
       n++;
     }
   }
@@ -841,7 +839,7 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
                         at_cx[0:Matomnum+1], at_cy[0:Matomnum+1], \
                         at_cz[0:Matomnum+1], at_dr[0:Matomnum+1], \
                         nb_wan[0:nb_total], nb_x[0:nb_total], nb_y[0:nb_total], \
-                        nb_z[0:nb_total], nb_rcut2[0:nb_total], \
+                        nb_z[0:nb_total], \
                         leb_x[0:na], leb_y[0:na], leb_z[0:na], leb_w[0:na], \
                         CoarseGL_Abscissae[0:nr], CoarseGL_Weight[0:nr]) \
                  create(pref[0:npt_total])
@@ -880,10 +878,13 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
         dz = nb_z[koff+k] - z0;
         r2 = dx*dx + dy*dy + dz*dz;
 
-        if (r2<nb_rcut2[koff+k]){
+        {
           int wan = nb_wan[koff+k];
           double contrib;
 
+          /* OpenMX 3.9 evaluates KumoF for every neighbour.  KumoF itself
+             clamps the logarithmic radius to the tabulated upper end, so a
+             hard PAO-cutoff test here changes the 3.9 Exc^0 definition. */
           contrib = TotalEnergy_Exc0_KumoF_flat(pao_n_flat[wan], 0.5*log(r2),
                                                 pao_xv_flat + (size_t)wan*pao_stride,
                                                 pao_rv_flat + (size_t)wan*pao_stride,
@@ -945,7 +946,7 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
             at_cx[0:Matomnum+1], at_cy[0:Matomnum+1], \
             at_cz[0:Matomnum+1], at_dr[0:Matomnum+1], \
             nb_wan[0:nb_total], nb_x[0:nb_total], nb_y[0:nb_total], \
-            nb_z[0:nb_total], nb_rcut2[0:nb_total], \
+            nb_z[0:nb_total], \
             leb_x[0:na], leb_y[0:na], leb_z[0:na], leb_w[0:na], \
             CoarseGL_Abscissae[0:nr], CoarseGL_Weight[0:nr], \
             pref[0:npt_total])
@@ -955,7 +956,6 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
           const int koff = nb_off[mc];
           const int wan = nb_wan[koff+k];
           const int pao_n = pao_n_flat[wan];
-          const double rcut2 = nb_rcut2[koff+k];
           const double hx = nb_x[koff+k];
           const double hy = nb_y[koff+k];
           const double hz = nb_z[koff+k];
@@ -984,9 +984,10 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
             dz = hz - z0;
             r2 = dx*dx + dy*dy + dz*dz;
 
-            if (r2<rcut2){
+            {
               double r1,gden0,gscale;
 
+              /* Match the unconditional Dr_KumoF evaluation in 3.9. */
               r1 = sqrt(r2);
               gden0 = TotalEnergy_Exc0_Dr_KumoF_flat(pao_n, 0.5*log(r2), r1,
                                                      pao_xv_flat + (size_t)wan*pao_stride,
@@ -1050,7 +1051,6 @@ void TotalEnergy_Exc0_Batch_OpenACC(int Num_Leb, double **Leb_Grid_XYZW, double 
   free(nb_x);
   free(nb_y);
   free(nb_z);
-  free(nb_rcut2);
   free(leb_x);
   free(leb_y);
   free(leb_z);
